@@ -6,6 +6,9 @@ const JAIL_POSITION = 10;
 const GO_TO_JAIL_POSITION = 30;
 const JAIL_FINE = 50;
 const MAX_JAIL_TURNS = 3;
+// Interesse che la banca trattiene sulle ipoteche: si paga sia per riscattare
+// una proprietà sia per ereditarne una già ipotecata in una bancarotta.
+const MORTGAGE_INTEREST = 0.1;
 
 function shuffle(arr) {
   const a = [...arr];
@@ -26,7 +29,16 @@ class GameEngine {
     this.log = [];
     this.chanceDeck = shuffle(CHANCE_CARDS);
     this.communityDeck = shuffle(COMMUNITY_CARDS);
-    this.pendingAction = null; // { type: 'awaiting_buy' | 'awaiting_dice' | ..., data }
+    // { type: 'awaiting_buy' | 'awaiting_debt', playerId, ... } — blocca il flusso
+    // del turno finché il giocatore interessato non risolve.
+    this.pendingAction = null;
+    this.finished = false;
+    this.winnerId = null;
+    // Alzata mentre resolveDebtAuto sta liquidando in serie: evita che ogni
+    // singola vendita chiuda il debito e faccia girare il turno a metà loop.
+    this.liquidating = false;
+    // Garantisce che il turno venga chiuso una volta sola per tiro di dadi.
+    this.turnResolved = false;
   }
 
   addLog(message) {
@@ -68,16 +80,67 @@ class GameEngine {
       started: this.started,
       log: this.log.slice(-30),
       pendingAction: this.pendingAction,
+      finished: this.finished,
+      winnerId: this.winnerId,
     };
+  }
+
+  // ---- Proprietà e patrimonio ----
+
+  /** Tutte le caselle possedute da un giocatore, con casella e stato di possesso. */
+  propertiesOf(playerId) {
+    return Object.entries(this.ownership)
+      .filter(([, owned]) => owned.ownerId === playerId)
+      .map(([position, owned]) => ({ position: Number(position), square: board[Number(position)], owned }));
+  }
+
+  /**
+   * Edifici presenti su una casella espressi in "unità casa". L'hotel vale 5
+   * perché costa una casa in più rispetto alle quattro che sostituisce: così il
+   * confronto per la regola dell'edificazione uniforme è un semplice numero.
+   */
+  unitCount(owned) {
+    return owned.hotel ? 5 : owned.houses;
+  }
+
+  /** Quanto ricava il giocatore vendendo un edificio: metà del costo di costruzione. */
+  buildingRefund(square) {
+    return Math.floor(square.houseCost / 2);
+  }
+
+  /** Valore d'ipoteca di una proprietà: metà del prezzo d'acquisto. */
+  mortgageValue(square) {
+    return Math.floor(square.price / 2);
+  }
+
+  /**
+   * Quanto avrebbe il giocatore se liquidasse tutto: contanti, più il rimborso di
+   * ogni edificio, più l'ipoteca su ogni proprietà non ancora ipotecata.
+   * Se questo valore è negativo il debito è impossibile da coprire.
+   */
+  liquidationValue(player) {
+    return this.propertiesOf(player.id).reduce((total, { square, owned }) => {
+      // Stazioni e società non hanno houseCost: contano solo per l'ipoteca.
+      const units = this.unitCount(owned);
+      let extra = units > 0 ? units * this.buildingRefund(square) : 0;
+      if (!owned.mortgaged) extra += this.mortgageValue(square);
+      return total + extra;
+    }, player.balance);
+  }
+
+  hasPendingDebt() {
+    return this.pendingAction?.type === 'awaiting_debt';
   }
 
   // ---- Turn flow ----
 
   rollDice(playerId) {
     const player = this.currentPlayer;
+    if (this.finished) return { error: 'La partita è finita' };
     if (!player || player.id !== playerId || player.bankrupt) return { error: 'Non è il tuo turno' };
     if (this.pendingAction) return { error: 'Azione in sospeso da risolvere prima' };
 
+    this.turnResolved = false;
     const d1 = 1 + Math.floor(Math.random() * 6);
     const d2 = 1 + Math.floor(Math.random() * 6);
     const isDouble = d1 === d2;
@@ -92,11 +155,12 @@ class GameEngine {
         player.jailTurns += 1;
         this.addLog(`${player.name} resta in prigione (tentativo ${player.jailTurns}/${MAX_JAIL_TURNS}).`);
         if (player.jailTurns >= MAX_JAIL_TURNS) {
-          player.balance -= JAIL_FINE;
           player.inJail = false;
           player.jailTurns = 0;
           this.addLog(`${player.name} paga ${JAIL_FINE} per uscire dopo 3 tentativi.`);
-          this.movePlayer(player, d1 + d2);
+          this.chargePlayer(player, JAIL_FINE);
+          // Se la multa lo ha già mandato in bancarotta non c'è più nessuno da muovere.
+          if (!player.bankrupt) this.movePlayer(player, d1 + d2);
         } else {
           this.endTurn();
         }
@@ -134,9 +198,8 @@ class GameEngine {
       case 'go':
         break;
       case 'tax':
-        player.balance -= square.amount;
         this.addLog(`${player.name} paga ${square.amount} di ${square.name}.`);
-        this.checkBankruptcy(player, square.amount);
+        this.chargePlayer(player, square.amount);
         break;
       case 'go_to_jail':
         this.sendToJail(player);
@@ -159,6 +222,9 @@ class GameEngine {
   }
 
   resolvePropertyLanding(player, square) {
+    // Con un debito già aperto non si apre una proposta d'acquisto: sovrascriverebbe
+    // il pendingAction del debito e lo farebbe sparire.
+    if (this.hasPendingDebt()) return;
     const owned = this.ownership[square.position];
     if (!owned) {
       // offer to buy
@@ -176,10 +242,8 @@ class GameEngine {
     }
     const rent = this.calculateRent(square, owned);
     const owner = this.players.find((p) => p.id === owned.ownerId);
-    player.balance -= rent;
-    owner.balance += rent;
     this.addLog(`${player.name} paga ${rent} di affitto a ${owner.name} per ${square.name}.`);
-    this.checkBankruptcy(player, rent, owner);
+    this.chargePlayer(player, rent, owner);
   }
 
   calculateRent(square, owned) {
@@ -248,19 +312,18 @@ class GameEngine {
         player.balance += card.amount;
         break;
       case 'pay':
-        player.balance -= card.amount;
-        this.checkBankruptcy(player, card.amount);
+        this.chargePlayer(player, card.amount);
         break;
       case 'pay_each_player':
         this.players.filter((p) => p.id !== player.id && !p.bankrupt).forEach((p) => {
-          player.balance -= card.amount;
-          p.balance += card.amount;
+          this.chargePlayer(player, card.amount, p);
         });
         break;
       case 'collect_from_each_player':
+        // Qui il debitore può essere l'avversario, non chi sta giocando: il
+        // pendingAction del debito blocca comunque la partita per entrambi.
         this.players.filter((p) => p.id !== player.id && !p.bankrupt).forEach((p) => {
-          p.balance -= card.amount;
-          player.balance += card.amount;
+          this.chargePlayer(p, card.amount, player);
         });
         break;
       case 'advance_to': {
@@ -291,15 +354,12 @@ class GameEngine {
         this.sendToJail(player);
         break;
       case 'repairs': {
-        let total = 0;
-        board.forEach((s) => {
-          const o = this.ownership[s.position];
-          if (o && o.ownerId === player.id) {
-            total += (o.houses || 0) * card.perHouse + (o.hotel ? card.perHotel : 0);
-          }
-        });
-        player.balance -= total;
-        this.checkBankruptcy(player, total);
+        const total = this.propertiesOf(player.id).reduce(
+          (sum, { owned }) => sum + owned.houses * card.perHouse + (owned.hotel ? card.perHotel : 0),
+          0
+        );
+        if (total > 0) this.addLog(`${player.name} paga ${total} di riparazioni.`);
+        this.chargePlayer(player, total);
         break;
       }
     }
@@ -334,62 +394,87 @@ class GameEngine {
     return {};
   }
 
+  /** Numero di unità casa presenti su ogni casella del gruppo di colore. */
+  groupUnitCounts(group) {
+    return board
+      .filter((s) => s.group === group)
+      .map((s) => (this.ownership[s.position] ? this.unitCount(this.ownership[s.position]) : 0));
+  }
+
   buildHouse(playerId, position) {
     const square = board[position];
     const owned = this.ownership[position];
     const player = this.players.find((p) => p.id === playerId);
     if (!square || square.type !== 'property') return { error: 'Non è una proprietà edificabile' };
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
+    if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
     if (!this.ownsFullGroup(playerId, square.group)) return { error: 'Serve il monopolio del colore per costruire' };
+    // Regola ufficiale: niente costruzioni su un colore con proprietà ipotecate.
+    const groupMortgaged = board.some(
+      (s) => s.group === square.group && this.ownership[s.position]?.mortgaged
+    );
+    if (groupMortgaged) return { error: 'Riscatta prima le ipoteche del colore' };
     if (owned.hotel) return { error: "C'è già un hotel" };
+    // Edificazione uniforme: si costruisce solo dove ce n'è di meno nel gruppo.
+    if (this.unitCount(owned) > Math.min(...this.groupUnitCounts(square.group))) {
+      return { error: 'Costruisci prima sulle altre proprietà del colore' };
+    }
+    if (player.balance < square.houseCost) return { error: 'Saldo insufficiente' };
+
+    player.balance -= square.houseCost;
     if (owned.houses >= 4) {
-      if (player.balance < square.houseCost) return { error: 'Saldo insufficiente' };
-      player.balance -= square.houseCost;
       owned.houses = 0;
       owned.hotel = true;
       this.addLog(`${player.name} costruisce un hotel su ${square.name}.`);
-      return {};
+    } else {
+      owned.houses += 1;
+      this.addLog(`${player.name} costruisce una casa su ${square.name} (${owned.houses}/4).`);
     }
-    if (player.balance < square.houseCost) return { error: 'Saldo insufficiente' };
-    player.balance -= square.houseCost;
-    owned.houses += 1;
-    this.addLog(`${player.name} costruisce una casa su ${square.name} (${owned.houses}/4).`);
     return {};
   }
 
-  sellHouse(playerId, position) {
+  /**
+   * `internal` è alzato da resolveDebtAuto: durante una liquidazione a catena il
+   * debito va valutato una volta sola, alla fine.
+   */
+  sellHouse(playerId, position, internal = false) {
     const square = board[position];
     const owned = this.ownership[position];
     const player = this.players.find((p) => p.id === playerId);
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
-    const refund = Math.floor(square.houseCost / 2);
+    if (this.unitCount(owned) === 0) return { error: 'Nessuna casa da vendere' };
+    // Uniformità anche in vendita: si smonta da dove ce n'è di più.
+    if (this.unitCount(owned) < Math.max(...this.groupUnitCounts(square.group))) {
+      return { error: 'Vendi prima dalle altre proprietà del colore' };
+    }
+
+    const refund = this.buildingRefund(square);
+    player.balance += refund;
     if (owned.hotel) {
       owned.hotel = false;
       owned.houses = 4;
-      player.balance += refund;
-      this.addLog(`${player.name} vende l'hotel su ${square.name}.`);
-      return {};
-    }
-    if (owned.houses > 0) {
+      this.addLog(`${player.name} vende l'hotel su ${square.name} per ${refund}.`);
+    } else {
       owned.houses -= 1;
-      player.balance += refund;
-      this.addLog(`${player.name} vende una casa su ${square.name}.`);
-      return {};
+      this.addLog(`${player.name} vende una casa su ${square.name} per ${refund}.`);
     }
-    return { error: 'Nessuna casa da vendere' };
+    if (!internal) this.checkDebtResolved(player);
+    return {};
   }
 
-  mortgageProperty(playerId, position) {
+  mortgageProperty(playerId, position, internal = false) {
     const square = board[position];
     const owned = this.ownership[position];
     const player = this.players.find((p) => p.id === playerId);
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (owned.mortgaged) return { error: 'Già ipotecata' };
-    if (owned.houses > 0 || owned.hotel) return { error: 'Vendi prima case/hotel' };
-    const value = Math.floor(square.price / 2);
+    if (this.unitCount(owned) > 0) return { error: 'Vendi prima case/hotel' };
+
+    const value = this.mortgageValue(square);
     owned.mortgaged = true;
     player.balance += value;
     this.addLog(`${player.name} ipoteca ${square.name} per ${value}.`);
+    if (!internal) this.checkDebtResolved(player);
     return {};
   }
 
@@ -399,7 +484,8 @@ class GameEngine {
     const player = this.players.find((p) => p.id === playerId);
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (!owned.mortgaged) return { error: 'Non è ipotecata' };
-    const cost = Math.ceil((square.price / 2) * 1.1); // 10% interest
+    if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    const cost = Math.ceil(this.mortgageValue(square) * (1 + MORTGAGE_INTEREST));
     if (player.balance < cost) return { error: 'Saldo insufficiente' };
     player.balance -= cost;
     owned.mortgaged = false;
@@ -407,31 +493,182 @@ class GameEngine {
     return {};
   }
 
-  checkBankruptcy(player, amountOwed, creditor = null) {
+  // ---- Debiti e bancarotta ----
+
+  /**
+   * Unico punto attraverso cui un giocatore perde denaro. Il debito è modellato
+   * come saldo negativo: il creditore viene pagato subito e il debitore resta in
+   * rosso finché non liquida abbastanza da rientrare.
+   */
+  chargePlayer(player, amount, creditor = null) {
+    if (amount <= 0) return;
+    player.balance -= amount;
+    if (creditor) creditor.balance += amount;
     if (player.balance >= 0) return;
-    // simplified: auto-liquidate mortgages/houses isn't implemented yet;
-    // if still negative after nothing to sell, declare bankrupt
+
+    // Nemmeno svendendo tutto ce la farebbe: bancarotta immediata, nessuna scelta.
+    if (this.liquidationValue(player) < 0) {
+      this.addLog(`${player.name} non può coprire il debito in alcun modo.`);
+      this.bankruptPlayer(player, creditor);
+      return;
+    }
+
+    this.pendingAction = {
+      type: 'awaiting_debt',
+      playerId: player.id,
+      amount: -player.balance,
+      creditorId: creditor ? creditor.id : null,
+    };
+    this.addLog(`${player.name} deve coprire ${-player.balance}: vendi, ipoteca o dichiara bancarotta.`);
+  }
+
+  /**
+   * Se il debitore è tornato in pari chiude il debito e fa ripartire il gioco.
+   * Il turno finisce comunque: un debito nasce sempre durante la risoluzione di
+   * un turno, anche quando a doverlo pagare è l'avversario (carta "incassa da
+   * ogni giocatore").
+   */
+  checkDebtResolved(player) {
+    if (!this.hasPendingDebt() || this.pendingAction.playerId !== player.id) return;
     if (player.balance < 0) {
-      player.bankrupt = true;
-      this.addLog(`${player.name} è in bancarotta!`);
-      // transfer all properties to creditor or bank
-      Object.entries(this.ownership).forEach(([pos, o]) => {
-        if (o.ownerId === player.id) {
-          if (creditor) {
-            o.ownerId = creditor.id;
-            o.houses = 0;
-            o.hotel = false;
-          } else {
-            delete this.ownership[pos];
-          }
-        }
-      });
+      this.pendingAction.amount = -player.balance; // il debito residuo si aggiorna
+      return;
+    }
+    this.pendingAction = null;
+    this.addLog(`${player.name} ha saldato il debito.`);
+    this.endTurn();
+  }
+
+  /**
+   * Liquidazione automatica deterministica: prima gli edifici (partendo da dove
+   * ce ne sono di più, così la regola dell'uniformità è rispettata da sé), poi le
+   * ipoteche, sacrificando per ultime le proprietà che compongono un monopolio.
+   * Si ferma appena il saldo torna positivo.
+   */
+  resolveDebtAuto(playerId) {
+    const player = this.players.find((p) => p.id === playerId);
+    if (!player) return { error: 'Giocatore non trovato' };
+    if (!this.hasPendingDebt() || this.pendingAction.playerId !== playerId) {
+      return { error: 'Non hai debiti da saldare' };
+    }
+
+    this.liquidating = true;
+    this.addLog(`${player.name} liquida automaticamente per coprire il debito.`);
+
+    // Il contatore è solo una rete di sicurezza: ogni giro vende o ipoteca
+    // qualcosa, quindi il loop termina comunque.
+    let safety = 0;
+    while (player.balance < 0 && safety++ < 200) {
+      const withBuildings = this.propertiesOf(playerId)
+        .filter((entry) => this.unitCount(entry.owned) > 0)
+        .sort((a, b) => this.unitCount(b.owned) - this.unitCount(a.owned));
+      if (withBuildings.length > 0) {
+        this.sellHouse(playerId, withBuildings[0].position, true);
+        continue;
+      }
+
+      const mortgageable = this.propertiesOf(playerId)
+        .filter((entry) => !entry.owned.mortgaged)
+        .sort((a, b) => {
+          const aMonopoly = a.square.type === 'property' && this.ownsFullGroup(playerId, a.square.group) ? 1 : 0;
+          const bMonopoly = b.square.type === 'property' && this.ownsFullGroup(playerId, b.square.group) ? 1 : 0;
+          if (aMonopoly !== bMonopoly) return aMonopoly - bMonopoly; // i monopoli per ultimi
+          return a.square.price - b.square.price; // poi dalle più economiche
+        });
+      if (mortgageable.length === 0) break;
+      this.mortgageProperty(playerId, mortgageable[0].position, true);
+    }
+
+    this.liquidating = false;
+
+    // Non dovrebbe accadere: chargePlayer fallisce prima se il patrimonio non basta.
+    if (player.balance < 0) {
+      const creditor = this.players.find((p) => p.id === this.pendingAction?.creditorId) || null;
+      this.bankruptPlayer(player, creditor);
+      return {};
+    }
+    this.checkDebtResolved(player);
+    return {};
+  }
+
+  /** Resa volontaria del giocatore che ha un debito aperto. */
+  declareBankruptcy(playerId) {
+    const player = this.players.find((p) => p.id === playerId);
+    if (!player) return { error: 'Giocatore non trovato' };
+    if (!this.hasPendingDebt() || this.pendingAction.playerId !== playerId) {
+      return { error: 'Non hai debiti da saldare' };
+    }
+    const creditor = this.players.find((p) => p.id === this.pendingAction.creditorId) || null;
+    this.bankruptPlayer(player, creditor);
+    return {};
+  }
+
+  /**
+   * Esecuzione della bancarotta, sia volontaria sia forzata. Gli edifici tornano
+   * alla banca senza rimborso; le proprietà passano al creditore mantenendo
+   * l'ipoteca, e su ognuna di quelle ipotecate il creditore paga subito alla
+   * banca il 10% di interesse, come da regolamento. Senza creditore (tasse,
+   * carte) le caselle tornano libere.
+   */
+  bankruptPlayer(player, creditor = null) {
+    if (player.bankrupt) return;
+    player.bankrupt = true;
+
+    let interestDue = 0;
+    this.propertiesOf(player.id).forEach(({ position, square, owned }) => {
+      if (creditor) {
+        owned.ownerId = creditor.id;
+        owned.houses = 0;
+        owned.hotel = false;
+        if (owned.mortgaged) interestDue += Math.ceil(this.mortgageValue(square) * MORTGAGE_INTEREST);
+      } else {
+        delete this.ownership[position];
+      }
+    });
+
+    if (creditor) {
+      // Addebito diretto e non a cascata: se anche l'interesse mandasse il
+      // creditore in rosso non ha senso aprirgli un secondo debito nel mezzo di
+      // una bancarotta altrui.
+      if (interestDue > 0) {
+        creditor.balance -= interestDue;
+        this.addLog(`${creditor.name} paga ${interestDue} di interessi sulle ipoteche ereditate.`);
+      }
+      // chargePlayer ha già accreditato al creditore l'intero importo dovuto, ma
+      // il debitore quei soldi non li aveva: col saldo negativo si restituisce la
+      // differenza, così il creditore incassa solo quanto esisteva davvero.
+      creditor.balance += player.balance;
+      this.addLog(`${player.name} è in bancarotta: tutto passa a ${creditor.name}.`);
+    } else {
+      this.addLog(`${player.name} è in bancarotta: le sue proprietà tornano alla banca.`);
+    }
+
+    player.balance = 0;
+    if (this.hasPendingDebt() && this.pendingAction.playerId === player.id) this.pendingAction = null;
+    this.checkWinner();
+    if (!this.finished) this.endTurn();
+  }
+
+  /** Con un solo giocatore ancora in piedi la partita è finita. */
+  checkWinner() {
+    if (!this.started || this.finished) return;
+    const alive = this.players.filter((p) => !p.bankrupt);
+    if (alive.length === 1) {
+      this.finished = true;
+      this.winnerId = alive[0].id;
+      this.addLog(`${alive[0].name} vince la partita!`);
     }
   }
 
   endTurn() {
+    // Un debito aperto congela la partita per entrambi finché non è risolto.
+    if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
+    // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
+    if (this.turnResolved || this.finished) return {};
+    this.turnResolved = true;
     this.pendingAction = null;
-    if (this.players.every((p) => p.bankrupt)) return;
+    if (this.players.every((p) => p.bankrupt)) return {};
     do {
       this.turnIndex = (this.turnIndex + 1) % this.players.length;
     } while (this.currentPlayer.bankrupt);

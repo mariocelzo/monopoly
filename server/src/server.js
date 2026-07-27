@@ -79,10 +79,12 @@ io.on('connection', (socket) => {
   socket.on('sell_house', withGame((game, playerId, { position }) => game.sellHouse(playerId, position)));
   socket.on('mortgage_property', withGame((game, playerId, { position }) => game.mortgageProperty(playerId, position)));
   socket.on('unmortgage_property', withGame((game, playerId, { position }) => game.unmortgageProperty(playerId, position)));
+  // Risoluzione di un debito: liquidazione automatica oppure resa.
+  socket.on('resolve_debt_auto', withGame((game, playerId) => game.resolveDebtAuto(playerId)));
+  socket.on('declare_bankruptcy', withGame((game, playerId) => game.declareBankruptcy(playerId)));
   socket.on('end_turn', withGame((game, playerId) => {
     if (game.currentPlayer?.id !== playerId) return { error: 'Non è il tuo turno' };
-    game.endTurn();
-    return {};
+    return game.endTurn();
   }));
 
   socket.on('chat_message', ({ text }) => {
