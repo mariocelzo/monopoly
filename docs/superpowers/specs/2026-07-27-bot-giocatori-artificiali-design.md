@@ -60,8 +60,9 @@ un `pendingAction` lo riguarda (un affitto da pagare, un debito da saldare,
 uno scambio da valutare) — e in quel caso si schedula la sua mossa con
 `setTimeout` (il ritmo della sezione 3), poi si ribroadcasta.
 
-Un flag per stanza (`room.botMoving`) evita di schedulare due mosse dello
-stesso bot in sovrapposizione se lo stato cambia più volte di fila.
+Un timer per stanza (`room.botTimer`) evita di schedulare due mosse dello
+stesso bot in sovrapposizione se lo stato cambia più volte di fila: prima di
+schedulare si annulla quello eventualmente già in coda.
 
 Un'avvertenza per l'implementazione: alcuni controlli che i client umani danno
 per scontati **non stanno nel motore ma nel gestore socket**. Per esempio
@@ -132,7 +133,7 @@ leggibile nel registro.
 | In prigione con carta "esci gratis" | La usa sempre |
 | In prigione, può pagare la multa | Paga se il saldo residuo resta sopra soglia; nel 20% dei casi tenta comunque i dadi anche potendo pagare |
 | Proprietà libera (`awaiting_buy`) | Compra se il punteggio (valore atteso ÷ prezzo, bonus se completa un monopolio) supera una soglia con ±10% di margine casuale, e se resta un fondo cassa minimo dopo |
-| Ha un monopolio e cassa sufficiente | Costruisce al massimo una casa per turno, solo se il saldo residuo resta sopra soglia |
+| Ha un monopolio e cassa sufficiente | Costruisce a inizio turno, prima di tirare, al massimo una casa per turno e solo se il saldo residuo resta sopra soglia |
 | Affitto o tassa da pagare | Paga sempre, senza esitazione |
 | Carta pescata | Conferma sempre (`acknowledgeCard`) |
 | Debito aperto (`awaiting_debt`) | Chiama sempre `resolveDebtAuto`; se il patrimonio non basta il motore dichiara bancarotta da solo |
@@ -150,8 +151,10 @@ perdita.
 
 **Proporre uno scambio.** Il motore consente di proporre in qualsiasi momento,
 purché non ci sia un `pendingAction` aperto: non serve che sia il proprio
-turno. Il bot sfrutta il momento subito **prima** di chiudere il proprio turno
-(quando ha già risolto tutto il resto e il tavolo è sgombro): con probabilità
+turno. Il bot sfrutta l'inizio del proprio turno, subito **prima** di tirare i
+dadi — dopo un tiro non-doppio il motore chiude il turno da solo, quindi una
+finestra "ho già mosso, ora tratto" non esisterebbe, ed è comunque l'ordine
+più naturale da guardare: sistemo le mie cose, poi muovo. Con probabilità
 del 30% cerca una proprietà altrui che gli completerebbe un monopolio e
 compone un'offerta onesta — denaro e/o una
 propria proprietà "di scarto" (fuori da gruppi che possiede già per intero) di
