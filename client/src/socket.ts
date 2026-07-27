@@ -14,6 +14,8 @@ export interface Player {
   jailTurns: number;
   jailCards: number;
   bankrupt: boolean;
+  /** Doppi consecutivi nel turno corrente: al terzo si va in prigione. */
+  doublesInARow: number;
 }
 
 export interface Ownership {

@@ -6,6 +6,8 @@ const JAIL_POSITION = 10;
 const GO_TO_JAIL_POSITION = 30;
 const JAIL_FINE = 50;
 const MAX_JAIL_TURNS = 3;
+// Al terzo doppio consecutivo si va in prigione senza muoversi.
+const MAX_DOUBLES = 3;
 // Interesse del 10% che la banca trattiene sulle ipoteche: si paga per
 // riscattare una proprietà e per riceverne una già ipotecata, sia in uno
 // scambio sia in una bancarotta. È espresso come frazione intera perché con i
@@ -43,6 +45,25 @@ class GameEngine {
     this.liquidating = false;
     // Garantisce che il turno venga chiuso una volta sola per tiro di dadi.
     this.turnResolved = false;
+    // Se l'ultimo tiro era un doppio il giocatore ha diritto a rigiocare, anche
+    // se nel frattempo ha dovuto comprare o saldare un debito.
+    this.lastRollWasDouble = false;
+  }
+
+  /**
+   * Chiude un tiro di dadi: chi ha fatto doppio gioca ancora, gli altri passano
+   * la mano. Chi è finito in prigione o in bancarotta passa comunque, anche col
+   * doppio. Va chiamata da ogni punto in cui la risoluzione del tiro si
+   * completa: subito dopo il movimento, ma anche dopo un acquisto o un debito
+   * che avevano messo il turno in pausa.
+   */
+  finishRoll(player) {
+    if (this.finished) return;
+    if (this.lastRollWasDouble && player && !player.inJail && !player.bankrupt) {
+      this.addLog(`${player.name} ha fatto doppio: gioca ancora.`);
+      return;
+    }
+    this.endTurn();
   }
 
   addLog(message) {
@@ -60,6 +81,7 @@ class GameEngine {
       jailTurns: 0,
       jailCards: 0,
       bankrupt: false,
+      doublesInARow: 0,
     });
     this.addLog(`${name} si è unito alla partita.`);
   }
@@ -177,6 +199,8 @@ class GameEngine {
     const d1 = 1 + Math.floor(Math.random() * 6);
     const d2 = 1 + Math.floor(Math.random() * 6);
     const isDouble = d1 === d2;
+    // Uscire di prigione col doppio non dà il tiro extra: si esce e basta.
+    this.lastRollWasDouble = isDouble && !player.inJail;
 
     if (player.inJail) {
       if (isDouble) {
@@ -201,15 +225,26 @@ class GameEngine {
       return { dice: [d1, d2] };
     }
 
+    // Tre doppi di fila mandano in prigione, e si va senza muoversi: il
+    // controllo va fatto prima di spostare la pedina.
+    if (isDouble) {
+      player.doublesInARow += 1;
+      if (player.doublesInARow >= MAX_DOUBLES) {
+        player.doublesInARow = 0;
+        this.addLog(`${player.name} fa il terzo doppio di fila (${d1},${d2}).`);
+        this.sendToJail(player);
+        this.endTurn();
+        return { dice: [d1, d2] };
+      }
+    } else {
+      player.doublesInARow = 0;
+    }
+
     this.movePlayer(player, d1 + d2);
 
-    // three doubles in a row -> jail (simplified: not tracked across turns here, single-double just gives extra roll)
-    if (isDouble && !this.pendingAction) {
-      this.addLog(`${player.name} ha fatto doppio: gioca ancora.`);
-      // don't auto end turn; front-end can call rollDice again for same player
-    } else if (!this.pendingAction) {
-      this.endTurn();
-    }
+    // Con un'azione in sospeso il tiro non è ancora finito: lo chiuderà chi
+    // risolve l'acquisto o il debito.
+    if (!this.pendingAction) this.finishRoll(player);
 
     return { dice: [d1, d2] };
   }
@@ -318,7 +353,7 @@ class GameEngine {
     this.ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false };
     this.addLog(`${player.name} compra ${board[position].name} per ${price}.`);
     this.pendingAction = null;
-    this.endTurn();
+    this.finishRoll(player);
     return {};
   }
 
@@ -327,7 +362,7 @@ class GameEngine {
     if (this.pendingAction.playerId !== playerId) return { error: 'Non tocca a te' };
     this.addLog(`${this.currentPlayer.name} rinuncia all'acquisto di ${board[this.pendingAction.position].name}.`);
     this.pendingAction = null;
-    this.endTurn();
+    this.finishRoll(this.currentPlayer);
     return {};
   }
 
@@ -573,7 +608,7 @@ class GameEngine {
     }
     this.pendingAction = null;
     this.addLog(`${player.name} ha saldato il debito.`);
-    this.endTurn();
+    this.finishRoll(this.currentPlayer);
   }
 
   /**
@@ -683,7 +718,7 @@ class GameEngine {
     player.balance = 0;
     if (this.hasPendingDebt() && this.pendingAction.playerId === player.id) this.pendingAction = null;
     this.checkWinner();
-    if (!this.finished) this.endTurn();
+    if (!this.finished) this.finishRoll(this.currentPlayer);
   }
 
   // ---- Scambi fra giocatori ----
@@ -832,6 +867,8 @@ class GameEngine {
     if (this.turnResolved || this.finished) return {};
     this.turnResolved = true;
     this.pendingAction = null;
+    // I doppi contano solo entro il turno di chi li ha tirati.
+    if (this.currentPlayer) this.currentPlayer.doublesInARow = 0;
     if (this.players.every((p) => p.bankrupt)) return {};
     do {
       this.turnIndex = (this.turnIndex + 1) % this.players.length;

@@ -303,6 +303,98 @@ section('10d. Scambio: interesse sulle ipoteche ricevute');
   check('il proponente incassa i 100 richiesti', game.players[0].balance === 600);
 }
 
+section('10e. Tre doppi consecutivi mandano in prigione');
+{
+  const game = newGame();
+  const mario = game.players[0];
+
+  // Dadi truccati: due doppi e poi il terzo. Le caselle sono scelte in modo che
+  // la prigione (10) non coincida con dove il terzo tiro avrebbe portato (16).
+  let rolls = [[1, 1], [2, 2], [5, 5]];
+  let i = 0;
+  const realRandom = Math.random;
+  Math.random = () => {
+    // rollDice consuma due valori per tiro: li si serve dalla coppia corrente.
+    const pair = rolls[Math.min(i >> 1, rolls.length - 1)];
+    const value = pair[i % 2];
+    i += 1;
+    return (value - 1) / 6 + 0.001;
+  };
+
+  // Se il tiro si ferma su una proprietà libera si rinuncia, così il turno
+  // prosegue: col doppio il tiro extra spetta comunque.
+  const rollAndDecline = () => {
+    game.rollDice('a');
+    if (game.pendingAction?.type === 'awaiting_buy') game.declineBuy('a');
+  };
+
+  rollAndDecline();
+  check('dopo il primo doppio si conta 1', mario.doublesInARow === 1, `${mario.doublesInARow}`);
+  check('dopo il primo doppio è ancora il suo turno', game.currentPlayer.id === 'a');
+  rollAndDecline();
+  const posDopoDue = mario.position;
+  check('dopo il secondo doppio si conta 2', mario.doublesInARow === 2, `${mario.doublesInARow}`);
+  check('dopo il secondo doppio è ancora il suo turno', game.currentPlayer.id === 'a');
+
+  game.rollDice('a');
+  check('al terzo doppio finisce in prigione', mario.inJail === true);
+  check(
+    'ci va senza muoversi: è in prigione, non dove lo portava il tiro',
+    mario.position === 10 && posDopoDue + 10 !== 10,
+    `posizione=${mario.position}, il tiro portava a ${posDopoDue + 10}`
+  );
+  check('il contatore è azzerato', mario.doublesInARow === 0);
+  check('il turno passa all\'avversario', game.currentPlayer.id === 'b');
+
+  Math.random = realRandom;
+}
+
+section('10g. Il tiro extra del doppio sopravvive a un acquisto');
+{
+  const game = newGame();
+  const mario = game.players[0];
+
+  // 3+3 porta su The Angel Islington (casella 6), libera: si apre l'acquisto.
+  const realRandom = Math.random;
+  Math.random = () => 0.4; // 1 + floor(0.4 * 6) = 3
+
+  game.rollDice('a');
+  check('l\'acquisto è in sospeso', game.pendingAction?.type === 'awaiting_buy');
+  check('il turno non è ancora passato', game.currentPlayer.id === 'a');
+
+  game.buyProperty('a');
+  check('dopo l\'acquisto il doppio dà comunque il tiro extra', game.currentPlayer.id === 'a');
+  check('nessuna azione in sospeso', game.pendingAction === null);
+
+  Math.random = realRandom;
+}
+
+section('10h. Uscire di prigione col doppio non dà il tiro extra');
+{
+  const game = newGame();
+  const mario = game.players[0];
+  mario.inJail = true;
+  mario.position = 10;
+
+  const realRandom = Math.random;
+  Math.random = () => 0.5; // 4 e 4: doppio
+  game.rollDice('a');
+  if (game.pendingAction?.type === 'awaiting_buy') game.declineBuy('a');
+  Math.random = realRandom;
+
+  check('esce di prigione', mario.inJail === false);
+  check('ma il turno passa comunque', game.currentPlayer.id === 'b', `turno di ${game.currentPlayer.name}`);
+}
+
+section('10f. Il contatore dei doppi non attraversa i turni');
+{
+  const game = newGame();
+  const mario = game.players[0];
+  mario.doublesInARow = 2;
+  game.endTurn();
+  check('chiudere il turno azzera i doppi', mario.doublesInARow === 0);
+}
+
 // ---------------------------------------------------------------------------
 section('11. Conservazione del denaro fra giocatori');
 {
