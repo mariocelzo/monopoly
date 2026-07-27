@@ -1,5 +1,6 @@
 # Blueprint per Render. Da "New > Blueprint" puntando a questa repo.
-# La cartella di lavoro è server/, quindi rootDir va impostato di conseguenza.
+# Deve stare nella radice della repo: Render cerca render.yaml solo qui.
+# Il codice del server sta in server/, da cui rootDir.
 services:
   - type: web
     name: noi-due-monopoly-api
