@@ -89,6 +89,9 @@ io.on('connection', (socket) => {
   // Risoluzione di un debito: liquidazione automatica oppure resa.
   socket.on('resolve_debt_auto', withGame((game, playerId) => game.resolveDebtAuto(playerId)));
   socket.on('declare_bankruptcy', withGame((game, playerId) => game.declareBankruptcy(playerId)));
+  // Scambi fra giocatori: proposta e risposta.
+  socket.on('propose_trade', withGame((game, playerId, payload) => game.proposeTrade(playerId, payload)));
+  socket.on('respond_trade', withGame((game, playerId, { accept }) => game.respondTrade(playerId, !!accept)));
   socket.on('end_turn', withGame((game, playerId) => {
     if (game.currentPlayer?.id !== playerId) return { error: 'Non è il tuo turno' };
     return game.endTurn();

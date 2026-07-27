@@ -5,6 +5,8 @@ import Board from './components/Board';
 import GamePanel from './components/GamePanel';
 import BuyModal from './components/BuyModal';
 import DebtModal from './components/DebtModal';
+import TradeModal from './components/TradeModal';
+import TradeOfferModal from './components/TradeOfferModal';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -12,6 +14,8 @@ export default function App() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   const [board, setBoard] = useState<BoardSquare[]>([]);
+  // Composizione di una nuova proposta di scambio, aperta dal pannello di gioco.
+  const [composingTrade, setComposingTrade] = useState(false);
 
   useEffect(() => {
     fetch(`${SERVER_URL}/board`).then((r) => r.json()).then(setBoard).catch(() => {});
@@ -30,6 +34,7 @@ export default function App() {
   // Un debito ha la precedenza: congela la partita finché non è risolto.
   const buy = pending?.type === 'awaiting_buy' ? pending : null;
   const debt = pending?.type === 'awaiting_debt' ? pending : null;
+  const trade = pending?.type === 'awaiting_trade' ? pending : null;
   const buySquare = buy ? board.find((s) => s.position === buy.position) : null;
   const winner = state.finished ? state.players.find((p) => p.id === state.winnerId) : null;
 
@@ -38,11 +43,25 @@ export default function App() {
       <div style={styles.boardArea}>
         {board.length > 0 && <Board board={board} state={state} onSquareClick={() => {}} />}
       </div>
-      <GamePanel state={state} myId={playerId} board={board} />
+      <GamePanel
+        state={state}
+        myId={playerId}
+        board={board}
+        onProposeTrade={() => setComposingTrade(true)}
+      />
       {buy && buySquare && (
         <BuyModal pending={buy} square={buySquare} isMe={buy.playerId === playerId} />
       )}
       {debt && <DebtModal pending={debt} board={board} state={state} myId={playerId} />}
+      {trade && <TradeOfferModal pending={trade} board={board} state={state} myId={playerId} />}
+      {composingTrade && !pending && (
+        <TradeModal
+          board={board}
+          state={state}
+          myId={playerId}
+          onClose={() => setComposingTrade(false)}
+        />
+      )}
       {winner && (
         <div style={styles.overlay}>
           <div className="panel" style={styles.winCard}>

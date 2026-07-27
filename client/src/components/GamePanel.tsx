@@ -5,10 +5,12 @@ export default function GamePanel({
   state,
   myId,
   board,
+  onProposeTrade,
 }: {
   state: GameState;
   myId: string;
   board: BoardSquare[];
+  onProposeTrade: () => void;
 }) {
   const current = state.players[state.turnIndex];
   const isMyTurn = current?.id === myId;
@@ -75,6 +77,18 @@ export default function GamePanel({
         )}
       </div>
 
+      {state.started && !state.finished && (
+        <button
+          className="btn-ghost"
+          style={styles.tradeBtn}
+          onClick={onProposeTrade}
+          disabled={!!state.pendingAction}
+          title={state.pendingAction ? 'Prima risolvi l\'azione in sospeso' : 'Proponi uno scambio'}
+        >
+          Proponi scambio
+        </button>
+      )}
+
       {state.started && (
         <div style={styles.properties}>
           <h3 style={styles.sectionTitle}>Le mie proprietà</h3>
@@ -98,6 +112,7 @@ const styles: Record<string, React.CSSProperties> = {
   playerCard: { display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 10, border: '1.5px solid', background: 'rgba(0,0,0,0.15)' },
   badge: { fontSize: '0.7rem', color: '#e18a8a', marginTop: 2 },
   turnBox: { paddingTop: 8, borderTop: '1px solid rgba(201,150,44,0.2)' },
+  tradeBtn: { width: '100%', fontSize: '0.85rem', padding: '8px 14px' },
   properties: { paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)', maxHeight: 300, overflowY: 'auto' },
   sectionTitle: { fontSize: '0.95rem', marginBottom: 10, color: 'var(--paper)' },
   log: { maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem', color: 'rgba(243,234,216,0.75)' },

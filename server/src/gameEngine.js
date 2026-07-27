@@ -6,9 +6,9 @@ const JAIL_POSITION = 10;
 const GO_TO_JAIL_POSITION = 30;
 const JAIL_FINE = 50;
 const MAX_JAIL_TURNS = 3;
-// Interesse che la banca trattiene sulle ipoteche: si paga sia per riscattare
-// una proprietà sia per ereditarne una già ipotecata in una bancarotta.
-// Interesse del 10% sulle ipoteche, espresso come frazione intera: con i
+// Interesse del 10% che la banca trattiene sulle ipoteche: si paga per
+// riscattare una proprietà e per riceverne una già ipotecata, sia in uno
+// scambio sia in una bancarotta. È espresso come frazione intera perché con i
 // decimali `100 * 1.1` vale 110.00000000000001 e Math.ceil arrotonda a 111.
 const MORTGAGE_INTEREST_NUM = 1;
 const MORTGAGE_INTEREST_DEN = 10;
@@ -32,8 +32,9 @@ class GameEngine {
     this.log = [];
     this.chanceDeck = shuffle(CHANCE_CARDS);
     this.communityDeck = shuffle(COMMUNITY_CARDS);
-    // { type: 'awaiting_buy' | 'awaiting_debt', playerId, ... } — blocca il flusso
-    // del turno finché il giocatore interessato non risolve.
+    // { type: 'awaiting_buy' | 'awaiting_debt' | 'awaiting_trade', playerId, ... }
+    // Blocca il flusso del turno finché il giocatore indicato da playerId non
+    // risolve: compra/rinuncia, salda il debito, accetta o rifiuta lo scambio.
     this.pendingAction = null;
     this.finished = false;
     this.winnerId = null;
@@ -150,6 +151,18 @@ class GameEngine {
 
   hasPendingDebt() {
     return this.pendingAction?.type === 'awaiting_debt';
+  }
+
+  hasPendingTrade() {
+    return this.pendingAction?.type === 'awaiting_trade';
+  }
+
+  /**
+   * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
+   * cambiare la merce dopo aver fatto l'offerta.
+   */
+  tradeFreezeBlocker() {
+    return this.hasPendingTrade() ? { error: 'Prima rispondi allo scambio proposto' } : null;
   }
 
   // ---- Turn flow ----
@@ -428,6 +441,7 @@ class GameEngine {
     if (!square || square.type !== 'property') return { error: 'Non è una proprietà edificabile' };
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
     if (!this.ownsFullGroup(playerId, square.group)) return { error: 'Serve il monopolio del colore per costruire' };
     // Regola ufficiale: niente costruzioni su un colore con proprietà ipotecate.
     const groupMortgaged = board.some(
@@ -462,6 +476,7 @@ class GameEngine {
     const owned = this.ownership[position];
     const player = this.players.find((p) => p.id === playerId);
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
+    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
     if (this.unitCount(owned) === 0) return { error: 'Nessuna casa da vendere' };
     // Uniformità anche in vendita: si smonta da dove ce n'è di più.
     if (this.unitCount(owned) < Math.max(...this.groupUnitCounts(square.group))) {
@@ -487,6 +502,7 @@ class GameEngine {
     const owned = this.ownership[position];
     const player = this.players.find((p) => p.id === playerId);
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
+    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
     if (owned.mortgaged) return { error: 'Già ipotecata' };
     if (this.unitCount(owned) > 0) return { error: 'Vendi prima case/hotel' };
 
@@ -505,6 +521,7 @@ class GameEngine {
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (!owned.mortgaged) return { error: 'Non è ipotecata' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
     const cost = this.unmortgageCost(square);
     if (player.balance < cost) return { error: 'Saldo insufficiente' };
     player.balance -= cost;
@@ -669,6 +686,132 @@ class GameEngine {
     if (!this.finished) this.endTurn();
   }
 
+  // ---- Scambi fra giocatori ----
+
+  /** Vero se esiste anche un solo edificio sul gruppo di colore della casella. */
+  groupHasBuildings(group) {
+    return board.some((s) => s.group === group && this.unitCount(this.ownership[s.position] || { houses: 0 }) > 0);
+  }
+
+  /**
+   * Controlla che una casella sia scambiabile da un certo giocatore. Il
+   * regolamento vieta di cedere una proprietà finché sul suo colore c'è anche
+   * un solo edificio: prima vanno venduti tutti.
+   */
+  tradeBlocker(playerId, position) {
+    const square = board[position];
+    const owned = this.ownership[position];
+    if (!square || !owned) return `Casella ${position} non è di nessuno`;
+    if (owned.ownerId !== playerId) return `${square.name} non è di chi la offre`;
+    if (square.group && this.groupHasBuildings(square.group)) {
+      return `Vendi prima gli edifici sul colore di ${square.name}`;
+    }
+    return null;
+  }
+
+  /**
+   * Apre una proposta di scambio. Non consuma il turno: chiunque può proporre,
+   * anche fuori dal proprio turno, ma la proposta congela il gioco finché
+   * l'altro non risponde.
+   */
+  proposeTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0 } = {}) {
+    const from = this.players.find((p) => p.id === fromId);
+    const to = this.players.find((p) => p.id === toId);
+    if (!this.started || this.finished) return { error: 'La partita non è in corso' };
+    if (!from || !to || from.id === to.id) return { error: 'Destinatario non valido' };
+    if (from.bankrupt || to.bankrupt) return { error: 'Un giocatore è fallito' };
+    if (this.pendingAction) return { error: 'Prima risolvi l\'azione in sospeso' };
+
+    const money = [offerMoney, requestMoney].map((n) => Math.floor(Number(n) || 0));
+    if (money.some((n) => n < 0)) return { error: 'Gli importi non possono essere negativi' };
+    const [offered, requested] = money;
+    if (offered > from.balance) return { error: 'Non hai abbastanza denaro' };
+    if (requested > to.balance) return { error: `${to.name} non ha abbastanza denaro` };
+    if (offerProperties.length + requestProperties.length === 0 && offered === 0 && requested === 0) {
+      return { error: 'Lo scambio è vuoto' };
+    }
+
+    for (const position of offerProperties) {
+      const blocker = this.tradeBlocker(fromId, position);
+      if (blocker) return { error: blocker };
+    }
+    for (const position of requestProperties) {
+      const blocker = this.tradeBlocker(toId, position);
+      if (blocker) return { error: blocker };
+    }
+
+    this.pendingAction = {
+      type: 'awaiting_trade',
+      playerId: to.id, // tocca al destinatario rispondere
+      fromId: from.id,
+      toId: to.id,
+      offerProperties: [...offerProperties],
+      offerMoney: offered,
+      requestProperties: [...requestProperties],
+      requestMoney: requested,
+    };
+    this.addLog(`${from.name} propone uno scambio a ${to.name}.`);
+    return {};
+  }
+
+  /** Il destinatario accetta o rifiuta. In nessun caso il turno cambia. */
+  respondTrade(playerId, accept) {
+    if (!this.hasPendingTrade()) return { error: 'Nessuno scambio in sospeso' };
+    const trade = this.pendingAction;
+    if (trade.toId !== playerId) return { error: 'Non tocca a te rispondere' };
+
+    const from = this.players.find((p) => p.id === trade.fromId);
+    const to = this.players.find((p) => p.id === trade.toId);
+
+    if (!accept) {
+      this.pendingAction = null;
+      this.addLog(`${to.name} rifiuta lo scambio.`);
+      return {};
+    }
+
+    // Ricontrolla al momento dell'accettazione: fra proposta e risposta i due
+    // possono aver costruito o ipotecato.
+    for (const position of trade.offerProperties) {
+      const blocker = this.tradeBlocker(trade.fromId, position);
+      if (blocker) return { error: blocker };
+    }
+    for (const position of trade.requestProperties) {
+      const blocker = this.tradeBlocker(trade.toId, position);
+      if (blocker) return { error: blocker };
+    }
+    if (trade.offerMoney > from.balance) return { error: `${from.name} non ha più abbastanza denaro` };
+    if (trade.requestMoney > to.balance) return { error: 'Non hai abbastanza denaro' };
+
+    trade.offerProperties.forEach((position) => { this.ownership[position].ownerId = to.id; });
+    trade.requestProperties.forEach((position) => { this.ownership[position].ownerId = from.id; });
+
+    // Solo la differenza cambia di mano, così non si creano saldi negativi
+    // intermedi se entrambi mettono denaro sul piatto.
+    const net = trade.offerMoney - trade.requestMoney;
+    from.balance -= net;
+    to.balance += net;
+
+    this.addLog(`${from.name} e ${to.name} concludono lo scambio.`);
+    this.pendingAction = null;
+
+    // Chi riceve una proprietà ipotecata paga subito il 10% alla banca. Si fa
+    // dopo aver chiuso il pendingAction perché l'interesse può aprire un debito.
+    this.chargeMortgageInterest(to, trade.offerProperties);
+    this.chargeMortgageInterest(from, trade.requestProperties);
+    return {};
+  }
+
+  /** Interesse del 10% dovuto da chi riceve proprietà ipotecate in uno scambio. */
+  chargeMortgageInterest(player, positions) {
+    const due = positions.reduce(
+      (sum, position) => sum + (this.ownership[position]?.mortgaged ? this.mortgageInterest(board[position]) : 0),
+      0
+    );
+    if (due <= 0) return;
+    this.addLog(`${player.name} paga ${due} di interessi sulle ipoteche ricevute.`);
+    this.chargePlayer(player, due);
+  }
+
   /** Con un solo giocatore ancora in piedi la partita è finita. */
   checkWinner() {
     if (!this.started || this.finished) return;
@@ -681,8 +824,9 @@ class GameEngine {
   }
 
   endTurn() {
-    // Un debito aperto congela la partita per entrambi finché non è risolto.
+    // Un debito o uno scambio aperto congelano la partita per entrambi.
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    if (this.hasPendingTrade()) return { error: 'Prima rispondi allo scambio proposto' };
     // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
     // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
     if (this.turnResolved || this.finished) return {};

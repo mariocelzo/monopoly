@@ -221,6 +221,89 @@ section('10. Resa volontaria');
 }
 
 // ---------------------------------------------------------------------------
+section('10b. Scambio: proposta e accettazione');
+{
+  const game = newGame({ balanceA: 500, balanceB: 500 });
+  give(game, 'a', ORANGE[0]);
+  give(game, 'b', BROWN[0]);
+  const [mario, giulia] = game.players;
+
+  const res = game.proposeTrade('a', {
+    toId: 'b',
+    offerProperties: [ORANGE[0]],
+    offerMoney: 100,
+    requestProperties: [BROWN[0]],
+    requestMoney: 0,
+  });
+  check('la proposta è accettata dal motore', !res.error, res.error);
+  check('si apre uno scambio in sospeso', game.pendingAction?.type === 'awaiting_trade');
+  check('tocca al destinatario rispondere', game.pendingAction?.playerId === 'b');
+
+  const wrongResponder = game.respondTrade('a', true);
+  check('il proponente non può rispondere da solo', !!wrongResponder.error, wrongResponder.error);
+  const rolled = game.rollDice('a');
+  check('con uno scambio aperto non si tirano i dadi', !!rolled.error, rolled.error);
+  const built = game.mortgageProperty('a', ORANGE[0]);
+  check('le proprietà sono congelate durante lo scambio', !!built.error, built.error);
+
+  game.respondTrade('b', true);
+  check('la proprietà offerta è passata al destinatario', game.ownership[ORANGE[0]].ownerId === 'b');
+  check('la proprietà richiesta è passata al proponente', game.ownership[BROWN[0]].ownerId === 'a');
+  check('il denaro è stato trasferito', mario.balance === 400 && giulia.balance === 600, `${mario.balance}/${giulia.balance}`);
+  check('lo scambio è chiuso', game.pendingAction === null);
+  check('il turno non è cambiato', game.turnIndex === 0);
+}
+
+section('10c. Scambio: rifiuto e vincoli');
+{
+  const game = newGame();
+  ORANGE.forEach((pos) => give(game, 'a', pos));
+  give(game, 'b', BROWN[0]);
+  game.ownership[ORANGE[0]].houses = 1;
+
+  const withBuildings = game.proposeTrade('a', { toId: 'b', offerProperties: [ORANGE[1]] });
+  check(
+    'non si cede una proprietà con edifici sul colore',
+    !!withBuildings.error,
+    withBuildings.error
+  );
+
+  const notMine = game.proposeTrade('a', { toId: 'b', offerProperties: [BROWN[0]] });
+  check('non si offre una proprietà altrui', !!notMine.error, notMine.error);
+
+  const tooRich = game.proposeTrade('a', { toId: 'b', offerMoney: 99999 });
+  check('non si offre denaro che non si ha', !!tooRich.error, tooRich.error);
+
+  const empty = game.proposeTrade('a', { toId: 'b' });
+  check('uno scambio vuoto è rifiutato', !!empty.error, empty.error);
+
+  game.proposeTrade('a', { toId: 'b', requestProperties: [BROWN[0]], offerMoney: 50 });
+  game.respondTrade('b', false);
+  check('dopo il rifiuto lo scambio è chiuso', game.pendingAction === null);
+  check('il rifiuto non muove nulla', game.ownership[BROWN[0]].ownerId === 'b');
+  check('il rifiuto non muove denaro', game.players[0].balance === 1500);
+}
+
+section('10d. Scambio: interesse sulle ipoteche ricevute');
+{
+  const game = newGame({ balanceA: 500, balanceB: 500 });
+  // Whitechapel: prezzo 60, ipoteca 30, interesse 3.
+  give(game, 'a', BROWN[1], { mortgaged: true });
+
+  game.proposeTrade('a', { toId: 'b', offerProperties: [BROWN[1]], requestMoney: 100 });
+  game.respondTrade('b', true);
+
+  check('la proprietà è passata', game.ownership[BROWN[1]].ownerId === 'b');
+  check('resta ipotecata', game.ownership[BROWN[1]].mortgaged === true);
+  check(
+    'chi la riceve paga 3 di interessi',
+    game.players[1].balance === 500 - 100 - 3,
+    `saldo=${game.players[1].balance}`
+  );
+  check('il proponente incassa i 100 richiesti', game.players[0].balance === 600);
+}
+
+// ---------------------------------------------------------------------------
 section('11. Conservazione del denaro fra giocatori');
 {
   const game = newGame();

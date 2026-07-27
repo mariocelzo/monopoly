@@ -44,7 +44,22 @@ export interface AwaitingDebt {
   liquidationValue: number;
 }
 
-export type PendingAction = AwaitingBuy | AwaitingDebt;
+/**
+ * Proposta di scambio in attesa di risposta. `playerId` è il destinatario, cioè
+ * chi deve accettare o rifiutare. Congela la partita per entrambi.
+ */
+export interface AwaitingTrade {
+  type: 'awaiting_trade';
+  playerId: string;
+  fromId: string;
+  toId: string;
+  offerProperties: number[];
+  offerMoney: number;
+  requestProperties: number[];
+  requestMoney: number;
+}
+
+export type PendingAction = AwaitingBuy | AwaitingDebt | AwaitingTrade;
 
 export interface GameState {
   roomCode: string;
