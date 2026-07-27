@@ -3,8 +3,17 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { RoomManager } = require('./rooms');
 const { board } = require('./data/board');
+const { botMove, botHasMove } = require('./bot');
 
 const PORT = process.env.PORT || 3001;
+
+// Nomi e pedoni per i bot, assegnati in ordine.
+const BOT_NAMES = ['Bot Aurelio', 'Bot Cleopatra', 'Bot Fulvio', 'Bot Ottavia', 'Bot Silvio'];
+const BOT_TOKENS = ['🐕', '🎩', '🚗', '🚢', '🐈', '🎸'];
+
+// Pausa fra una mossa del bot e la successiva: abbastanza per seguire il
+// registro senza sembrare lento.
+const BOT_PAUSA_MS = 1000;
 
 // CLIENT_ORIGIN accetta più origini separate da virgola: in produzione servono
 // almeno il dominio vero e quelli di anteprima. Vuoto = tutte, comodo in locale.
@@ -48,6 +57,27 @@ function broadcastState(roomCode) {
   const room = roomManager.getRoom(roomCode);
   if (!room) return;
   io.to(roomCode).emit('state', room.game.serialize());
+  scheduleBotMove(roomCode);
+}
+
+/**
+ * Se un bot ha una mossa da fare, la schedula. Una sola alla volta per stanza:
+ * finché un timer è in coda non se ne aggiunge un altro, così più broadcast
+ * ravvicinati non generano mosse sovrapposte.
+ */
+function scheduleBotMove(roomCode) {
+  const room = roomManager.getRoom(roomCode);
+  if (!room || room.botTimer) return;
+  if (!botHasMove(room.game)) return;
+
+  room.botTimer = setTimeout(() => {
+    room.botTimer = null;
+    // La stanza può essere sparita nel frattempo (tavolo chiuso, scaduta).
+    const ancora = roomManager.getRoom(roomCode);
+    if (!ancora) return;
+    if (botMove(ancora.game)) broadcastState(roomCode);
+  }, BOT_PAUSA_MS);
+  room.botTimer.unref?.();
 }
 
 io.on('connection', (socket) => {
@@ -110,6 +140,36 @@ io.on('connection', (socket) => {
     bind(roomCode, clientId);
     cb?.({ roomCode, playerId: clientId });
     broadcastState(roomCode);
+  });
+
+  // I bot li gestisce solo chi ha creato il tavolo, e solo prima del via.
+  socket.on('add_bot', (payload, cb) => {
+    const room = roomManager.getRoom(socket.data.roomCode);
+    if (!room) return cb?.({ error: 'Stanza non trovata' });
+    if (room.game.hostId !== socket.data.playerId) {
+      return cb?.({ error: 'Solo chi ha creato il tavolo può aggiungere bot' });
+    }
+    if (room.game.started) return cb?.({ error: 'La partita è già iniziata' });
+
+    const usati = room.game.takenTokens();
+    const token = BOT_TOKENS.find((t) => !usati.includes(t));
+    if (!token) return cb?.({ error: 'Nessun pedone libero' });
+    const nome = BOT_NAMES[room.game.botCounter % BOT_NAMES.length];
+
+    const res = room.game.addBot(nome, token);
+    broadcastState(socket.data.roomCode);
+    cb?.(res);
+  });
+
+  socket.on('remove_bot', ({ botId }, cb) => {
+    const room = roomManager.getRoom(socket.data.roomCode);
+    if (!room) return cb?.({ error: 'Stanza non trovata' });
+    if (room.game.hostId !== socket.data.playerId) {
+      return cb?.({ error: 'Solo chi ha creato il tavolo può togliere i bot' });
+    }
+    const res = room.game.removeBot(botId);
+    broadcastState(socket.data.roomCode);
+    cb?.(res);
   });
 
   socket.on('start_game', () => {

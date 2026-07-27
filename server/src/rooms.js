@@ -14,7 +14,8 @@ function generateRoomCode() {
 
 class RoomManager {
   constructor() {
-    // code -> { game, sockets: Map<socketId, playerId>, emptySince: number | null }
+    // code -> { game, sockets: Map<socketId, playerId>, emptySince: number | null,
+    //           botTimer: Timeout | null }
     this.rooms = new Map();
   }
 
@@ -22,7 +23,7 @@ class RoomManager {
     let code;
     do { code = generateRoomCode(); } while (this.rooms.has(code));
     const game = new GameEngine(code);
-    this.rooms.set(code, { game, sockets: new Map(), emptySince: null });
+    this.rooms.set(code, { game, sockets: new Map(), emptySince: null, botTimer: null });
     return code;
   }
 
@@ -74,6 +75,8 @@ class RoomManager {
    * chi ricarica non rientra in un tavolo morto, torna alla lobby.
    */
   closeRoom(code) {
+    const room = this.rooms.get(code);
+    if (room) clearTimeout(room.botTimer);
     return this.rooms.delete(code);
   }
 
@@ -82,6 +85,8 @@ class RoomManager {
     let removed = 0;
     for (const [code, room] of this.rooms) {
       if (room.emptySince !== null && now - room.emptySince > ROOM_TTL_MS) {
+        // Se un bot aveva una mossa in coda, muore con la stanza.
+        clearTimeout(room.botTimer);
         this.rooms.delete(code);
         removed += 1;
       }
