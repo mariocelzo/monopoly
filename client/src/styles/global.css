@@ -70,6 +70,17 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .btn-mini:hover:not(:disabled) { border-color: var(--brass-2); color: var(--brass-2); }
 .btn-mini:disabled { opacity: 0.32; cursor: not-allowed; }
 
+/* Col dito questi bottoni erano alti 21px, e "Vendi" sta accanto a
+   "Costruisci": troppo facile sbagliare, con conseguenze. Su schermi stretti e
+   sui dispositivi touch diventano bersagli veri. */
+@media (hover: none), (max-width: 780px) {
+  .btn-mini {
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+  }
+}
+
 /* La casella si schiarisce al passaggio del mouse: fa capire che è cliccabile.
    Sui dispositivi touch l'hover non esiste, quindi non si applica. */
 @media (hover: hover) {

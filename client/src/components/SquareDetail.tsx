@@ -128,5 +128,5 @@ const styles: Record<string, React.CSSProperties> = {
   ownerRow: { display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', margin: '14px 18px 0', paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)' },
   ownerDot: { width: 11, height: 11, borderRadius: 3, flexShrink: 0 },
   free: { color: 'rgba(243,234,216,0.55)', fontStyle: 'italic' },
-  close: { margin: 18, marginTop: 14 },
+  close: { margin: 18, marginTop: 14, minHeight: 44 },
 };
