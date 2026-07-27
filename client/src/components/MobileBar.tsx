@@ -119,6 +119,37 @@ export default function MobileBar({
               Codice tavolo: <span className="mono" style={styles.code}>{state.roomCode}</span>
             </div>
             {state.players.length < 6 && <InviteLink roomCode={state.roomCode} compact />}
+
+            {/* I bot li mette e li toglie chi ha creato il tavolo. Su telefono
+                la fila delle pastiglie è troppo stretta per starci dentro una
+                ✕ toccabile, quindi i bot rimovibili stanno su una riga loro. */}
+            {state.hostId === myId && (
+              <>
+                {state.players.length < 6 && (
+                  <button
+                    className="btn-ghost"
+                    style={styles.addBot}
+                    onClick={() => socket.emit('add_bot', {})}
+                  >
+                    + Aggiungi bot
+                  </button>
+                )}
+                {state.players.some((p) => p.isBot) && (
+                  <div style={styles.botList}>
+                    {state.players.filter((p) => p.isBot).map((p) => (
+                      <button
+                        key={p.id}
+                        className="btn-ghost"
+                        style={styles.botChip}
+                        onClick={() => socket.emit('remove_bot', { botId: p.id })}
+                      >
+                        {p.token} {p.name} ✕
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -143,6 +174,7 @@ export default function MobileBar({
               >
                 €{p.balance}
               </span>
+              {p.isBot && <span style={styles.botTag}>BOT</span>}
               {!p.connected && !p.bankrupt && !affollato && (
                 <span style={styles.offline}>offline</span>
               )}
@@ -241,6 +273,16 @@ const styles: Record<string, React.CSSProperties> = {
   playerToken: { fontSize: '1rem' },
   playerBalance: { fontSize: '0.85rem' },
   offline: { fontSize: '0.62rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic' },
+  // Azzurro, distinto dall'ottone dei giocatori veri.
+  botTag: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.55rem',
+    letterSpacing: '0.06em',
+    color: '#7EC8E3',
+  },
+  addBot: { minHeight: 42, fontSize: '0.88rem' },
+  botList: { display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' },
+  botChip: { minHeight: 40, fontSize: '0.78rem', padding: '0 12px' },
   actions: { display: 'flex', gap: 7, alignItems: 'center', justifyContent: 'center' },
   // 44px è la dimensione minima raccomandata per un bersaglio da toccare.
   mainBtn: { flex: 1, minHeight: 44, fontSize: '0.95rem' },

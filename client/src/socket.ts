@@ -18,6 +18,8 @@ export interface Player {
   doublesInARow: number;
   /** Falso mentre il giocatore è offline: resta al tavolo e può rientrare. */
   connected: boolean;
+  /** Vero per i giocatori artificiali gestiti dal server. */
+  isBot: boolean;
 }
 
 export interface Ownership {

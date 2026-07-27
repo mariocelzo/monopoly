@@ -52,7 +52,19 @@ export default function GamePanel({
           >
             <span style={{ fontSize: '1.3rem' }}>{p.token}</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600 }}>{p.name}{p.id === myId ? ' (tu)' : ''}</div>
+              <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {p.name}{p.id === myId ? ' (tu)' : ''}
+                {p.isBot && <span style={styles.botTag}>BOT</span>}
+                {p.isBot && !state.started && state.hostId === myId && (
+                  <button
+                    style={styles.removeBot}
+                    title="Togli questo bot"
+                    onClick={() => socket.emit('remove_bot', { botId: p.id })}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <div
                 className={`mono ${p.balance < 0 ? 'money-negative' : ''}`}
                 style={{ fontSize: '1.1rem' }}
@@ -65,6 +77,18 @@ export default function GamePanel({
           </div>
         ))}
       </div>
+
+      {/* Riempire il tavolo di bot è una scelta di chi lo ha creato, e solo
+          prima del via: a partita iniziata i posti sono quelli. */}
+      {!state.started && state.hostId === myId && state.players.length < 6 && (
+        <button
+          className="btn-ghost"
+          style={styles.addBot}
+          onClick={() => socket.emit('add_bot', {})}
+        >
+          + Aggiungi bot
+        </button>
+      )}
 
       <div style={styles.turnBox}>
         {!state.started ? (
@@ -133,6 +157,27 @@ const styles: Record<string, React.CSSProperties> = {
   players: { display: 'flex', flexDirection: 'column', gap: 8 },
   playerCard: { display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 10, border: '1.5px solid', background: 'rgba(0,0,0,0.15)' },
   badge: { fontSize: '0.7rem', color: '#e18a8a', marginTop: 2 },
+  // Azzurro, distinto dall'ottone dei giocatori veri: un bot si riconosce a
+  // colpo d'occhio senza confonderlo con un umano disconnesso.
+  botTag: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.58rem',
+    letterSpacing: '0.08em',
+    padding: '1px 5px',
+    borderRadius: 4,
+    border: '1px solid rgba(126,200,227,0.5)',
+    color: '#7EC8E3',
+  },
+  removeBot: {
+    marginLeft: 'auto',
+    background: 'none',
+    border: 'none',
+    color: 'rgba(243,234,216,0.45)',
+    fontSize: '0.85rem',
+    cursor: 'pointer',
+    padding: '0 4px',
+  },
+  addBot: { width: '100%', fontSize: '0.82rem', padding: '8px 14px' },
   offline: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.45)', marginTop: 2, fontStyle: 'italic' },
   turnBox: { paddingTop: 8, borderTop: '1px solid rgba(201,150,44,0.2)' },
   doubleHint: { width: '100%', fontSize: '0.8rem', color: 'var(--brass-2)', marginBottom: 2 },
