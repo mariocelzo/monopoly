@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BoardSquare, GameState, socket } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
+import TradeBoard from './TradeBoard';
 
 /**
  * Composizione di una proposta di scambio: si spuntano le proprietà da offrire e
@@ -97,6 +98,14 @@ export default function TradeModal({
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>proposta di scambio</span>
         <h2 style={styles.title}>Tu ↔ {other.name}</h2>
+
+        <TradeBoard
+          board={board}
+          state={state}
+          myId={myId}
+          otherId={other.id}
+          selected={[...offerProperties, ...requestProperties]}
+        />
 
         <div style={styles.columns}>
           <div style={styles.column}>

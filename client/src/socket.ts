@@ -90,10 +90,19 @@ export interface AwaitingRent {
   doubled: boolean;
 }
 
+/** Tassa dovuta per essere atterrati su una casella tassa. */
+export interface AwaitingTax {
+  type: 'awaiting_tax';
+  playerId: string;
+  position: number;
+  amount: number;
+}
+
 export type PendingAction =
   | AwaitingBuy
   | AwaitingCard
   | AwaitingRent
+  | AwaitingTax
   | AwaitingDebt
   | AwaitingTrade;
 

@@ -40,8 +40,8 @@ class GameEngine {
     this.log = [];
     this.chanceDeck = shuffle(CHANCE_CARDS);
     this.communityDeck = shuffle(COMMUNITY_CARDS);
-    // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_debt' |
-    //   'awaiting_trade',
+    // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_tax' |
+    //   'awaiting_debt' | 'awaiting_trade',
     //   playerId, ... }
     // Blocca il flusso del turno finché il giocatore indicato da playerId non
     // risolve: compra o rinuncia, legge la carta, paga l'affitto, salda il
@@ -241,6 +241,10 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_rent';
   }
 
+  hasPendingTax() {
+    return this.pendingAction?.type === 'awaiting_tax';
+  }
+
   /**
    * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
    * cambiare la merce dopo aver fatto l'offerta.
@@ -350,8 +354,15 @@ class GameEngine {
       case 'go':
         break;
       case 'tax':
-        this.addLog(`${player.name} paga ${square.amount} di ${square.name}.`);
-        this.chargePlayer(player, square.amount);
+        // Come l'affitto: prima si mostra quanto, poi si paga. Prima il denaro
+        // spariva in silenzio.
+        this.pendingAction = {
+          type: 'awaiting_tax',
+          playerId: player.id,
+          position: square.position,
+          amount: square.amount,
+        };
+        this.addLog(`${player.name} è su ${square.name}: deve ${square.amount}.`);
         break;
       case 'go_to_jail':
         this.sendToJail(player);
@@ -376,7 +387,7 @@ class GameEngine {
   resolvePropertyLanding(player, square) {
     // Con un debito o una carta già in sospeso non si apre una proposta
     // d'acquisto: sovrascriverebbe quel pendingAction e lo farebbe sparire.
-    if (this.hasPendingDebt() || this.hasPendingCard()) return;
+    if (this.hasPendingDebt() || this.hasPendingCard() || this.hasPendingTax()) return;
     const owned = this.ownership[square.position];
     if (!owned) {
       // offer to buy
@@ -406,6 +417,21 @@ class GameEngine {
       doubled: this.rentMultiplier > 1,
     };
     this.addLog(`${player.name} è su ${square.name}: deve ${rent} di affitto a ${owner.name}.`);
+  }
+
+  /** Il giocatore conferma il pagamento della tassa. */
+  payTax(playerId) {
+    if (this.pendingAction?.type !== 'awaiting_tax') return { error: 'Nessuna tassa da pagare' };
+    if (this.pendingAction.playerId !== playerId) return { error: 'Non tocca a te' };
+
+    const { amount, position } = this.pendingAction;
+    const player = this.players.find((p) => p.id === playerId);
+    this.pendingAction = null;
+    this.addLog(`${player.name} paga ${amount} di ${board[position].name}.`);
+    this.chargePlayer(player, amount);
+
+    if (!this.pendingAction) this.finishRoll(this.currentPlayer);
+    return {};
   }
 
   /**
@@ -1120,6 +1146,7 @@ class GameEngine {
     if (this.hasPendingTrade()) return { error: 'Prima rispondi allo scambio proposto' };
     if (this.hasPendingCard()) return { error: 'Prima leggi la carta pescata' };
     if (this.hasPendingRent()) return { error: 'Prima paga l\'affitto' };
+    if (this.hasPendingTax()) return { error: 'Prima paga la tassa' };
     // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
     // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
     if (this.turnResolved || this.finished) return {};

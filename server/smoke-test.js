@@ -348,11 +348,13 @@ section('10e. Tre doppi consecutivi mandano in prigione');
     return (value - 1) / 6 + 0.001;
   };
 
-  // Se il tiro si ferma su una proprietà libera si rinuncia, così il turno
-  // prosegue: col doppio il tiro extra spetta comunque.
+  // Il tiro può fermarsi su una proprietà libera o su una tassa: si risolve
+  // subito, così il turno prosegue e col doppio il tiro extra spetta comunque.
   const rollAndDecline = () => {
     game.rollDice('a');
     if (game.pendingAction?.type === 'awaiting_buy') game.declineBuy('a');
+    if (game.pendingAction?.type === 'awaiting_tax') game.payTax('a');
+    if (game.pendingAction?.type === 'awaiting_rent') game.payRent('a');
   };
 
   rollAndDecline();
@@ -443,6 +445,12 @@ section('12. Partita simulata, 300 turni');
     for (let i = 0; i < 300 && !game.finished; i++) {
       const current = game.currentPlayer;
       if (!current) break;
+
+      // Tassa dovuta: va confermata come l'affitto.
+      if (game.pendingAction?.type === 'awaiting_tax') {
+        game.payTax(game.pendingAction.playerId);
+        continue;
+      }
 
       // Affitto dovuto: va confermato, altrimenti il turno resta bloccato.
       if (game.pendingAction?.type === 'awaiting_rent') {
@@ -660,6 +668,33 @@ section('17d. Niente affitto sulle ipotecate e sulle proprie');
   game.turnResolved = false;
   game.movePlayer(mario, ORANGE[1] - 10);
   check('sulla propria non si paga', game.pendingAction === null, JSON.stringify(game.pendingAction));
+}
+
+section('17e. Anche le tasse si confermano');
+{
+  const game = newGame();
+  const mario = game.players[0];
+  mario.position = 0;
+
+  game.movePlayer(mario, 4); // Tassa patrimoniale, 200
+  check('si apre una tassa in sospeso', game.pendingAction?.type === 'awaiting_tax');
+  check('l\'importo è indicato', game.pendingAction?.amount === 200, `${game.pendingAction?.amount}`);
+  check('nulla è ancora addebitato', mario.balance === 1500);
+
+  const altro = game.payTax('b');
+  check('solo chi deve pagare può confermare', !!altro.error, altro.error);
+  const ended = game.endTurn();
+  check('il turno resta bloccato', !!ended.error, ended.error);
+
+  game.payTax('a');
+  check('dopo la conferma il saldo cala', mario.balance === 1300, `saldo=${mario.balance}`);
+  check('la tassa è chiusa', game.pendingAction === null);
+
+  // Tassa di lusso, la seconda del tabellone.
+  const g2 = newGame();
+  g2.players[0].position = 30;
+  g2.movePlayer(g2.players[0], 8); // casella 38
+  check('vale anche per la tassa di lusso', g2.pendingAction?.amount === 100, `${g2.pendingAction?.amount}`);
 }
 
 section('18. Nessuna carta scavalca un debito già aperto');

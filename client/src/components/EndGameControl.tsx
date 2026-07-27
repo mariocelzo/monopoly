@@ -38,7 +38,7 @@ export default function EndGameControl({
         style={{ ...styles.button, ...(compact ? styles.compact : null) }}
         onClick={() => setConfirming(true)}
       >
-        {label}
+        {isHost ? '✕ ' : '🏳️ '}{label}
       </button>
     );
   }
@@ -59,8 +59,18 @@ export default function EndGameControl({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  button: { width: '100%', fontSize: '0.82rem', padding: '8px 14px', opacity: 0.75 },
-  compact: { minHeight: 42, fontSize: '0.88rem', opacity: 1 },
+  // Deve essere trovabile a colpo d'occhio: bordo e testo del colore del
+  // pericolo, e un bersaglio pieno. Dalle uscite accidentali protegge la
+  // conferma a due passi, non il fatto di renderlo piccolo.
+  button: {
+    width: '100%',
+    minHeight: 46,
+    fontSize: '0.95rem',
+    fontWeight: 700,
+    borderColor: 'rgba(179,58,58,0.65)',
+    color: '#e8a0a0',
+  },
+  compact: { minHeight: 50, fontSize: '1rem' },
   confirmBox: {
     display: 'flex',
     flexDirection: 'column',
@@ -72,6 +82,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   question: { fontSize: '0.78rem', color: 'var(--paper)', margin: 0, lineHeight: 1.4 },
   row: { display: 'flex', gap: 8 },
-  danger: { flex: 1, minHeight: 38, fontSize: '0.8rem', borderColor: 'var(--danger)', color: '#e18a8a' },
-  cancel: { flex: 1, minHeight: 38, fontSize: '0.8rem' },
+  danger: { flex: 1, minHeight: 44, fontSize: '0.85rem', borderColor: 'var(--danger)', color: '#e18a8a' },
+  cancel: { flex: 1, minHeight: 44, fontSize: '0.85rem' },
 };

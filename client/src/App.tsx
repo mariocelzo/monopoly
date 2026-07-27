@@ -12,6 +12,7 @@ import TradeModal from './components/TradeModal';
 import TradeOfferModal from './components/TradeOfferModal';
 import CardModal from './components/CardModal';
 import RentModal from './components/RentModal';
+import TaxModal from './components/TaxModal';
 import SquareDetail from './components/SquareDetail';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
@@ -141,6 +142,7 @@ export default function App() {
   const trade = pending?.type === 'awaiting_trade' ? pending : null;
   const card = pending?.type === 'awaiting_card' ? pending : null;
   const rent = pending?.type === 'awaiting_rent' ? pending : null;
+  const tax = pending?.type === 'awaiting_tax' ? pending : null;
   const buySquare = buy ? board.find((s) => s.position === buy.position) : null;
   const winner = state.finished ? state.players.find((p) => p.id === state.winnerId) : null;
   const inspectedSquare = inspected !== null ? board.find((s) => s.position === inspected) : null;
@@ -195,6 +197,14 @@ export default function App() {
         <RentModal
           pending={rent}
           square={board.find((s) => s.position === rent.position)}
+          state={state}
+          myId={playerId}
+        />
+      )}
+      {tax && (
+        <TaxModal
+          pending={tax}
+          square={board.find((s) => s.position === tax.position)}
           state={state}
           myId={playerId}
         />

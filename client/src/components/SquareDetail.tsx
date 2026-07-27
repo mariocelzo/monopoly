@@ -55,6 +55,16 @@ export default function SquareDetail({
 
   const rows = rentRows();
 
+  /**
+   * Quale riga della tabella è quella in vigore adesso. Sapere che "con 3 case"
+   * costa 750 serve poco se non si vede a colpo d'occhio a che punto siamo.
+   */
+  const rigaAttiva = (): number => {
+    if (!owned || owned.mortgaged || square.type !== 'property') return -1;
+    return owned.hotel ? 5 : owned.houses;
+  };
+  const attiva = rigaAttiva();
+
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div className="panel" style={styles.card} onClick={(e) => e.stopPropagation()}>
@@ -69,10 +79,15 @@ export default function SquareDetail({
 
         {rows.length > 0 && (
           <div style={styles.rents}>
-            {rows.map(([label, value]) => (
-              <div key={label} style={styles.rentRow}>
-                <span style={styles.rentLabel}>{label}</span>
-                <span style={styles.rentValue}>{value}</span>
+            {rows.map(([label, value], i) => (
+              <div
+                key={label}
+                style={{ ...styles.rentRow, ...(i === attiva ? styles.rentRowActive : null) }}
+              >
+                <span style={i === attiva ? styles.rentLabelActive : styles.rentLabel}>
+                  {i === attiva ? `▸ ${label}` : label}
+                </span>
+                <span style={i === attiva ? styles.rentValueActive : styles.rentValue}>{value}</span>
               </div>
             ))}
           </div>
@@ -122,7 +137,10 @@ const styles: Record<string, React.CSSProperties> = {
   price: { fontFamily: 'var(--font-mono)', fontSize: '1.35rem', color: 'var(--brass-2)', textAlign: 'center', margin: '6px 0 0' },
   rents: { display: 'flex', flexDirection: 'column', gap: 3, padding: '14px 18px 0' },
   rentRow: { display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: '0.78rem', borderBottom: '1px dotted rgba(201,150,44,0.22)', paddingBottom: 3 },
+  rentRowActive: { background: 'rgba(201,150,44,0.16)', borderRadius: 4, padding: '2px 6px', marginLeft: -6, marginRight: -6 },
   rentLabel: { color: 'rgba(243,234,216,0.72)' },
+  rentLabelActive: { color: 'var(--brass-2)', fontWeight: 700 },
+  rentValueActive: { fontFamily: 'var(--font-mono)', color: 'var(--brass-2)', fontWeight: 700 },
   rentValue: { fontFamily: 'var(--font-mono)', color: 'var(--paper)' },
   note: { fontSize: '0.72rem', color: 'rgba(243,234,216,0.5)', margin: '8px 18px 0' },
   ownerRow: { display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', margin: '14px 18px 0', paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)' },

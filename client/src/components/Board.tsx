@@ -3,8 +3,11 @@ import { BoardSquare, GameState } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
 import Dice from './Dice';
 
-/** Riga e colonna (1-based) della casella nella griglia 11x11. */
-function gridPos(position: number): { row: number; col: number } {
+/**
+ * Riga e colonna (1-based) della casella nella griglia 11x11. Esportata perche'
+ * la mappa in miniatura dello scambio deve disporre le caselle allo stesso modo.
+ */
+export function gridPos(position: number): { row: number; col: number } {
   if (position === 0) return { row: 11, col: 11 };
   if (position >= 1 && position <= 9) return { row: 11, col: 11 - position };
   if (position === 10) return { row: 11, col: 1 };
@@ -274,13 +277,24 @@ export default function Board({
           )}
 
           <div style={styles.legend}>
-            {state.players.map((p) => (
-              <div key={p.id} style={{ ...styles.legendItem, opacity: p.bankrupt ? 0.35 : 1 }}>
-                <span style={{ ...styles.legendDot, background: colorOf(p.id) }} />
-                <span style={styles.legendToken}>{p.token}</span>
-                <span style={styles.legendName}>{p.name}</span>
-              </div>
-            ))}
+            {state.players.map((p) => {
+              const diTurno = !state.finished && state.players[state.turnIndex]?.id === p.id;
+              return (
+                <div
+                  key={p.id}
+                  style={{
+                    ...styles.legendItem,
+                    ...(diTurno ? { ...styles.legendActive, borderColor: colorOf(p.id) } : null),
+                    opacity: p.bankrupt ? 0.35 : 1,
+                  }}
+                >
+                  <span style={{ ...styles.legendDot, background: colorOf(p.id) }} />
+                  <span style={styles.legendToken}>{p.token}</span>
+                  <span style={styles.legendName}>{p.name}</span>
+                  {diTurno && <span style={styles.legendTurn}>sta giocando</span>}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -437,6 +451,19 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 5,
     fontSize: scaled(0.017, '10px'),
     color: 'rgba(243,234,216,0.75)',
+  },
+  legendActive: {
+    border: '1px solid',
+    borderRadius: 999,
+    padding: '2px 9px',
+    background: 'rgba(0,0,0,0.25)',
+    color: 'var(--paper)',
+  },
+  legendTurn: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: scaled(0.013, '8px'),
+    color: 'var(--brass-2)',
+    opacity: 0.9,
   },
   legendDot: { width: scaled(0.013, '7px'), height: scaled(0.013, '7px'), borderRadius: 2 },
   legendToken: { fontSize: scaled(0.023, '13px') },

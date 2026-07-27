@@ -52,6 +52,18 @@ export default function PropertiesPanel({
   const groupHasMortgage = (group?: string) =>
     board.filter((s) => s.group === group).some((s) => state.ownership[s.position]?.mortgaged);
 
+  /**
+   * Affitto che quella casella incassa adesso. È solo informativo: il conto che
+   * conta lo fa il server. Stazioni e società dipendono da quante se ne
+   * possiedono e dai dadi, quindi qui si omettono.
+   */
+  const rentNow = (square: BoardSquare, owned: Ownership): number | null => {
+    if (square.type !== 'property' || !square.rents) return null;
+    if (owned.hotel) return square.rents[5];
+    if (owned.houses > 0) return square.rents[owned.houses];
+    return ownsFullGroup(square.group) ? square.rents[0] * 2 : square.rents[0];
+  };
+
   const mortgageValue = (square: BoardSquare) => Math.floor((square.price || 0) / 2);
   // Interesse in aritmetica intera come sul server: `100 * 1.1` in floating point
   // vale 110.00000000000001 e mostrerebbe 111 invece di 110.
@@ -131,10 +143,15 @@ export default function PropertiesPanel({
                       : owned.hotel
                         ? '🏨 hotel'
                         : owned.houses > 0
-                          ? '🏠'.repeat(owned.houses)
-                          : '—'}
+                          ? `${'🏠'.repeat(owned.houses)} ${owned.houses}/4`
+                          : 'terreno scoperto'}
                   </span>
                 </div>
+                {!owned.mortgaged && rentNow(square, owned) !== null && (
+                  <div style={styles.rentNow}>
+                    Affitto adesso: <strong>€{rentNow(square, owned)}</strong>
+                  </div>
+                )}
                 <div style={styles.rowActions}>
                   {isProperty && (
                     <>
@@ -199,6 +216,7 @@ const styles: Record<string, React.CSSProperties> = {
   rowInfo: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
   name: { fontSize: '0.82rem', fontWeight: 600, color: 'var(--paper)' },
   status: { fontSize: '0.7rem', color: 'var(--brass-2)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' },
+  rentNow: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.6)' },
   rowActions: { display: 'flex', gap: 5, flexWrap: 'wrap' },
   error: { fontSize: '0.74rem', color: '#e18a8a', margin: 0 },
 };
