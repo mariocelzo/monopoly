@@ -1,17 +1,20 @@
 import { BoardSquare, GameState, socket } from '../socket';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
+import HomeButton from './HomeButton';
 
 export default function GamePanel({
   state,
   myId,
   board,
   onProposeTrade,
+  onLeave,
 }: {
   state: GameState;
   myId: string;
   board: BoardSquare[];
   onProposeTrade: () => void;
+  onLeave: () => void;
 }) {
   const current = state.players[state.turnIndex];
   const isMyTurn = current?.id === myId;
@@ -108,7 +111,10 @@ export default function GamePanel({
         </div>
       )}
 
-      {state.started && <EndGameControl state={state} myId={myId} />}
+      <div style={styles.exits}>
+        <HomeButton roomCode={state.roomCode} onLeave={onLeave} />
+        {state.started && <EndGameControl state={state} myId={myId} />}
+      </div>
 
       <div style={styles.log}>
         {state.log.slice().reverse().map((entry, i) => (
@@ -131,6 +137,7 @@ const styles: Record<string, React.CSSProperties> = {
   tradeBtn: { width: '100%', fontSize: '0.85rem', padding: '8px 14px' },
   properties: { paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)', maxHeight: 300, overflowY: 'auto' },
   sectionTitle: { fontSize: '0.95rem', marginBottom: 10, color: 'var(--paper)' },
+  exits: { display: 'flex', flexDirection: 'column', gap: 8 },
   log: { maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem', color: 'rgba(243,234,216,0.75)' },
   logLine: { borderLeft: '2px solid rgba(201,150,44,0.3)', paddingLeft: 8 },
 };

@@ -123,7 +123,10 @@ export default function App() {
     );
   }
 
-  /** Torna alla lobby dopo la fine: la stanza sul server non esiste più. */
+  /**
+   * Torna alla lobby. A partita finita la stanza puo' essere gia' sparita; a
+   * meta' partita resta viva e ci si rientra col codice.
+   */
   const leaveTable = () => {
     clearRoom();
     setPlayerId(null);
@@ -169,6 +172,7 @@ export default function App() {
           myId={playerId}
           board={board}
           onProposeTrade={() => setComposingTrade(true)}
+          onLeave={leaveTable}
         />
       ) : (
         <GamePanel
@@ -176,6 +180,7 @@ export default function App() {
           myId={playerId}
           board={board}
           onProposeTrade={() => setComposingTrade(true)}
+          onLeave={leaveTable}
         />
       )}
 

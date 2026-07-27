@@ -168,6 +168,20 @@ io.on('connection', (socket) => {
     return game.endTurn();
   }));
 
+  /**
+   * Il giocatore torna alla home senza arrendersi: resta al tavolo con tutto il
+   * suo, ma il socket si sgancia dalla stanza. Cosi' l'altro lo vede offline
+   * invece di aspettare un turno che non arriva, e lui puo' rientrare col
+   * codice quando vuole.
+   */
+  socket.on('leave_table', (payload, cb) => {
+    roomManager.detachSocket(socket.id).forEach(broadcastState);
+    socket.leave(socket.data.roomCode);
+    socket.data.roomCode = null;
+    socket.data.playerId = null;
+    cb?.({});
+  });
+
   socket.on('disconnect', () => {
     // Il giocatore resta al tavolo con le sue proprietà: viene solo segnato
     // come disconnesso, così l'altro lo vede e lui può rientrare.

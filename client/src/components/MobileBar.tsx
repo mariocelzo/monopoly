@@ -3,6 +3,7 @@ import { BoardSquare, GameState, socket } from '../socket';
 import { PLAYER_COLORS } from './Board';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
+import HomeButton from './HomeButton';
 
 type Sheet = 'proprieta' | 'registro' | null;
 
@@ -16,11 +17,13 @@ export default function MobileBar({
   myId,
   board,
   onProposeTrade,
+  onLeave,
 }: {
   state: GameState;
   myId: string;
   board: BoardSquare[];
   onProposeTrade: () => void;
+  onLeave: () => void;
 }) {
   const [sheet, setSheet] = useState<Sheet>(null);
 
@@ -88,6 +91,7 @@ export default function MobileBar({
                       <div key={i} style={styles.logLine}>{entry.message}</div>
                     ))}
                   </div>
+                  <HomeButton roomCode={state.roomCode} onLeave={onLeave} compact />
                   {state.started && <EndGameControl state={state} myId={myId} compact />}
                 </>
               )}
