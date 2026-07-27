@@ -13,6 +13,32 @@ azione viene comunque ricontrollata dal motore.
 L'unica decisione davvero manuale è l'acquisto di una proprietà. Affitti,
 monopoli, carte, prigione, interessi e bancarotta si applicano da soli.
 
+## Bot
+
+Chi crea il tavolo può riempire i posti vuoti con giocatori artificiali, dal
+bottone **"+ Aggiungi bot"** nella schermata d'attesa. Si aggiungono e si
+tolgono solo prima del via; a partita iniziata i posti sono quelli.
+
+I bot decidono con un'euristica scritta a mano (`server/src/botStrategy.js`),
+senza chiavi API e senza costi. I pesi non seguono il prezzo di listino ma la
+resa reale: gli arancioni valgono più di tutti perché stanno a 6-8-9 caselle
+dalla prigione, la casella più visitata del tabellone.
+
+Non sono imbattibili, apposta: la soglia d'acquisto ha un margine casuale del
+±10%, nel 20% dei casi tentano i dadi in prigione anche potendo pagare la
+multa, e propongono scambi solo in un turno su tre.
+
+```bash
+cd server && node bot-calibration.js 200      # due bot
+cd server && node bot-calibration.js 150 4    # quattro bot
+```
+
+Lo script fa giocare N partite di soli bot e riporta quante si concludono, in
+quante mosse, quante proprietà finiscono assegnate e come si distribuiscono le
+vittorie. Serve a tarare le soglie sui numeri invece che a occhio: fra bot
+identici le vittorie devono stare vicino a 1/N, altrimenti c'è uno squilibrio
+da correggere.
+
 ## Avvio in locale
 
 Servono Node 20 o superiore e due terminali.
@@ -79,9 +105,12 @@ stato vive in memoria.
 ```
 server/
   smoke-test.js        Suite di asserzioni sul motore
+  bot-calibration.js   Partite simulate bot-contro-bot, per tarare le soglie
   src/
     data/board.js      Le 40 caselle (edizione italiana), le carte
     gameEngine.js      Stato della partita e tutte le regole
+    botStrategy.js     Quanto vale una proprietà, conviene questo scambio
+    bot.js             Sceglie ed esegue una mossa del giocatore artificiale
     rooms.js           Stanze, aggancio dei socket, scadenza
     server.js          Eventi Socket.io
 client/
@@ -97,7 +126,7 @@ docs/superpowers/specs/  Documenti di design delle funzionalità
 ## Stato
 
 Fatto: motore completo, bancarotta con liquidazione, costruzioni e ipoteche,
-scambi, tre doppi, riconnessione, assetto mobile.
+scambi, tre doppi, riconnessione, assetto mobile, bot.
 
 Regole della casa: il Via paga 500.
 
