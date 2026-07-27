@@ -75,9 +75,12 @@ export default function App() {
     return () => { socket.off('connect', rejoin); };
   }, []);
 
+  // La sessione salvata si scarta solo se il tavolo è stato chiuso davvero.
+  // Dopo una vittoria o un abbandono la stanza resta in piedi per la
+  // rivincita, e ricaricando si deve poter rientrare.
   useEffect(() => {
-    if (state?.finished) clearRoom();
-  }, [state?.finished]);
+    if (state?.finished && state.endedReason === 'closed') clearRoom();
+  }, [state?.finished, state?.endedReason]);
 
   /**
    * Riaggancio forzato quando la pagina torna in primo piano o la rete ritorna.
@@ -138,6 +141,9 @@ export default function App() {
   const buySquare = buy ? board.find((s) => s.position === buy.position) : null;
   const winner = state.finished ? state.players.find((p) => p.id === state.winnerId) : null;
   const inspectedSquare = inspected !== null ? board.find((s) => s.position === inspected) : null;
+  const altro = state.players.find((p) => p.id !== playerId);
+  const hoChiestoRivincita = state.rematchVotes.includes(playerId);
+  const altroVuoleRivincita = !!altro && state.rematchVotes.includes(altro.id);
 
   return (
     <div style={isMobile ? styles.wrapMobile : styles.wrap}>
@@ -208,8 +214,34 @@ export default function App() {
               {winner ? `${winner.name} vince!` : 'Partita interrotta'}
             </h2>
             <p style={styles.winSub}>{endingMessage(state, winner, playerId)}</p>
-            <button className="btn-primary" style={styles.newGame} onClick={leaveTable}>
-              Nuova partita
+
+            {/* Dopo un tavolo chiuso non c'è più nulla a cui tornare. */}
+            {state.endedReason !== 'closed' && (
+              <>
+                <button
+                  className="btn-primary"
+                  style={styles.newGame}
+                  disabled={hoChiestoRivincita}
+                  onClick={() => socket.emit('request_rematch', {})}
+                >
+                  {hoChiestoRivincita ? 'In attesa…' : 'Rivincita'}
+                </button>
+                <p style={styles.rematchNote}>
+                  {hoChiestoRivincita
+                    ? `Aspettiamo che ${altro?.name || "l'altro giocatore"} accetti.`
+                    : altroVuoleRivincita
+                      ? `${altro?.name} vuole la rivincita!`
+                      : 'Stesso tavolo, tutto da capo.'}
+                </p>
+              </>
+            )}
+
+            <button
+              className={state.endedReason === 'closed' ? 'btn-primary' : 'btn-ghost'}
+              style={styles.newGame}
+              onClick={leaveTable}
+            >
+              Lascia il tavolo
             </button>
           </div>
         </div>
@@ -267,5 +299,6 @@ const styles: Record<string, React.CSSProperties> = {
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   winTitle: { fontSize: '2rem', marginTop: 10, color: 'var(--brass-2)' },
   winSub: { color: 'rgba(243,234,216,0.65)', marginTop: 10, lineHeight: 1.5 },
-  newGame: { marginTop: 22, width: '100%' },
+  newGame: { marginTop: 18, width: '100%', minHeight: 46 },
+  rematchNote: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.55)', marginTop: 10, lineHeight: 1.4 },
 };

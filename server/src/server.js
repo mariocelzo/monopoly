@@ -147,22 +147,21 @@ io.on('connection', (socket) => {
   // Scambi fra giocatori: proposta e risposta.
   socket.on('propose_trade', withGame((game, playerId, payload) => game.proposeTrade(playerId, payload)));
   socket.on('respond_trade', withGame((game, playerId, { accept }) => game.respondTrade(playerId, !!accept)));
-  /**
-   * Fine anticipata. Si manda l'ultimo stato ai due giocatori e poi si butta via
-   * la stanza: il codice smette di valere e nessuno rientra in un tavolo chiuso.
-   */
-  const finishAndClose = (handler) => (payload, cb) => {
+  // Abbandonare chiude la partita ma lascia in piedi il tavolo: si puo' chiedere
+  // la rivincita. Il tavolo si distrugge solo con "Chiudi il tavolo", che e'
+  // esattamente cio' che quel bottone promette.
+  socket.on('abandon_game', withGame((game, playerId) => game.abandonGame(playerId)));
+  socket.on('request_rematch', withGame((game, playerId) => game.requestRematch(playerId)));
+
+  socket.on('end_game', (payload, cb) => {
     const code = socket.data.roomCode;
     const room = roomManager.getRoom(code);
     if (!room) return cb?.({ error: 'Stanza non trovata' });
-    const result = handler(room.game, socket.data.playerId);
+    const result = room.game.endGame(socket.data.playerId);
     broadcastState(code);
     if (room.game.finished) roomManager.closeRoom(code);
     cb?.(result || {});
-  };
-
-  socket.on('abandon_game', finishAndClose((game, playerId) => game.abandonGame(playerId)));
-  socket.on('end_game', finishAndClose((game, playerId) => game.endGame(playerId)));
+  });
 
   socket.on('end_turn', withGame((game, playerId) => {
     if (game.currentPlayer?.id !== playerId) return { error: 'Non è il tuo turno' };

@@ -111,6 +111,8 @@ export interface GameState {
   endedReason: 'bankruptcy' | 'abandoned' | 'closed' | null;
   /** Chi ha creato il tavolo: solo lui può chiuderlo per entrambi. */
   hostId: string | null;
+  /** Chi ha già chiesto la rivincita: serve il consenso di entrambi. */
+  rematchVotes: string[];
   /** Ultimo tiro, mostrato al centro del tabellone. `seq` distingue tiri uguali. */
   lastRoll: { playerId: string; dice: [number, number]; seq: number } | null;
 }

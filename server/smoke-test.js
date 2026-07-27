@@ -710,6 +710,55 @@ section('19. Abbandono e chiusura del tavolo');
   check('la fine ripulisce il pendingAction', g3.pendingAction === null);
 }
 
+section('19b. Rivincita: serve il consenso di entrambi');
+{
+  const game = newGame();
+  const [mario, giulia] = game.players;
+  give(game, 'a', ORANGE[0], { houses: 2 });
+  give(game, 'b', BROWN[0]);
+  mario.balance = 42;
+  mario.position = 22;
+  giulia.jailCards = 1;
+
+  const troppoPresto = game.requestRematch('a');
+  check('a partita in corso non si chiede', !!troppoPresto.error, troppoPresto.error);
+
+  game.abandonGame('b');
+  check('la partita è finita', game.finished === true);
+
+  game.requestRematch('a');
+  check('un voto solo non fa ripartire', game.finished === true);
+  check('il voto è registrato', game.rematchVotes.length === 1);
+  const doppio = game.requestRematch('a');
+  check('non si vota due volte', !!doppio.error, doppio.error);
+
+  game.requestRematch('b');
+  check('col secondo voto si riparte', game.finished === false);
+  check('i saldi tornano a 1500', mario.balance === 1500 && giulia.balance === 1500);
+  check('le pedine tornano al Via', game.players.every((p) => p.position === 0));
+  check('le proprietà sono azzerate', Object.keys(game.ownership).length === 0);
+  check('le carte uscita sono azzerate', giulia.jailCards === 0);
+  check('nessuno è più fallito', game.players.every((p) => !p.bankrupt));
+  check('non c\'è più un vincitore', game.winnerId === null && game.endedReason === null);
+  check('si riparte dal primo giocatore', game.turnIndex === 0);
+  check('i voti sono azzerati', game.rematchVotes.length === 0);
+  check('la partita è in corso', game.started === true);
+  check('i giocatori sono gli stessi', game.players.map((p) => p.name).join() === 'Mario,Giulia');
+  check('il creatore del tavolo non cambia', game.hostId === 'a');
+
+  // E si può giocare davvero.
+  check('si possono tirare i dadi', !game.rollDice('a').error);
+}
+
+section('19c. Dopo un tavolo chiuso non c\'è rivincita');
+{
+  const game = newGame();
+  game.endGame('a');
+  const res = game.requestRematch('a');
+  check('la rivincita è rifiutata', !!res.error, res.error);
+  check('la partita resta finita', game.finished === true);
+}
+
 section('20. Chiusura della stanza');
 {
   const { RoomManager } = require('./src/rooms');

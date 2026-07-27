@@ -54,6 +54,9 @@ class GameEngine {
     this.endedReason = null;
     // Il creatore del tavolo, cioè il primo che si siede.
     this.hostId = null;
+    // Chi ha chiesto la rivincita a partita finita: serve il consenso di
+    // entrambi, così nessuno si ritrova la partita azzerata sotto il naso.
+    this.rematchVotes = [];
     // Alzata mentre resolveDebtAuto sta liquidando in serie: evita che ogni
     // singola vendita chiuda il debito e faccia girare il turno a metà loop.
     this.liquidating = false;
@@ -164,6 +167,7 @@ class GameEngine {
       winnerId: this.winnerId,
       endedReason: this.endedReason,
       hostId: this.hostId,
+      rematchVotes: this.rematchVotes,
       lastRoll: this.lastRoll,
     };
   }
@@ -1043,6 +1047,59 @@ class GameEngine {
     this.pendingAction = null;
     this.addLog('Il tavolo è stato chiuso da chi lo ha creato.');
     return {};
+  }
+
+  /**
+   * Chiede la rivincita. Quando entrambi l'hanno chiesta la partita riparte da
+   * zero. Non è possibile se il tavolo è stato chiuso: quel bottone significa
+   * "abbiamo finito", e la stanza non esiste più.
+   */
+  requestRematch(playerId) {
+    if (!this.finished) return { error: 'La partita non è ancora finita' };
+    if (this.endedReason === 'closed') return { error: 'Il tavolo è stato chiuso' };
+    if (!this.hasPlayer(playerId)) return { error: 'Non sei a questo tavolo' };
+    if (this.rematchVotes.includes(playerId)) return { error: 'Hai già chiesto la rivincita' };
+
+    this.rematchVotes.push(playerId);
+    const player = this.players.find((p) => p.id === playerId);
+    this.addLog(`${player.name} chiede la rivincita.`);
+
+    if (this.players.every((p) => this.rematchVotes.includes(p.id))) this.rematch();
+    return {};
+  }
+
+  /**
+   * Riparte da capo con gli stessi giocatori e lo stesso tavolo: saldi, pedine,
+   * proprietà e mazzi tornano come all'inizio. Restano solo l'identità dei
+   * giocatori, chi è il creatore del tavolo e chi è collegato.
+   */
+  rematch() {
+    this.ownership = {};
+    this.players.forEach((p) => {
+      p.balance = STARTING_BALANCE;
+      p.position = 0;
+      p.inJail = false;
+      p.jailTurns = 0;
+      p.jailCards = 0;
+      p.bankrupt = false;
+      p.doublesInARow = 0;
+    });
+    this.chanceDeck = shuffle(CHANCE_CARDS);
+    this.communityDeck = shuffle(COMMUNITY_CARDS);
+    this.pendingAction = null;
+    this.pendingCard = null;
+    this.rentMultiplier = 1;
+    this.finished = false;
+    this.winnerId = null;
+    this.endedReason = null;
+    this.rematchVotes = [];
+    this.turnIndex = 0;
+    this.turnResolved = false;
+    this.lastRollWasDouble = false;
+    this.lastRoll = null;
+    this.log = [];
+    this.started = true;
+    this.addLog('Rivincita! Si riparte da zero.');
   }
 
   /** Con un solo giocatore ancora in piedi la partita è finita. */
