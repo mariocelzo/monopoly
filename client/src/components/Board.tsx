@@ -42,6 +42,9 @@ const CORNER_LABELS: Record<number, string> = { 0: 'VIA', 10: 'PRIGIONE', 20: 'S
 const scaled = (factor: number, min?: string) =>
   min ? `max(${min}, calc(var(--bw) * ${factor}))` : `calc(var(--bw) * ${factor})`;
 
+// Durata di un passo del cammino della pedina.
+const STEP_MS = 110;
+
 // Sotto questa larghezza del tabellone una casella scende sotto i ~52px e il
 // nome della proprietà diventa illeggibile: meglio toglierlo del tutto.
 const NAME_THRESHOLD = 620;
@@ -111,7 +114,7 @@ function useWalkingPositions(state: GameState): Record<string, number> {
     };
 
     const needsWalk = state.players.some((p) => shown[p.id] !== undefined && shown[p.id] !== p.position);
-    if (needsWalk) timer.current = window.setInterval(step, 110);
+    if (needsWalk) timer.current = window.setInterval(step, STEP_MS);
 
     return () => {
       if (timer.current !== null) {
@@ -120,6 +123,40 @@ function useWalkingPositions(state: GameState): Record<string, number> {
       }
     };
   }, [state.players, shown]);
+
+  /**
+   * Rete di sicurezza: la posizione mostrata deve sempre finire per combaciare
+   * con quella del server. Il browser congela i timer delle schede in secondo
+   * piano, quindi un cammino iniziato e poi interrotto lascerebbe la pedina su
+   * una casella sbagliata a tempo indeterminato. Qui si allinea comunque: al
+   * più tardi allo scadere del cammino più lungo possibile, e subito quando la
+   * pagina torna in primo piano.
+   */
+  useEffect(() => {
+    const allinea = () => {
+      setShown((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        state.players.forEach((p) => {
+          if (next[p.id] !== p.position) {
+            next[p.id] = p.position;
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    // Un tiro non supera le 12 caselle, più un margine per i ritardi di rete.
+    const scadenza = window.setTimeout(allinea, 12 * STEP_MS + 900);
+    const alRitorno = () => { if (!document.hidden) allinea(); };
+    document.addEventListener('visibilitychange', alRitorno);
+
+    return () => {
+      window.clearTimeout(scadenza);
+      document.removeEventListener('visibilitychange', alRitorno);
+    };
+  }, [state.players]);
 
   return shown;
 }
@@ -417,7 +454,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '2px solid',
     pointerEvents: 'none',
     zIndex: 5,
-    // Il passo del cammino è 110ms: la transizione sta dentro quel tempo.
+    // La transizione sta dentro la durata di un passo (STEP_MS).
     transition: 'left 0.1s linear, top 0.1s linear',
   },
 };
