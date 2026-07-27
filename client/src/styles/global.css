@@ -1,0 +1,70 @@
+@import './tokens.css';
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: radial-gradient(ellipse at center, var(--felt-3) 0%, var(--felt) 70%);
+  color: var(--paper);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.mono { font-family: var(--font-mono); }
+
+button {
+  font-family: var(--font-body);
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 3px solid var(--brass-2);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--brass);
+  color: var(--ink);
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  box-shadow: var(--shadow-soft);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.btn-primary:hover { background: var(--brass-2); transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--paper);
+  border: 1.5px solid rgba(243, 234, 216, 0.35);
+  padding: 9px 18px;
+  font-size: 0.9rem;
+}
+.btn-ghost:hover { border-color: var(--brass-2); color: var(--brass-2); }
+
+.panel {
+  background: var(--felt-2);
+  border: 1px solid rgba(201, 150, 44, 0.25);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.money-positive { color: var(--brass-2); }
+.money-negative { color: #e18a8a; }
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(201,150,44,0.4); border-radius: 4px; }

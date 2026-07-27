@@ -1,0 +1,47 @@
+/*
+  Design concept: "Tavolo la sera" — un tavolo da gioco in feltro verde scuro
+  con dettagli in ottone/rame, come un Monopoli vero posato sul tavolo,
+  non un dashboard SaaS. Le carte proprietà sono targhette, i bottoni
+  hanno il peso di gettoni.
+
+  Palette:
+    --felt      #0F3D2E  base tavolo (verde feltro scuro)
+    --felt-2    #164A38  variante feltro per pannelli
+    --brass     #C9962C  ottone (accenti, bordi, evidenze)
+    --brass-2   #E8B85A  ottone chiaro (hover)
+    --paper     #F3EAD8  carte/pannelli chiari
+    --ink       #1B2430  testo scuro
+    --ink-soft  #4A5568  testo secondario
+    --danger    #B33A3A  affitti/tasse da pagare
+    --success   #4C8C5B  incassi
+
+  Type:
+    display: 'Fraunces' (serif con personalità, per titoli e numeri importanti)
+    body:    'Inter' (sans neutro, leggibile per liste/log)
+    mono:    'Space Mono' (importi di denaro, codice stanza)
+*/
+
+:root {
+  --felt: #0f3d2e;
+  --felt-2: #164a38;
+  --felt-3: #1d5843;
+  --brass: #c9962c;
+  --brass-2: #e8b85a;
+  --paper: #f3ead8;
+  --paper-2: #ece0c8;
+  --ink: #1b2430;
+  --ink-soft: #4a5568;
+  --danger: #b33a3a;
+  --success: #4c8c5b;
+
+  --font-display: 'Fraunces', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Space Mono', monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+
+  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
