@@ -109,13 +109,16 @@ export default function MobileBar({
                 opacity: p.bankrupt ? 0.35 : 1,
               }}
             >
-              <span style={styles.playerToken}>{p.token}</span>
+              <span style={{ ...styles.playerToken, filter: p.connected ? 'none' : 'grayscale(1)' }}>
+                {p.token}
+              </span>
               <span
                 className={`mono ${p.balance < 0 ? 'money-negative' : ''}`}
                 style={styles.playerBalance}
               >
                 €{p.balance}
               </span>
+              {!p.connected && !p.bankrupt && <span style={styles.offline}>offline</span>}
             </div>
           ))}
         </div>
@@ -208,6 +211,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   playerToken: { fontSize: '1rem' },
   playerBalance: { fontSize: '0.85rem' },
+  offline: { fontSize: '0.62rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic' },
   actions: { display: 'flex', gap: 7, alignItems: 'center', justifyContent: 'center' },
   // 44px è la dimensione minima raccomandata per un bersaglio da toccare.
   mainBtn: { flex: 1, minHeight: 44, fontSize: '0.95rem' },

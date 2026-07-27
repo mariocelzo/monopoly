@@ -47,6 +47,7 @@ export default function GamePanel({
                 €{p.balance}
               </div>
               {p.inJail && <div style={styles.badge}>In prigione ({p.jailTurns}/3)</div>}
+              {!p.connected && !p.bankrupt && <div style={styles.offline}>Disconnesso…</div>}
             </div>
           </div>
         ))}
@@ -111,6 +112,7 @@ const styles: Record<string, React.CSSProperties> = {
   players: { display: 'flex', flexDirection: 'column', gap: 8 },
   playerCard: { display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 10, border: '1.5px solid', background: 'rgba(0,0,0,0.15)' },
   badge: { fontSize: '0.7rem', color: '#e18a8a', marginTop: 2 },
+  offline: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.45)', marginTop: 2, fontStyle: 'italic' },
   turnBox: { paddingTop: 8, borderTop: '1px solid rgba(201,150,44,0.2)' },
   tradeBtn: { width: '100%', fontSize: '0.85rem', padding: '8px 14px' },
   properties: { paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)', maxHeight: 300, overflowY: 'auto' },

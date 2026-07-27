@@ -16,6 +16,8 @@ export interface Player {
   bankrupt: boolean;
   /** Doppi consecutivi nel turno corrente: al terzo si va in prigione. */
   doublesInARow: number;
+  /** Falso mentre il giocatore è offline: resta al tavolo e può rientrare. */
+  connected: boolean;
 }
 
 export interface Ownership {

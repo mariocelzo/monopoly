@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { socket } from '../socket';
+import { getClientId, saveRoom } from '../identity';
 
 const TOKENS = ['🐕', '🎩', '🚗', '🚢', '🐈', '🎸'];
 
@@ -29,20 +30,26 @@ export default function Lobby({
       }
       return;
     }
+    // Il tavolo si ricorda: alla riapertura si rientra da soli.
+    saveRoom(res.roomCode);
     onJoined(res.roomCode, res.playerId);
   };
 
   const createRoom = () => {
     if (!name.trim()) return setError('Inserisci un nome');
     if (!socket.connected) socket.connect();
-    socket.emit('create_room', { name, token }, handleResponse);
+    socket.emit('create_room', { name, token, clientId: getClientId() }, handleResponse);
   };
 
   const joinRoom = () => {
     if (!name.trim()) return setError('Inserisci un nome');
     if (!joinCode.trim()) return setError('Inserisci il codice stanza');
     if (!socket.connected) socket.connect();
-    socket.emit('join_room', { roomCode: joinCode.toUpperCase(), name, token }, handleResponse);
+    socket.emit(
+      'join_room',
+      { roomCode: joinCode.toUpperCase(), name, token, clientId: getClientId() },
+      handleResponse
+    );
   };
 
   return (

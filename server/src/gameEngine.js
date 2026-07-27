@@ -79,6 +79,18 @@ class GameEngine {
     return this.players.map((p) => p.token);
   }
 
+  hasPlayer(playerId) {
+    return this.players.some((p) => p.id === playerId);
+  }
+
+  /** Segna un giocatore come connesso o meno, senza toccarne lo stato di gioco. */
+  setConnected(playerId, connected) {
+    const player = this.players.find((p) => p.id === playerId);
+    if (!player || player.connected === connected) return;
+    player.connected = connected;
+    this.addLog(connected ? `${player.name} è tornato.` : `${player.name} si è disconnesso.`);
+  }
+
   addPlayer(id, name, token) {
     if (this.players.find((p) => p.id === id)) return { error: 'Sei già al tavolo' };
     if (this.players.some((p) => p.token === token)) {
@@ -93,6 +105,9 @@ class GameEngine {
       jailCards: 0,
       bankrupt: false,
       doublesInARow: 0,
+      // Un giocatore disconnesso resta al tavolo con le sue proprietà: può
+      // rientrare con lo stesso id. Serve solo a segnalarlo nell'interfaccia.
+      connected: true,
     });
     this.addLog(`${name} si è unito alla partita.`);
     return {};

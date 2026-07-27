@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { socket, GameState, BoardSquare } from './socket';
 import { useIsMobile } from './useIsMobile';
+import { clearRoom, getClientId, loadRoom, saveRoom } from './identity';
 import Lobby from './components/Lobby';
 import Board from './components/Board';
 import GamePanel from './components/GamePanel';
@@ -21,6 +22,12 @@ export default function App() {
   const [composingTrade, setComposingTrade] = useState(false);
   // Casella toccata sul tabellone, di cui si mostra il contratto.
   const [inspected, setInspected] = useState<number | null>(null);
+  // Finché si tenta il rientro automatico non si mostra la lobby, altrimenti
+  // comparirebbe per un istante a chi sta solo ricaricando la pagina.
+  const [rejoining, setRejoining] = useState(() => loadRoom() !== null);
+  // Stato del collegamento: senza avviso si resterebbe a fissare un tabellone
+  // fermo, credendo che stia solo giocando l'altro.
+  const [online, setOnline] = useState(true);
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -32,8 +39,79 @@ export default function App() {
     return () => { socket.off('state'); };
   }, []);
 
+  /**
+   * Rientro al tavolo salvato. Scatta a ogni `connect`, non solo all'avvio:
+   * dopo una caduta di rete socket.io si riconnette con un socket nuovo, e il
+   * server va riagganciato allo stesso giocatore.
+   */
+  useEffect(() => {
+    const rejoin = () => {
+      const roomCode = loadRoom();
+      if (!roomCode) return;
+      socket.emit(
+        'rejoin_room',
+        { roomCode, clientId: getClientId() },
+        (res: { error?: string; playerId?: string }) => {
+          if (res?.error) {
+            // La stanza non c'è più (server riavviato, partita scaduta): si
+            // ricomincia dalla lobby invece di restare bloccati.
+            clearRoom();
+            setPlayerId(null);
+            setState(null);
+          } else if (res?.playerId) {
+            setPlayerId(res.playerId);
+          }
+          setRejoining(false);
+        }
+      );
+    };
+
+    socket.on('connect', rejoin);
+    if (!socket.connected) socket.connect();
+    else rejoin();
+
+    return () => { socket.off('connect', rejoin); };
+  }, []);
+
+  /**
+   * Riaggancio forzato quando la pagina torna in primo piano o la rete ritorna.
+   * Telefoni e schede in secondo piano vengono congelati dal browser: il server
+   * fa scadere la connessione e il client, coi timer fermi, non se ne accorge e
+   * resta a fissare un tabellone che non si aggiorna più.
+   */
+  useEffect(() => {
+    const [setOn, setOff] = [() => setOnline(true), () => setOnline(false)];
+    const ensureConnected = () => {
+      if (!document.hidden && !socket.connected) socket.connect();
+    };
+
+    socket.on('connect', setOn);
+    socket.on('disconnect', setOff);
+    document.addEventListener('visibilitychange', ensureConnected);
+    window.addEventListener('online', ensureConnected);
+    window.addEventListener('focus', ensureConnected);
+
+    return () => {
+      socket.off('connect', setOn);
+      socket.off('disconnect', setOff);
+      document.removeEventListener('visibilitychange', ensureConnected);
+      window.removeEventListener('online', ensureConnected);
+      window.removeEventListener('focus', ensureConnected);
+    };
+  }, []);
+
   if (!playerId || !state) {
-    return <Lobby onJoined={(_code, pid) => setPlayerId(pid)} />;
+    if (rejoining) {
+      return <div style={styles.loading}>Rientro al tavolo…</div>;
+    }
+    return (
+      <Lobby
+        onJoined={(code, pid) => {
+          saveRoom(code);
+          setPlayerId(pid);
+        }}
+      />
+    );
   }
 
   const pending = state.pendingAction;
@@ -47,6 +125,11 @@ export default function App() {
 
   return (
     <div style={isMobile ? styles.wrapMobile : styles.wrap}>
+      {!online && (
+        <div style={styles.offlineBanner}>
+          Connessione persa · riconnessione in corso…
+        </div>
+      )}
       <div style={styles.boardArea}>
         {board.length > 0 && (
           <Board
@@ -119,6 +202,19 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: '100%',
   },
   boardArea: { display: 'flex', justifyContent: 'center' },
+  loading: { minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(243,234,216,0.6)', fontFamily: 'var(--font-mono)' },
+  offlineBanner: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 40,
+    padding: '7px 12px calc(7px + env(safe-area-inset-top))',
+    textAlign: 'center',
+    fontSize: '0.8rem',
+    background: 'var(--danger)',
+    color: 'var(--paper)',
+  },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 30, padding: 18 },
   winCard: { padding: 40, width: 340, maxWidth: '100%', textAlign: 'center' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },

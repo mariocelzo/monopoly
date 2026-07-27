@@ -493,5 +493,51 @@ section('12. Partita simulata, 300 turni');
 }
 
 // ---------------------------------------------------------------------------
+section('13. Riconnessione: il giocatore sopravvive al cambio di socket');
+{
+  const { RoomManager, ROOM_TTL_MS } = require('./src/rooms');
+  const rooms = new RoomManager();
+  const code = rooms.createRoom();
+  const room = rooms.getRoom(code);
+
+  // L'identità è il clientId del browser, non l'id del socket.
+  room.game.addPlayer('client-mario', 'Mario', '🎩');
+  room.game.addPlayer('client-giulia', 'Giulia', '🐕');
+  room.game.start();
+  rooms.attachSocket(code, 'socket-1', 'client-mario');
+  rooms.attachSocket(code, 'socket-2', 'client-giulia');
+  give(room.game, 'client-mario', ORANGE[0]);
+  room.game.players[0].balance = 1234;
+
+  rooms.detachSocket('socket-1');
+  const mario = room.game.players.find((p) => p.id === 'client-mario');
+  check('chi cade resta al tavolo', room.game.players.length === 2);
+  check('viene segnato come disconnesso', mario.connected === false);
+  check('conserva il saldo', mario.balance === 1234);
+  check('conserva le proprietà', room.game.ownership[ORANGE[0]].ownerId === 'client-mario');
+  check('la stanza non è considerata vuota', room.emptySince === null, 'c\'è ancora Giulia');
+
+  // Rientra con un socket nuovo, stesso clientId.
+  rooms.attachSocket(code, 'socket-3', 'client-mario');
+  check('torna connesso', mario.connected === true);
+  check('il socket vecchio non è più agganciato', !room.sockets.has('socket-1'));
+  check('il socket nuovo è agganciato', room.sockets.get('socket-3') === 'client-mario');
+  check('resta un solo socket per giocatore', room.sockets.size === 2, `${room.sockets.size}`);
+
+  // Una seconda scheda con la stessa identità sostituisce la prima.
+  rooms.attachSocket(code, 'socket-4', 'client-mario');
+  check('la seconda scheda subentra alla prima', !room.sockets.has('socket-3') && room.sockets.has('socket-4'));
+  check('i giocatori restano due', room.game.players.length === 2);
+
+  // Con tutti scollegati la stanza scade, ma solo dopo il tempo di grazia.
+  rooms.detachSocket('socket-4');
+  rooms.detachSocket('socket-2');
+  check('la stanza risulta vuota', room.emptySince !== null);
+  check('subito dopo non viene buttata', rooms.sweep(Date.now()) === 0);
+  check('dopo la scadenza viene rimossa', rooms.sweep(Date.now() + ROOM_TTL_MS + 1) === 1);
+  check('la stanza non esiste più', rooms.getRoom(code) === undefined);
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

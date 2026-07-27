@@ -34,34 +34,61 @@ io.on('connection', (socket) => {
   socket.data.roomCode = null;
   socket.data.playerId = null;
 
-  socket.on('create_room', ({ name, token }, cb) => {
-    const code = roomManager.createRoom();
-    const room = roomManager.getRoom(code);
-    const playerId = socket.id;
-    const added = room.game.addPlayer(playerId, name, token);
-    if (added?.error) return cb?.(added);
-    room.sockets.set(socket.id, playerId);
+  /** Aggancia il socket alla stanza e ricorda chi è, per gli eventi successivi. */
+  function bind(code, playerId) {
+    roomManager.attachSocket(code, socket.id, playerId);
     socket.join(code);
     socket.data.roomCode = code;
     socket.data.playerId = playerId;
-    cb?.({ roomCode: code, playerId });
+  }
+
+  // L'identità del giocatore è il clientId scelto dal browser e conservato in
+  // localStorage, non l'id del socket: quello cambia a ogni riconnessione.
+  socket.on('create_room', ({ name, token, clientId }, cb) => {
+    if (!clientId) return cb?.({ error: 'Identificativo mancante' });
+    const code = roomManager.createRoom();
+    const room = roomManager.getRoom(code);
+    const added = room.game.addPlayer(clientId, name, token);
+    if (added?.error) return cb?.(added);
+    bind(code, clientId);
+    cb?.({ roomCode: code, playerId: clientId });
     broadcastState(code);
   });
 
-  socket.on('join_room', ({ roomCode, name, token }, cb) => {
+  socket.on('join_room', ({ roomCode, name, token, clientId }, cb) => {
+    if (!clientId) return cb?.({ error: 'Identificativo mancante' });
     const room = roomManager.getRoom(roomCode);
     if (!room) return cb?.({ error: 'Stanza non trovata' });
+    // Chi è già al tavolo non si iscrive di nuovo: rientra e basta.
+    if (room.game.hasPlayer(clientId)) {
+      bind(roomCode, clientId);
+      cb?.({ roomCode, playerId: clientId });
+      broadcastState(roomCode);
+      return;
+    }
     if (room.game.started) return cb?.({ error: 'Partita già iniziata' });
-    const playerId = socket.id;
     // Il pedone può essere già preso: l'errore riporta quali sono occupati, così
     // la lobby li disabilita invece di far tirare a indovinare.
-    const added = room.game.addPlayer(playerId, name, token);
+    const added = room.game.addPlayer(clientId, name, token);
     if (added?.error) return cb?.(added);
-    room.sockets.set(socket.id, playerId);
-    socket.join(roomCode);
-    socket.data.roomCode = roomCode;
-    socket.data.playerId = playerId;
-    cb?.({ roomCode, playerId });
+    bind(roomCode, clientId);
+    cb?.({ roomCode, playerId: clientId });
+    broadcastState(roomCode);
+  });
+
+  /**
+   * Rientro dopo un ricaricamento o una caduta di rete: nessun nuovo giocatore,
+   * si riaggancia il socket a chi era già al tavolo. Il client lo chiama a ogni
+   * connessione se ha una partita salvata.
+   */
+  socket.on('rejoin_room', ({ roomCode, clientId }, cb) => {
+    const room = roomManager.getRoom(roomCode);
+    if (!room) return cb?.({ error: 'Stanza non trovata' });
+    if (!clientId || !room.game.hasPlayer(clientId)) {
+      return cb?.({ error: 'Non risulti a questo tavolo' });
+    }
+    bind(roomCode, clientId);
+    cb?.({ roomCode, playerId: clientId });
     broadcastState(roomCode);
   });
 
@@ -109,9 +136,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    roomManager.removeSocket(socket.id);
+    // Il giocatore resta al tavolo con le sue proprietà: viene solo segnato
+    // come disconnesso, così l'altro lo vede e lui può rientrare.
+    roomManager.detachSocket(socket.id).forEach(broadcastState);
   });
 });
+
+roomManager.startSweeping();
 
 server.listen(PORT, () => {
   console.log(`Monopoly server listening on port ${PORT}`);
