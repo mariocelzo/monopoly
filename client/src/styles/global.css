@@ -56,6 +56,20 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .btn-ghost:hover { border-color: var(--brass-2); color: var(--brass-2); }
 
+/* Bottoncini del pannello proprietà: costruisci, vendi, ipoteca, riscatta.
+   Da disabilitati restano visibili ma spenti, e il title spiega il perché. */
+.btn-mini {
+  background: transparent;
+  color: var(--paper);
+  border: 1px solid rgba(201, 150, 44, 0.4);
+  padding: 3px 7px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.btn-mini:hover:not(:disabled) { border-color: var(--brass-2); color: var(--brass-2); }
+.btn-mini:disabled { opacity: 0.32; cursor: not-allowed; }
+
 .panel {
   background: var(--felt-2);
   border: 1px solid rgba(201, 150, 44, 0.25);

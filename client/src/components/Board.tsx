@@ -1,15 +1,5 @@
 import { BoardSquare, GameState } from '../socket';
-
-const GROUP_COLORS: Record<string, string> = {
-  brown: '#8B4513',
-  lightblue: '#8FD3F4',
-  pink: '#E0559C',
-  orange: '#F7941D',
-  red: '#E4482E',
-  yellow: '#FDD835',
-  green: '#3AA65A',
-  blue: '#2D3F9E',
-};
+import { GROUP_COLORS } from '../groupColors';
 
 function gridPos(position: number): { row: number; col: number } {
   if (position === 0) return { row: 11, col: 11 };

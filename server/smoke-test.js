@@ -191,6 +191,21 @@ section('9. Interesse del 10% sulle ipoteche ereditate');
   check('il creditore ha pagato 3 di interessi', giulia.balance === 997, `saldo=${giulia.balance}`);
 }
 
+section('9b. Costo di riscatto senza errori di virgola mobile');
+{
+  const game = newGame();
+  // King's Cross: prezzo 200, ipoteca 100, interesse 10, riscatto 110.
+  // Con `100 * 1.1` in floating point verrebbe 111.
+  const station = board[5];
+  check('riscatto di 110 su un\'ipoteca da 100', game.unmortgageCost(station) === 110, `${game.unmortgageCost(station)}`);
+  check('interesse di 10 su un\'ipoteca da 100', game.mortgageInterest(station) === 10);
+
+  give(game, 'a', 5, { mortgaged: true });
+  game.players[0].balance = 110;
+  check('con esattamente 110 il riscatto passa', !game.unmortgageProperty('a', 5).error);
+  check('il saldo torna a zero', game.players[0].balance === 0, `saldo=${game.players[0].balance}`);
+}
+
 section('10. Resa volontaria');
 {
   const game = newGame({ balanceA: 0 });

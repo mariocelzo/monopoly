@@ -14,6 +14,13 @@ const io = new Server(server, {
 
 const roomManager = new RoomManager();
 
+// Le rotte HTTP hanno bisogno degli stessi header CORS di Socket.io: senza,
+// il client servito da Vite su un'altra porta non riesce a scaricare /board.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', process.env.CLIENT_ORIGIN || '*');
+  next();
+});
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/board', (req, res) => res.json(board));
 

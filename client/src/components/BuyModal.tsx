@@ -1,11 +1,11 @@
-import { BoardSquare, PendingAction, socket } from '../socket';
+import { AwaitingBuy, BoardSquare, socket } from '../socket';
 
 export default function BuyModal({
   pending,
   square,
   isMe,
 }: {
-  pending: PendingAction;
+  pending: AwaitingBuy;
   square: BoardSquare;
   isMe: boolean;
 }) {

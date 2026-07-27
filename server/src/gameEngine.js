@@ -8,7 +8,10 @@ const JAIL_FINE = 50;
 const MAX_JAIL_TURNS = 3;
 // Interesse che la banca trattiene sulle ipoteche: si paga sia per riscattare
 // una proprietà sia per ereditarne una già ipotecata in una bancarotta.
-const MORTGAGE_INTEREST = 0.1;
+// Interesse del 10% sulle ipoteche, espresso come frazione intera: con i
+// decimali `100 * 1.1` vale 110.00000000000001 e Math.ceil arrotonda a 111.
+const MORTGAGE_INTEREST_NUM = 1;
+const MORTGAGE_INTEREST_DEN = 10;
 
 function shuffle(arr) {
   const a = [...arr];
@@ -72,6 +75,13 @@ class GameEngine {
   }
 
   serialize() {
+    // Il valore di liquidazione cambia a ogni vendita, quindi si ricalcola qui
+    // invece di duplicare la regola nel client.
+    let pendingAction = this.pendingAction;
+    if (pendingAction?.type === 'awaiting_debt') {
+      const debtor = this.players.find((p) => p.id === pendingAction.playerId);
+      pendingAction = { ...pendingAction, liquidationValue: debtor ? this.liquidationValue(debtor) : 0 };
+    }
     return {
       roomCode: this.roomCode,
       players: this.players,
@@ -79,7 +89,7 @@ class GameEngine {
       turnIndex: this.turnIndex,
       started: this.started,
       log: this.log.slice(-30),
-      pendingAction: this.pendingAction,
+      pendingAction,
       finished: this.finished,
       winnerId: this.winnerId,
     };
@@ -111,6 +121,16 @@ class GameEngine {
   /** Valore d'ipoteca di una proprietà: metà del prezzo d'acquisto. */
   mortgageValue(square) {
     return Math.floor(square.price / 2);
+  }
+
+  /** Interesse del 10% dovuto alla banca su una proprietà ipotecata. */
+  mortgageInterest(square) {
+    return Math.ceil((this.mortgageValue(square) * MORTGAGE_INTEREST_NUM) / MORTGAGE_INTEREST_DEN);
+  }
+
+  /** Costo per riscattare un'ipoteca: il valore più il 10% di interesse. */
+  unmortgageCost(square) {
+    return this.mortgageValue(square) + this.mortgageInterest(square);
   }
 
   /**
@@ -485,7 +505,7 @@ class GameEngine {
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (!owned.mortgaged) return { error: 'Non è ipotecata' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
-    const cost = Math.ceil(this.mortgageValue(square) * (1 + MORTGAGE_INTEREST));
+    const cost = this.unmortgageCost(square);
     if (player.balance < cost) return { error: 'Saldo insufficiente' };
     player.balance -= cost;
     owned.mortgaged = false;
@@ -620,7 +640,7 @@ class GameEngine {
         owned.ownerId = creditor.id;
         owned.houses = 0;
         owned.hotel = false;
-        if (owned.mortgaged) interestDue += Math.ceil(this.mortgageValue(square) * MORTGAGE_INTEREST);
+        if (owned.mortgaged) interestDue += this.mortgageInterest(square);
       } else {
         delete this.ownership[position];
       }

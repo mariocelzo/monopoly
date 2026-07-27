@@ -23,12 +23,28 @@ export interface Ownership {
   mortgaged: boolean;
 }
 
-export interface PendingAction {
+/** Proposta d'acquisto per la casella su cui il giocatore si è appena fermato. */
+export interface AwaitingBuy {
   type: 'awaiting_buy';
   playerId: string;
   position: number;
   price: number;
 }
+
+/**
+ * Debito scoperto: il giocatore deve rientrare vendendo o ipotecando, oppure
+ * arrendersi. Blocca la partita per entrambi finché non è risolto.
+ */
+export interface AwaitingDebt {
+  type: 'awaiting_debt';
+  playerId: string;
+  amount: number;
+  creditorId: string | null;
+  /** Quanto varrebbe il debitore liquidando tutto: calcolato dal server. */
+  liquidationValue: number;
+}
+
+export type PendingAction = AwaitingBuy | AwaitingDebt;
 
 export interface GameState {
   roomCode: string;
@@ -38,6 +54,8 @@ export interface GameState {
   started: boolean;
   log: { message: string; at: number }[];
   pendingAction: PendingAction | null;
+  finished: boolean;
+  winnerId: string | null;
 }
 
 export interface BoardSquare {
