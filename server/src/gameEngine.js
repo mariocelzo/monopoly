@@ -48,6 +48,9 @@ class GameEngine {
     // Se l'ultimo tiro era un doppio il giocatore ha diritto a rigiocare, anche
     // se nel frattempo ha dovuto comprare o saldare un debito.
     this.lastRollWasDouble = false;
+    // Ultimo tiro mostrato al centro del tabellone. `seq` cresce a ogni lancio
+    // così il client riconosce un tiro nuovo anche se i dadi ripetono i valori.
+    this.lastRoll = null;
   }
 
   /**
@@ -124,6 +127,7 @@ class GameEngine {
       pendingAction,
       finished: this.finished,
       winnerId: this.winnerId,
+      lastRoll: this.lastRoll,
     };
   }
 
@@ -210,6 +214,11 @@ class GameEngine {
     const isDouble = d1 === d2;
     // Uscire di prigione col doppio non dà il tiro extra: si esce e basta.
     this.lastRollWasDouble = isDouble && !player.inJail;
+    this.lastRoll = {
+      playerId: player.id,
+      dice: [d1, d2],
+      seq: (this.lastRoll?.seq || 0) + 1,
+    };
 
     if (player.inJail) {
       if (isDouble) {

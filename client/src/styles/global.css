@@ -70,6 +70,27 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .btn-mini:hover:not(:disabled) { border-color: var(--brass-2); color: var(--brass-2); }
 .btn-mini:disabled { opacity: 0.32; cursor: not-allowed; }
 
+/* La casella si schiarisce al passaggio del mouse: fa capire che è cliccabile.
+   Sui dispositivi touch l'hover non esiste, quindi non si applica. */
+@media (hover: hover) {
+  .board-square:hover { background: rgba(232, 184, 90, 0.12) !important; }
+}
+
+/* Scossone dei dadi mentre ruzzolano, prima di fermarsi sul risultato. */
+@keyframes dice-tumble {
+  0%   { transform: translateY(0) rotate(0deg); }
+  25%  { transform: translateY(-6px) rotate(-9deg); }
+  50%  { transform: translateY(0) rotate(7deg); }
+  75%  { transform: translateY(-3px) rotate(-4deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+.dice-rolling { animation: dice-tumble 0.25s ease-in-out infinite; }
+
+/* Chi rispetta le preferenze di sistema non vede animazioni superflue. */
+@media (prefers-reduced-motion: reduce) {
+  .dice-rolling { animation: none; }
+}
+
 .panel {
   background: var(--felt-2);
   border: 1px solid rgba(201, 150, 44, 0.25);

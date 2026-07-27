@@ -75,6 +75,8 @@ export interface GameState {
   pendingAction: PendingAction | null;
   finished: boolean;
   winnerId: string | null;
+  /** Ultimo tiro, mostrato al centro del tabellone. `seq` distingue tiri uguali. */
+  lastRoll: { playerId: string; dice: [number, number]; seq: number } | null;
 }
 
 export interface BoardSquare {

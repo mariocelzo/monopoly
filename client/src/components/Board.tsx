@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BoardSquare, GameState } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
+import Dice from './Dice';
 
 /** Riga e colonna (1-based) della casella nella griglia 11x11. */
 function gridPos(position: number): { row: number; col: number } {
@@ -27,10 +28,41 @@ function centerPercent(index: number): number {
   return ((CORNER + (i - 1) + 0.5) / TRACK) * 100;
 }
 
-// Colori dei due giocatori, usati per pedoni e indicatori di proprietà.
+// Colori dei due giocatori, usati per pedoni, bordi di proprietà e legenda.
 export const PLAYER_COLORS = ['#E8B85A', '#7EC8E3'];
 
 const CORNER_ICONS: Record<number, string> = { 0: '➜', 10: '⛓', 20: '🅿', 30: '👮' };
+const CORNER_LABELS: Record<number, string> = { 0: 'VIA', 10: 'PRIGIONE', 20: 'SOSTA', 30: 'IN GALERA' };
+
+/**
+ * Tutte le misure interne del tabellone derivano dalla sua larghezza (--bw), non
+ * da rem fissi: così su telefono i testi rimpiccioliscono insieme alle caselle
+ * invece di uscire dai bordi.
+ */
+const scaled = (factor: number, min?: string) =>
+  min ? `max(${min}, calc(var(--bw) * ${factor}))` : `calc(var(--bw) * ${factor})`;
+
+// Sotto questa larghezza del tabellone una casella scende sotto i ~52px e il
+// nome della proprietà diventa illeggibile: meglio toglierlo del tutto.
+const NAME_THRESHOLD = 620;
+
+/**
+ * Larghezza reale del tabellone in pixel. Si misura invece di dedurla dal tipo
+ * di dispositivo: un tablet in verticale ha caselle comode quanto un desktop, e
+ * la stessa pagina cambia dimensione ruotando il telefono.
+ */
+function useMeasuredWidth(ref: React.RefObject<HTMLDivElement>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(el);
+    setWidth(el.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
 
 /**
  * Muove le pedine una casella alla volta invece di farle saltare a destinazione.
@@ -79,9 +111,8 @@ function useWalkingPositions(state: GameState): Record<string, number> {
     };
 
     const needsWalk = state.players.some((p) => shown[p.id] !== undefined && shown[p.id] !== p.position);
-    if (needsWalk) {
-      timer.current = window.setInterval(step, 110);
-    }
+    if (needsWalk) timer.current = window.setInterval(step, 110);
+
     return () => {
       if (timer.current !== null) {
         window.clearInterval(timer.current);
@@ -97,36 +128,58 @@ export default function Board({
   board,
   state,
   onSquareClick,
+  isMobile = false,
 }: {
   board: BoardSquare[];
   state: GameState;
   onSquareClick: (position: number) => void;
+  isMobile?: boolean;
 }) {
   const walking = useWalkingPositions(state);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const measured = useMeasuredWidth(gridRef);
   const colorOf = (playerId: string) =>
     PLAYER_COLORS[state.players.findIndex((p) => p.id === playerId) % PLAYER_COLORS.length];
 
+  // Su telefono il tabellone prende tutta la larghezza, lasciando spazio alla
+  // barra dei comandi in fondo. dvh tiene conto della barra del browser.
+  const boardWidth = isMobile
+    ? 'min(calc(100vw - 14px), calc(100dvh - 200px))'
+    : 'min(78vh, 92vw)';
+
+  // Finché la misura non è arrivata si presume largo: evita che i nomi
+  // spariscano per un istante al primo disegno su desktop.
+  const compact = measured > 0 && measured < NAME_THRESHOLD;
+
+  const roller = state.lastRoll ? state.players.find((p) => p.id === state.lastRoll!.playerId) : null;
+
   return (
-    <div style={styles.frame}>
-      <div style={styles.grid}>
+    <div style={{ ...styles.frame, padding: isMobile ? 5 : 10 }}>
+      <div
+        ref={gridRef}
+        style={{ ...styles.grid, width: boardWidth, ['--bw' as string]: boardWidth } as React.CSSProperties}
+      >
         {board.map((square) => {
           const { row, col } = gridPos(square.position);
           const owned = state.ownership[square.position];
           const owner = owned ? state.players.find((p) => p.id === owned.ownerId) : null;
           const isCorner = square.position % 10 === 0;
+          // Con caselle da ~28px i nomi verrebbero tagliati: restano colore,
+          // prezzo e proprietario, e il nome si legge toccando la casella.
+          const showName = !compact || isCorner;
 
           return (
             <div
               key={square.position}
+              className="board-square"
               onClick={() => onSquareClick(square.position)}
               style={{
                 ...styles.square,
                 ...(isCorner ? styles.cornerSquare : null),
                 gridRow: row,
                 gridColumn: col,
-                // Il proprietario si legge dal bagliore interno, non da un puntino.
                 boxShadow: owner ? `inset 0 0 0 2px ${colorOf(owner.id)}` : undefined,
-                opacity: owned?.mortgaged ? 0.55 : 1,
+                opacity: owned?.mortgaged ? 0.5 : 1,
               }}
               title={
                 owner
@@ -135,8 +188,14 @@ export default function Board({
               }
             >
               {square.group && (
-                <div style={{ ...styles.colorBar, background: GROUP_COLORS[square.group] }}>
-                  {/* Case e hotel disegnati sulla fascia colorata, come sul tabellone vero. */}
+                <div
+                  style={{
+                    ...styles.colorBar,
+                    background: GROUP_COLORS[square.group],
+                    height: compact ? '34%' : '20%',
+                  }}
+                >
+                  {/* Case e hotel disegnati sulla fascia, come sul tabellone vero. */}
                   {owned?.hotel && <span style={styles.hotel} />}
                   {!owned?.hotel &&
                     Array.from({ length: owned?.houses || 0 }).map((_, i) => (
@@ -146,13 +205,16 @@ export default function Board({
               )}
 
               {isCorner && <span style={styles.cornerIcon}>{CORNER_ICONS[square.position]}</span>}
-              <span style={{ ...styles.squareName, ...(isCorner ? styles.cornerName : null) }}>
-                {square.name}
-              </span>
+              {showName && (
+                <span style={{ ...styles.squareName, ...(isCorner ? styles.cornerName : null) }}>
+                  {isCorner && compact ? CORNER_LABELS[square.position] : square.name}
+                </span>
+              )}
               {square.price !== undefined && !isCorner && (
                 <span style={styles.squarePrice}>{square.price}</span>
               )}
-              {owned?.mortgaged && <span style={styles.mortgageTag}>IPOT.</span>}
+              {owned?.mortgaged &&
+                (compact ? <span style={styles.mortgageDot}>✕</span> : <span style={styles.mortgageTag}>IPOT.</span>)}
             </div>
           );
         })}
@@ -160,6 +222,20 @@ export default function Board({
         <div style={styles.center}>
           <span className="display" style={styles.centerTitle}>MONOPOLY</span>
           <span style={styles.centerSub}>edizione Noi Due</span>
+
+          {state.lastRoll && (
+            <div style={styles.diceBox}>
+              <Dice
+                dice={state.lastRoll.dice}
+                seq={state.lastRoll.seq}
+                size={compact ? 26 : 38}
+              />
+              <span style={styles.diceCaption}>
+                {roller?.name} · {state.lastRoll.dice[0] + state.lastRoll.dice[1]}
+              </span>
+            </div>
+          )}
+
           <div style={styles.legend}>
             {state.players.map((p) => (
               <div key={p.id} style={{ ...styles.legendItem, opacity: p.bankrupt ? 0.35 : 1 }}>
@@ -177,7 +253,7 @@ export default function Board({
           if (p.bankrupt) return null;
           const at = walking[p.id] ?? p.position;
           const { row, col } = gridPos(at);
-          const nudge = index === 0 ? -9 : 9;
+          const nudge = index === 0 ? '-34%' : '34%';
           return (
             <div
               key={p.id}
@@ -185,9 +261,9 @@ export default function Board({
                 ...styles.pawn,
                 left: `${centerPercent(col)}%`,
                 top: `${centerPercent(row)}%`,
-                transform: `translate(calc(-50% + ${nudge}px), -50%)`,
+                transform: `translate(calc(-50% + ${nudge}), -50%)`,
                 borderColor: colorOf(p.id),
-                boxShadow: `0 0 10px ${colorOf(p.id)}66`,
+                boxShadow: `0 2px 8px rgba(0,0,0,0.5), 0 0 12px ${colorOf(p.id)}55`,
               }}
               title={`${p.name} — ${board[at]?.name || ''}`}
             >
@@ -202,64 +278,91 @@ export default function Board({
 
 const styles: Record<string, React.CSSProperties> = {
   frame: {
-    padding: 10,
     borderRadius: 16,
     // Cornice in ottone spazzolato attorno al feltro.
-    background: 'linear-gradient(145deg, #c9962c 0%, #8a6519 45%, #e8b85a 100%)',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+    background: 'linear-gradient(145deg, #c9962c 0%, #7d5c16 40%, #e8b85a 70%, #a87f22 100%)',
+    boxShadow: '0 12px 34px rgba(0,0,0,0.5)',
   },
   grid: {
     position: 'relative',
     display: 'grid',
     gridTemplateColumns: '1.4fr repeat(9, 1fr) 1.4fr',
     gridTemplateRows: '1.4fr repeat(9, 1fr) 1.4fr',
-    width: 'min(78vh, 92vw)',
     aspectRatio: '1 / 1',
     background:
-      'radial-gradient(ellipse at 50% 45%, #1d5843 0%, #0f3d2e 75%), repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 4px)',
+      'radial-gradient(ellipse at 50% 42%, #205f49 0%, #123f30 60%, #0c3125 100%), repeating-linear-gradient(45deg, rgba(255,255,255,0.014) 0 2px, transparent 2px 4px)',
     borderRadius: 8,
     overflow: 'hidden',
+    boxShadow: 'inset 0 0 40px rgba(0,0,0,0.45)',
   },
   square: {
-    border: '1px solid rgba(201,150,44,0.18)',
+    border: '1px solid rgba(201,150,44,0.16)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    padding: '4px 2px 3px',
+    padding: '4% 2% 3%',
     position: 'relative',
     overflow: 'hidden',
-    background: 'rgba(0,0,0,0.12)',
+    background: 'linear-gradient(180deg, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.2) 100%)',
     cursor: 'pointer',
-    transition: 'box-shadow 0.2s ease, opacity 0.2s ease',
+    transition: 'box-shadow 0.18s ease, opacity 0.18s ease, background 0.18s ease',
   },
-  cornerSquare: { justifyContent: 'center', gap: 3, background: 'rgba(0,0,0,0.25)' },
-  cornerIcon: { fontSize: '1.1rem', lineHeight: 1, color: 'var(--brass-2)' },
-  cornerName: { fontSize: '0.5rem', letterSpacing: '0.04em', textTransform: 'uppercase' },
+  cornerSquare: {
+    justifyContent: 'center',
+    gap: '4%',
+    background: 'radial-gradient(circle at 50% 40%, rgba(201,150,44,0.16), rgba(0,0,0,0.3))',
+  },
+  cornerIcon: { fontSize: scaled(0.026), lineHeight: 1, color: 'var(--brass-2)' },
+  cornerName: { fontSize: scaled(0.0115, '6px'), letterSpacing: '0.04em', textTransform: 'uppercase' },
   colorBar: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: '20%',
-    borderBottom: '1px solid rgba(0,0,0,0.45)',
+    borderBottom: '1px solid rgba(0,0,0,0.5)',
+    boxShadow: 'inset 0 -3px 5px rgba(0,0,0,0.25)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
+    gap: '4%',
   },
-  house: { width: 4, height: 4, borderRadius: 1, background: '#2ecc71', border: '0.5px solid rgba(0,0,0,0.5)' },
-  hotel: { width: 11, height: 5, borderRadius: 1, background: '#e74c3c', border: '0.5px solid rgba(0,0,0,0.5)' },
-  squareName: { fontSize: '0.52rem', textAlign: 'center', lineHeight: 1.1, color: 'var(--paper)', fontWeight: 600 },
-  squarePrice: { fontSize: '0.5rem', fontFamily: 'var(--font-mono)', color: 'var(--brass-2)', marginTop: 1 },
+  house: {
+    width: scaled(0.0062, '3px'),
+    height: scaled(0.0062, '3px'),
+    borderRadius: 1,
+    background: '#39d67f',
+    border: '0.5px solid rgba(0,0,0,0.55)',
+  },
+  hotel: {
+    width: scaled(0.017, '9px'),
+    height: scaled(0.0075, '4px'),
+    borderRadius: 1,
+    background: '#ff5a4d',
+    border: '0.5px solid rgba(0,0,0,0.55)',
+  },
+  squareName: {
+    fontSize: scaled(0.0122, '6px'),
+    textAlign: 'center',
+    lineHeight: 1.1,
+    color: 'var(--paper)',
+    fontWeight: 600,
+  },
+  squarePrice: {
+    fontSize: scaled(0.0115, '6px'),
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--brass-2)',
+    marginTop: '3%',
+  },
   mortgageTag: {
     position: 'absolute',
-    top: '22%',
-    fontSize: '0.42rem',
+    top: '24%',
+    fontSize: scaled(0.0095, '5px'),
     fontFamily: 'var(--font-mono)',
     letterSpacing: '0.08em',
     color: '#e18a8a',
   },
+  mortgageDot: { position: 'absolute', top: '38%', fontSize: scaled(0.016, '8px'), color: '#e18a8a' },
   center: {
     gridRow: '2 / 11',
     gridColumn: '2 / 11',
@@ -267,25 +370,50 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: '1.5%',
+    padding: '4%',
   },
-  centerTitle: { fontSize: '2.4rem', color: 'var(--brass)', letterSpacing: '0.06em', opacity: 0.5 },
-  centerSub: { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--paper)', opacity: 0.35 },
-  legend: { display: 'flex', gap: 14, marginTop: 18, flexWrap: 'wrap', justifyContent: 'center' },
-  legendItem: { display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'rgba(243,234,216,0.75)' },
-  legendDot: { width: 9, height: 9, borderRadius: 2 },
-  legendToken: { fontSize: '0.95rem' },
+  centerTitle: {
+    fontSize: scaled(0.072),
+    color: 'var(--brass)',
+    letterSpacing: '0.06em',
+    opacity: 0.45,
+    textShadow: '0 2px 10px rgba(0,0,0,0.4)',
+  },
+  centerSub: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: scaled(0.017, '9px'),
+    color: 'var(--paper)',
+    opacity: 0.3,
+  },
+  diceBox: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginTop: '6%' },
+  diceCaption: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: scaled(0.016, '9px'),
+    color: 'var(--brass-2)',
+    opacity: 0.8,
+  },
+  legend: { display: 'flex', gap: '6%', marginTop: '6%', flexWrap: 'wrap', justifyContent: 'center' },
+  legendItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    fontSize: scaled(0.017, '10px'),
+    color: 'rgba(243,234,216,0.75)',
+  },
+  legendDot: { width: scaled(0.013, '7px'), height: scaled(0.013, '7px'), borderRadius: 2 },
+  legendToken: { fontSize: scaled(0.023, '13px') },
   legendName: { fontFamily: 'var(--font-mono)' },
   pawn: {
     position: 'absolute',
-    width: 26,
-    height: 26,
+    width: scaled(0.037, '17px'),
+    height: scaled(0.037, '17px'),
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '0.95rem',
-    background: 'rgba(15,61,46,0.92)',
+    fontSize: scaled(0.022, '10px'),
+    background: 'radial-gradient(circle at 35% 30%, #1e6b51, #0c3125)',
     border: '2px solid',
     pointerEvents: 'none',
     zIndex: 5,

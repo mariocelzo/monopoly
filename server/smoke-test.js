@@ -332,9 +332,12 @@ section('10e. Tre doppi consecutivi mandano in prigione');
   const game = newGame();
   const mario = game.players[0];
 
-  // Dadi truccati: due doppi e poi il terzo. Le caselle sono scelte in modo che
-  // la prigione (10) non coincida con dove il terzo tiro avrebbe portato (16).
-  let rolls = [[1, 1], [2, 2], [5, 5]];
+  // Dadi truccati: due doppi e poi il terzo. Le caselle di arrivo (4 tassa,
+  // 8 proprietà libera) sono scelte apposta perché non facciano pescare una
+  // carta: un "vai in prigione" da Imprevisti azzererebbe il contatore e
+  // renderebbe il test instabile. La prigione (10) non coincide né con la
+  // posizione di partenza (8) né con l'arrivo del terzo tiro (18).
+  let rolls = [[2, 2], [2, 2], [5, 5]];
   let i = 0;
   const realRandom = Math.random;
   Math.random = () => {
