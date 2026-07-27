@@ -55,7 +55,7 @@ export default function Lobby({
   return (
     <div style={styles.wrap}>
       <div style={styles.hero}>
-        <span style={styles.eyebrow}>tavolo privato · 2 giocatori</span>
+        <span style={styles.eyebrow}>tavolo privato · da 2 a 6 giocatori</span>
         <h1 style={styles.title}>Noi Due Monopoly</h1>
         <p style={styles.subtitle}>Crea un tavolo o unisciti con un codice.</p>
       </div>

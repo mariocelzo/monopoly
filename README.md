@@ -1,8 +1,8 @@
 # Noi Due Monopoly
 
-Monopoli per due giocatori via browser, con motore di regole automatico. Niente
-webcam, niente app da installare: si crea un tavolo, si passa un codice di
-cinque caratteri e si gioca.
+Monopoli da 2 a 6 giocatori via browser, con motore di regole automatico.
+Niente webcam, niente app da installare: si crea un tavolo, si passa un codice
+di cinque caratteri e si gioca.
 
 ## Come funziona
 

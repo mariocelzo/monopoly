@@ -146,9 +146,11 @@ export default function App() {
   const buySquare = buy ? board.find((s) => s.position === buy.position) : null;
   const winner = state.finished ? state.players.find((p) => p.id === state.winnerId) : null;
   const inspectedSquare = inspected !== null ? board.find((s) => s.position === inspected) : null;
-  const altro = state.players.find((p) => p.id !== playerId);
   const hoChiestoRivincita = state.rematchVotes.includes(playerId);
-  const altroVuoleRivincita = !!altro && state.rematchVotes.includes(altro.id);
+  const mancanti = state.players.filter((p) => !state.rematchVotes.includes(p.id));
+  const altriCheVogliono = state.players.filter(
+    (p) => p.id !== playerId && state.rematchVotes.includes(p.id)
+  );
 
   return (
     <div style={isMobile ? styles.wrapMobile : styles.wrap}>
@@ -243,9 +245,13 @@ export default function App() {
                 </button>
                 <p style={styles.rematchNote}>
                   {hoChiestoRivincita
-                    ? `Aspettiamo che ${altro?.name || "l'altro giocatore"} accetti.`
-                    : altroVuoleRivincita
-                      ? `${altro?.name} vuole la rivincita!`
+                    ? `Manca${mancanti.length === 1 ? '' : 'no'} ${mancanti
+                        .map((p) => p.name)
+                        .join(', ')}.`
+                    : altriCheVogliono.length > 0
+                      ? `${altriCheVogliono.map((p) => p.name).join(', ')} ${
+                          altriCheVogliono.length === 1 ? 'vuole' : 'vogliono'
+                        } la rivincita!`
                       : 'Stesso tavolo, tutto da capo.'}
                 </p>
               </>

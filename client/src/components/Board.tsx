@@ -31,8 +31,16 @@ function centerPercent(index: number): number {
   return ((CORNER + (i - 1) + 0.5) / TRACK) * 100;
 }
 
-// Colori dei due giocatori, usati per pedoni, bordi di proprietà e legenda.
-export const PLAYER_COLORS = ['#E8B85A', '#7EC8E3'];
+// Un colore per giocatore, fino a sei: pedine, bordi di proprietà e legenda.
+// Devono restare distinguibili sul feltro verde scuro, quindi niente verdi.
+export const PLAYER_COLORS = [
+  '#E8B85A', // ottone
+  '#7EC8E3', // azzurro
+  '#F2718A', // rosa
+  '#B9E06A', // lime
+  '#C39BF0', // viola
+  '#F58C4B', // arancio
+];
 
 const CORNER_ICONS: Record<number, string> = { 0: '➜', 10: '⛓', 20: '🅿', 30: '👮' };
 const CORNER_LABELS: Record<number, string> = { 0: 'VIA', 10: 'PRIGIONE', 20: 'SOSTA', 30: 'IN GALERA' };
@@ -306,7 +314,12 @@ export default function Board({
           if (p.bankrupt) return null;
           const at = walking[p.id] ?? p.position;
           const { row, col } = gridPos(at);
-          const nudge = index === 0 ? '-34%' : '34%';
+          // In cerchio attorno al centro della casella: con due danno destra e
+          // sinistra come prima, con sei restano tutte distinguibili.
+          const quanti = Math.max(state.players.length, 2);
+          const angolo = (index / quanti) * Math.PI * 2;
+          const dx = (Math.cos(angolo) * 32).toFixed(1);
+          const dy = (Math.sin(angolo) * 32).toFixed(1);
           return (
             <div
               key={p.id}
@@ -314,7 +327,7 @@ export default function Board({
                 ...styles.pawn,
                 left: `${centerPercent(col)}%`,
                 top: `${centerPercent(row)}%`,
-                transform: `translate(calc(-50% + ${nudge}), -50%)`,
+                transform: `translate(calc(-50% + ${dx}%), calc(-50% + ${dy}%))`,
                 borderColor: colorOf(p.id),
                 boxShadow: `0 2px 8px rgba(0,0,0,0.5), 0 0 12px ${colorOf(p.id)}55`,
               }}

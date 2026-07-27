@@ -39,6 +39,9 @@ export default function MobileBar({
     state.lastRoll.playerId === current?.id &&
     state.lastRoll.dice[0] === state.lastRoll.dice[1];
 
+  // Da quattro giocatori in su la fila dei saldi non ci sta più in larghezza.
+  const affollato = state.players.length > 3;
+
   const colorOf = (playerId: string) =>
     PLAYER_COLORS[state.players.findIndex((p) => p.id === playerId) % PLAYER_COLORS.length];
 
@@ -113,11 +116,13 @@ export default function MobileBar({
         )}
 
         <div style={styles.players}>
+          {/* Da quattro in su le pastiglie si stringono per stare su due righe. */}
           {state.players.map((p) => (
             <div
               key={p.id}
               style={{
                 ...styles.player,
+                ...(affollato ? styles.playerStretto : null),
                 borderColor: p.id === current?.id ? colorOf(p.id) : 'transparent',
                 opacity: p.bankrupt ? 0.35 : 1,
               }}
@@ -131,7 +136,9 @@ export default function MobileBar({
               >
                 €{p.balance}
               </span>
-              {!p.connected && !p.bankrupt && <span style={styles.offline}>offline</span>}
+              {!p.connected && !p.bankrupt && !affollato && (
+                <span style={styles.offline}>offline</span>
+              )}
             </div>
           ))}
         </div>
@@ -212,7 +219,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   codeRow: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.6)', textAlign: 'center' },
   code: { color: 'var(--brass-2)', letterSpacing: '0.14em', fontSize: '0.92rem' },
-  players: { display: 'flex', gap: 8, justifyContent: 'center' },
+  players: { display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' },
   player: {
     display: 'flex',
     alignItems: 'center',
@@ -222,6 +229,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1.5px solid',
     background: 'rgba(0,0,0,0.22)',
   },
+  playerStretto: { padding: '2px 7px', gap: 4 },
   playerToken: { fontSize: '1rem' },
   playerBalance: { fontSize: '0.85rem' },
   offline: { fontSize: '0.62rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic' },

@@ -12,6 +12,9 @@ const JAIL_POSITION = 10;
 const GO_TO_JAIL_POSITION = 30;
 const JAIL_FINE = 50;
 const MAX_JAIL_TURNS = 3;
+// Oltre sei il tabellone diventa illeggibile e i colori finiscono.
+const MAX_PLAYERS = 6;
+
 // Al terzo doppio consecutivo si va in prigione senza muoversi.
 const MAX_DOUBLES = 3;
 // Interesse del 10% che la banca trattiene sulle ipoteche: si paga per
@@ -118,6 +121,9 @@ class GameEngine {
     if (this.players.some((p) => p.token === token)) {
       return { error: 'Pedone già scelto dall\'altro giocatore', takenTokens: this.takenTokens() };
     }
+    if (this.players.length >= MAX_PLAYERS) {
+      return { error: `Il tavolo è al completo (${MAX_PLAYERS} giocatori)` };
+    }
     if (this.players.length === 0) this.hostId = id;
     this.players.push({
       id, name, token,
@@ -128,6 +134,9 @@ class GameEngine {
       jailCards: 0,
       bankrupt: false,
       doublesInARow: 0,
+      // A chi va il denaro del debito in corso: serve quando il debito resta
+      // in coda dietro a quello di un altro giocatore.
+      debtTo: null,
       // Un giocatore disconnesso resta al tavolo con le sue proprietà: può
       // rientrare con lo stesso id. Serve solo a segnalarlo nell'interfaccia.
       connected: true,
@@ -750,6 +759,10 @@ class GameEngine {
     if (creditor) creditor.balance += amount;
     if (player.balance >= 0) return;
 
+    // Si ricorda a chi vanno i soldi: se questo debito finisce in coda dietro a
+    // quello di un altro, al momento di saldarlo serve sapere chi è il creditore.
+    player.debtTo = creditor ? creditor.id : null;
+
     // Nemmeno svendendo tutto ce la farebbe: bancarotta immediata, nessuna scelta.
     if (this.liquidationValue(player) < 0) {
       this.addLog(`${player.name} non può coprire il debito in alcun modo.`);
@@ -757,13 +770,29 @@ class GameEngine {
       return;
     }
 
+    this.settleNextDebt();
+  }
+
+  /**
+   * Apre il debito del primo giocatore rimasto in rosso. Con più di due
+   * giocatori una sola carta ("incassa da ogni giocatore") può mandarne sotto
+   * parecchi in un colpo solo: si risolvono uno alla volta, altrimenti il
+   * secondo debito cancellerebbe il primo e chi lo aveva resterebbe in rosso
+   * senza alcun modo di saldare.
+   */
+  settleNextDebt() {
+    if (this.pendingAction || this.finished) return;
+    const debitore = this.players.find((p) => !p.bankrupt && p.balance < 0);
+    if (!debitore) return;
+
+    const creditore = this.players.find((p) => p.id === debitore.debtTo);
     this.pendingAction = {
       type: 'awaiting_debt',
-      playerId: player.id,
-      amount: -player.balance,
-      creditorId: creditor ? creditor.id : null,
+      playerId: debitore.id,
+      amount: -debitore.balance,
+      creditorId: creditore ? creditore.id : null,
     };
-    this.addLog(`${player.name} deve coprire ${-player.balance}: vendi, ipoteca o dichiara bancarotta.`);
+    this.addLog(`${debitore.name} deve coprire ${-debitore.balance}: vendi, ipoteca o dichiara bancarotta.`);
   }
 
   /**
@@ -779,8 +808,13 @@ class GameEngine {
       return;
     }
     this.pendingAction = null;
+    player.debtTo = null;
     this.addLog(`${player.name} ha saldato il debito.`);
-    this.finishRoll(this.currentPlayer);
+
+    // Un altro giocatore può essere ancora in rosso per la stessa carta: il suo
+    // debito si apre adesso, non prima, per non sovrascrivere questo.
+    this.settleNextDebt();
+    if (!this.pendingAction) this.finishRoll(this.currentPlayer);
   }
 
   /**
@@ -854,7 +888,7 @@ class GameEngine {
    * banca il 10% di interesse, come da regolamento. Senza creditore (tasse,
    * carte) le caselle tornano libere.
    */
-  bankruptPlayer(player, creditor = null) {
+  bankruptPlayer(player, creditor = null, motivo = 'bankruptcy') {
     if (player.bankrupt) return;
     player.bankrupt = true;
 
@@ -883,14 +917,21 @@ class GameEngine {
       // differenza, così il creditore incassa solo quanto esisteva davvero.
       creditor.balance += player.balance;
       this.addLog(`${player.name} è in bancarotta: tutto passa a ${creditor.name}.`);
+    } else if (motivo === 'abandoned') {
+      this.addLog(`${player.name} lascia il tavolo: le sue proprietà tornano libere.`);
     } else {
       this.addLog(`${player.name} è in bancarotta: le sue proprietà tornano alla banca.`);
     }
 
     player.balance = 0;
+    player.debtTo = null;
     if (this.hasPendingDebt() && this.pendingAction.playerId === player.id) this.pendingAction = null;
-    this.checkWinner();
-    if (!this.finished) this.finishRoll(this.currentPlayer);
+    this.checkWinner(motivo);
+
+    // Il turno si chiude solo se a uscire è stato chi stava giocando. Quando a
+    // fallire è un altro (carta "incassa da ogni giocatore") il turno in corso
+    // prosegue, e a chiuderlo sarà chi lo ha iniziato.
+    if (!this.finished && this.currentPlayer?.bankrupt) this.finishRoll(this.currentPlayer);
   }
 
   // ---- Scambi fra giocatori ----
@@ -1051,13 +1092,24 @@ class GameEngine {
     if (!player) return { error: 'Giocatore non trovato' };
     if (this.finished) return { error: 'La partita è già finita' };
 
-    const rimasti = this.players.filter((p) => p.id !== playerId && !p.bankrupt);
-    this.finished = true;
-    this.endedReason = 'abandoned';
-    this.winnerId = rimasti.length === 1 ? rimasti[0].id : null;
-    this.pendingAction = null;
+    if (player.bankrupt) return { error: 'Sei già fuori dalla partita' };
+
+    // Chi si ritira esce come chi fallisce: le sue proprietà tornano libere e la
+    // partita prosegue fra i rimanenti. In due questo coincide con la vittoria
+    // a tavolino dell'altro, perché resta lui solo.
+    const eraDiTurno = this.currentPlayer?.id === playerId;
+    const suoDebito = this.hasPendingDebt() && this.pendingAction.playerId === playerId;
+    if (suoDebito) this.pendingAction = null;
+
     this.addLog(`${player.name} abbandona la partita.`);
-    if (this.winnerId) this.addLog(`${rimasti[0].name} vince a tavolino.`);
+    this.bankruptPlayer(player, null, 'abandoned');
+
+    // Il turno si tocca solo se se n'è andato chi stava giocando: un abbandono
+    // durante il turno altrui non deve interromperlo.
+    if (!this.finished && (eraDiTurno || suoDebito)) {
+      this.settleNextDebt();
+      if (!this.pendingAction) this.endTurn();
+    }
     return {};
   }
 
@@ -1129,13 +1181,13 @@ class GameEngine {
   }
 
   /** Con un solo giocatore ancora in piedi la partita è finita. */
-  checkWinner() {
+  checkWinner(motivo = 'bankruptcy') {
     if (!this.started || this.finished) return;
     const alive = this.players.filter((p) => !p.bankrupt);
     if (alive.length === 1) {
       this.finished = true;
       this.winnerId = alive[0].id;
-      this.endedReason = 'bankruptcy';
+      this.endedReason = motivo;
       this.addLog(`${alive[0].name} vince la partita!`);
     }
   }

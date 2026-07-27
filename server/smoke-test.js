@@ -806,6 +806,82 @@ section('20. Chiusura della stanza');
 }
 
 // ---------------------------------------------------------------------------
+section('21. Tavolo fino a sei giocatori');
+{
+  const game = new GameEngine('SEI');
+  const nomi = ['Mario', 'Giulia', 'Luca', 'Anna', 'Bea', 'Ciro'];
+  const pedoni = ['🎩', '🐕', '🚗', '🚢', '🐈', '🎸'];
+  nomi.forEach((n, i) => game.addPlayer('p' + i, n, pedoni[i]));
+  check('sei giocatori entrano', game.players.length === 6);
+
+  const settimo = game.addPlayer('x', 'Extra', '🎺');
+  check('il settimo è rifiutato', !!settimo.error, settimo.error);
+  check('restano sei', game.players.length === 6);
+
+  game.start();
+  const ordine = [];
+  for (let i = 0; i < 8; i++) { ordine.push(game.currentPlayer.name); game.turnResolved = false; game.endTurn(); }
+  check(
+    'il turno gira su tutti e sei',
+    ordine.join() === 'Mario,Giulia,Luca,Anna,Bea,Ciro,Mario,Giulia',
+    ordine.join()
+  );
+}
+
+section('22. Con più di due, chi abbandona esce ma la partita continua');
+{
+  const game = new GameEngine('ABB');
+  ['Mario', 'Giulia', 'Luca', 'Anna'].forEach((n, i) => game.addPlayer('p' + i, n, ['🎩', '🐕', '🚗', '🚢'][i]));
+  game.start();
+  give(game, 'p1', ORANGE[0]);
+
+  game.abandonGame('p1');
+  check('la partita continua', game.finished === false);
+  check('chi abbandona è fuori', game.players[1].bankrupt === true);
+  check('le sue proprietà tornano libere', game.ownership[ORANGE[0]] === undefined);
+  check('gli altri tre sono ancora dentro', game.players.filter((p) => !p.bankrupt).length === 3);
+
+  const dinuovo = game.abandonGame('p1');
+  check('non si abbandona due volte', !!dinuovo.error, dinuovo.error);
+
+  // Il turno non deve saltare: stava giocando Mario, non Giulia.
+  check('il turno resta a chi stava giocando', game.currentPlayer.name === 'Mario');
+
+  game.abandonGame('p2');
+  check('con due rimasti la partita continua ancora', game.finished === false);
+  game.abandonGame('p3');
+  check('rimasto uno, la partita finisce', game.finished === true);
+  check('vince chi è rimasto', game.winnerId === 'p0');
+  check('il motivo è l\'abbandono', game.endedReason === 'abandoned');
+}
+
+section('23. Debiti multipli: si risolvono in coda, non si sovrascrivono');
+{
+  const game = new GameEngine('DEB');
+  ['Mario', 'Giulia', 'Luca', 'Anna'].forEach((n, i) => game.addPlayer('p' + i, n, ['🎩', '🐕', '🚗', '🚢'][i]));
+  game.start();
+  [1, 2, 3].forEach((i) => { game.players[i].balance = 50; });
+  // Due proprietà a testa: il debito è copribile, quindi niente bancarotta.
+  give(game, 'p1', 16); give(game, 'p1', 18);
+  give(game, 'p2', 21); give(game, 'p2', 23);
+  give(game, 'p3', 26); give(game, 'p3', 27);
+
+  game.applyCard(game.players[0], { action: 'collect_from_each_player', amount: 200 });
+  check('tutti e tre sono in rosso', game.players.slice(1).every((p) => p.balance === -150));
+  check('un debito è aperto', game.pendingAction?.type === 'awaiting_debt');
+
+  const risolti = [];
+  let giri = 0;
+  while (game.pendingAction?.type === 'awaiting_debt' && giri++ < 10) {
+    risolti.push(game.pendingAction.playerId);
+    game.resolveDebtAuto(game.pendingAction.playerId);
+  }
+  check('sono stati risolti tutti e tre, uno alla volta', risolti.length === 3, risolti.join());
+  check('nessuno resta in rosso', game.players.every((p) => p.balance >= 0));
+  check('nessun debito appeso', game.pendingAction === null);
+}
+
+// ---------------------------------------------------------------------------
 section('13. Riconnessione: il giocatore sopravvive al cambio di socket');
 {
   const { RoomManager, ROOM_TTL_MS } = require('./src/rooms');

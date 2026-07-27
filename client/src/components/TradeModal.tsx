@@ -21,7 +21,11 @@ export default function TradeModal({
   onClose: () => void;
 }) {
   const me = state.players.find((p) => p.id === myId);
-  const other = state.players.find((p) => p.id !== myId && !p.bankrupt);
+  // Con più di due al tavolo bisogna poter scegliere con chi trattare:
+  // prima si agganciava al primo avversario e gli altri erano irraggiungibili.
+  const avversari = state.players.filter((p) => p.id !== myId && !p.bankrupt);
+  const [toId, setToId] = useState<string | null>(avversari[0]?.id ?? null);
+  const other = avversari.find((p) => p.id === toId) ?? avversari[0];
 
   const [offerProperties, setOfferProperties] = useState<number[]>([]);
   const [requestProperties, setRequestProperties] = useState<number[]>([]);
@@ -37,6 +41,15 @@ export default function TradeModal({
 
   const ownedBy = (playerId: string) =>
     board.filter((s) => state.ownership[s.position]?.ownerId === playerId);
+
+  const cambiaDestinatario = (id: string) => {
+    setToId(id);
+    // Le richieste erano rivolte a un altro giocatore: si azzerano.
+    setRequestProperties([]);
+    setRequestMoney('0');
+    setRequestJailCards('0');
+    setError(null);
+  };
 
   const toggle = (list: number[], setList: (v: number[]) => void, position: number) => {
     setError(null);
@@ -98,6 +111,22 @@ export default function TradeModal({
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>proposta di scambio</span>
         <h2 style={styles.title}>Tu ↔ {other.name}</h2>
+
+        {avversari.length > 1 && (
+          <div style={styles.destinatari}>
+            <span style={styles.destLabel}>Con chi:</span>
+            {avversari.map((p) => (
+              <button
+                key={p.id}
+                className={p.id === other.id ? 'btn-primary' : 'btn-ghost'}
+                style={styles.destBtn}
+                onClick={() => cambiaDestinatario(p.id)}
+              >
+                {p.token} {p.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         <TradeBoard
           board={board}
@@ -183,6 +212,9 @@ export default function TradeModal({
 const styles: Record<string, React.CSSProperties> = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 25, padding: 20 },
   card: { padding: 26, width: 560, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12 },
+  destinatari: { display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' },
+  destLabel: { fontSize: '0.76rem', color: 'rgba(243,234,216,0.6)' },
+  destBtn: { minHeight: 38, fontSize: '0.8rem', padding: '0 12px' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   title: { fontSize: '1.4rem' },
   columns: { display: 'flex', gap: 16, flexWrap: 'wrap', overflowY: 'auto' },
