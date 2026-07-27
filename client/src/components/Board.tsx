@@ -218,7 +218,9 @@ export default function Board({
                 ...(isCorner ? styles.cornerSquare : null),
                 gridRow: row,
                 gridColumn: col,
-                boxShadow: owner ? `inset 0 0 0 2px ${colorOf(owner.id)}` : undefined,
+                boxShadow: owner
+                  ? `inset 0 0 0 2px ${colorOf(owner.id)}, inset 0 2px 6px rgba(0,0,0,0.28)`
+                  : 'inset 0 2px 6px rgba(0,0,0,0.18)',
                 opacity: owned?.mortgaged ? 0.5 : 1,
               }}
               title={
@@ -231,7 +233,7 @@ export default function Board({
                 <div
                   style={{
                     ...styles.colorBar,
-                    background: GROUP_COLORS[square.group],
+                    background: `linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(0,0,0,0.16) 100%), ${GROUP_COLORS[square.group]}`,
                     height: compact ? '34%' : '20%',
                   }}
                 >
@@ -378,19 +380,21 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     gap: '4%',
   },
+  // Sagoma di casetta col tetto a punta: il drop-shadow sta in filter perché
+  // box-shadow verrebbe tagliato via dal clip-path.
   house: {
-    width: scaled(0.0062, '3px'),
-    height: scaled(0.0062, '3px'),
-    borderRadius: 1,
-    background: '#39d67f',
-    border: '0.5px solid rgba(0,0,0,0.55)',
+    width: scaled(0.011, '5px'),
+    height: scaled(0.0105, '5px'),
+    clipPath: 'polygon(50% 0, 100% 38%, 100% 100%, 0 100%, 0 38%)',
+    background: 'linear-gradient(180deg, #63e89e 0%, #2a9e5f 100%)',
+    filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.55))',
   },
   hotel: {
-    width: scaled(0.017, '9px'),
-    height: scaled(0.0075, '4px'),
-    borderRadius: 1,
-    background: '#ff5a4d',
-    border: '0.5px solid rgba(0,0,0,0.55)',
+    width: scaled(0.02, '10px'),
+    height: scaled(0.0135, '7px'),
+    clipPath: 'polygon(50% 0, 100% 30%, 100% 100%, 0 100%, 0 30%)',
+    background: 'linear-gradient(180deg, #ff8a7c 0%, #c93225 100%)',
+    filter: 'drop-shadow(0 1px 1.5px rgba(0,0,0,0.6))',
   },
   squareName: {
     fontSize: scaled(0.0122, '6px'),
@@ -423,6 +427,11 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     gap: '1.5%',
     padding: '4%',
+    // Anello in ottone attorno al centro, come la cornice del tabellone vero.
+    margin: '2.5%',
+    border: '1.5px solid rgba(201,150,44,0.22)',
+    borderRadius: 14,
+    boxShadow: 'inset 0 0 34px rgba(0,0,0,0.22)',
   },
   centerTitle: {
     fontSize: scaled(0.072),
