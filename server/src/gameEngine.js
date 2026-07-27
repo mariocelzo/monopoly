@@ -71,8 +71,16 @@ class GameEngine {
     if (this.log.length > 200) this.log.shift();
   }
 
+  /** Pedoni già assegnati: servono al client per disabilitarli nella lobby. */
+  takenTokens() {
+    return this.players.map((p) => p.token);
+  }
+
   addPlayer(id, name, token) {
-    if (this.players.find((p) => p.id === id)) return;
+    if (this.players.find((p) => p.id === id)) return { error: 'Sei già al tavolo' };
+    if (this.players.some((p) => p.token === token)) {
+      return { error: 'Pedone già scelto dall\'altro giocatore', takenTokens: this.takenTokens() };
+    }
     this.players.push({
       id, name, token,
       balance: STARTING_BALANCE,
@@ -84,6 +92,7 @@ class GameEngine {
       doublesInARow: 0,
     });
     this.addLog(`${name} si è unito alla partita.`);
+    return {};
   }
 
   start() {
@@ -749,7 +758,15 @@ class GameEngine {
    * anche fuori dal proprio turno, ma la proposta congela il gioco finché
    * l'altro non risponde.
    */
-  proposeTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0 } = {}) {
+  proposeTrade(fromId, {
+    toId,
+    offerProperties = [],
+    offerMoney = 0,
+    offerJailCards = 0,
+    requestProperties = [],
+    requestMoney = 0,
+    requestJailCards = 0,
+  } = {}) {
     const from = this.players.find((p) => p.id === fromId);
     const to = this.players.find((p) => p.id === toId);
     if (!this.started || this.finished) return { error: 'La partita non è in corso' };
@@ -757,14 +774,19 @@ class GameEngine {
     if (from.bankrupt || to.bankrupt) return { error: 'Un giocatore è fallito' };
     if (this.pendingAction) return { error: 'Prima risolvi l\'azione in sospeso' };
 
-    const money = [offerMoney, requestMoney].map((n) => Math.floor(Number(n) || 0));
-    if (money.some((n) => n < 0)) return { error: 'Gli importi non possono essere negativi' };
-    const [offered, requested] = money;
+    const amounts = [offerMoney, requestMoney, offerJailCards, requestJailCards].map(
+      (n) => Math.floor(Number(n) || 0)
+    );
+    if (amounts.some((n) => n < 0)) return { error: 'Gli importi non possono essere negativi' };
+    const [offered, requested, offeredCards, requestedCards] = amounts;
     if (offered > from.balance) return { error: 'Non hai abbastanza denaro' };
     if (requested > to.balance) return { error: `${to.name} non ha abbastanza denaro` };
-    if (offerProperties.length + requestProperties.length === 0 && offered === 0 && requested === 0) {
-      return { error: 'Lo scambio è vuoto' };
-    }
+    if (offeredCards > from.jailCards) return { error: 'Non hai così tante carte uscita' };
+    if (requestedCards > to.jailCards) return { error: `${to.name} non ha così tante carte uscita` };
+    const isEmpty =
+      offerProperties.length + requestProperties.length === 0 &&
+      offered + requested + offeredCards + requestedCards === 0;
+    if (isEmpty) return { error: 'Lo scambio è vuoto' };
 
     for (const position of offerProperties) {
       const blocker = this.tradeBlocker(fromId, position);
@@ -782,8 +804,10 @@ class GameEngine {
       toId: to.id,
       offerProperties: [...offerProperties],
       offerMoney: offered,
+      offerJailCards: offeredCards,
       requestProperties: [...requestProperties],
       requestMoney: requested,
+      requestJailCards: requestedCards,
     };
     this.addLog(`${from.name} propone uno scambio a ${to.name}.`);
     return {};
@@ -816,9 +840,15 @@ class GameEngine {
     }
     if (trade.offerMoney > from.balance) return { error: `${from.name} non ha più abbastanza denaro` };
     if (trade.requestMoney > to.balance) return { error: 'Non hai abbastanza denaro' };
+    if (trade.offerJailCards > from.jailCards) return { error: `${from.name} non ha più quelle carte` };
+    if (trade.requestJailCards > to.jailCards) return { error: 'Non hai più quelle carte' };
 
     trade.offerProperties.forEach((position) => { this.ownership[position].ownerId = to.id; });
     trade.requestProperties.forEach((position) => { this.ownership[position].ownerId = from.id; });
+
+    const netCards = trade.offerJailCards - trade.requestJailCards;
+    from.jailCards -= netCards;
+    to.jailCards += netCards;
 
     // Solo la differenza cambia di mano, così non si creano saldi negativi
     // intermedi se entrambi mettono denaro sul piatto.

@@ -13,24 +13,36 @@ export default function Lobby({
   const [joinCode, setJoinCode] = useState('');
   const [mode, setMode] = useState<'choose' | 'join'>('choose');
   const [error, setError] = useState<string | null>(null);
+  // Pedoni già occupati nella stanza: il server li comunica quando rifiuta
+  // l'ingresso, così alla prova successiva sono già disabilitati.
+  const [taken, setTaken] = useState<string[]>([]);
+
+  /** Gestisce la risposta del server sia per la creazione sia per l'ingresso. */
+  const handleResponse = (res: any) => {
+    if (res.error) {
+      setError(res.error);
+      if (Array.isArray(res.takenTokens)) {
+        setTaken(res.takenTokens);
+        // Se il pedone scelto è occupato, si passa al primo libero.
+        const free = TOKENS.find((t) => !res.takenTokens.includes(t));
+        if (res.takenTokens.includes(token) && free) setToken(free);
+      }
+      return;
+    }
+    onJoined(res.roomCode, res.playerId);
+  };
 
   const createRoom = () => {
     if (!name.trim()) return setError('Inserisci un nome');
     if (!socket.connected) socket.connect();
-    socket.emit('create_room', { name, token }, (res: any) => {
-      if (res.error) return setError(res.error);
-      onJoined(res.roomCode, res.playerId);
-    });
+    socket.emit('create_room', { name, token }, handleResponse);
   };
 
   const joinRoom = () => {
     if (!name.trim()) return setError('Inserisci un nome');
     if (!joinCode.trim()) return setError('Inserisci il codice stanza');
     if (!socket.connected) socket.connect();
-    socket.emit('join_room', { roomCode: joinCode.toUpperCase(), name, token }, (res: any) => {
-      if (res.error) return setError(res.error);
-      onJoined(res.roomCode, res.playerId);
-    });
+    socket.emit('join_room', { roomCode: joinCode.toUpperCase(), name, token }, handleResponse);
   };
 
   return (
@@ -52,19 +64,27 @@ export default function Lobby({
 
         <label style={styles.label}>Il tuo pedone</label>
         <div style={styles.tokenRow}>
-          {TOKENS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setToken(t)}
-              style={{
-                ...styles.tokenBtn,
-                borderColor: token === t ? 'var(--brass)' : 'transparent',
-                background: token === t ? 'rgba(201,150,44,0.15)' : 'transparent',
-              }}
-            >
-              {t}
-            </button>
-          ))}
+          {TOKENS.map((t) => {
+            const isTaken = taken.includes(t);
+            return (
+              <button
+                key={t}
+                onClick={() => setToken(t)}
+                disabled={isTaken}
+                title={isTaken ? 'Pedone già preso' : undefined}
+                style={{
+                  ...styles.tokenBtn,
+                  borderColor: token === t ? 'var(--brass)' : 'transparent',
+                  background: token === t ? 'rgba(201,150,44,0.15)' : 'transparent',
+                  opacity: isTaken ? 0.25 : 1,
+                  cursor: isTaken ? 'not-allowed' : 'pointer',
+                  filter: isTaken ? 'grayscale(1)' : 'none',
+                }}
+              >
+                {t}
+              </button>
+            );
+          })}
         </div>
 
         {mode === 'choose' && (

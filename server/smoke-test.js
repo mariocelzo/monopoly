@@ -303,6 +303,30 @@ section('10d. Scambio: interesse sulle ipoteche ricevute');
   check('il proponente incassa i 100 richiesti', game.players[0].balance === 600);
 }
 
+section('10i. Scambio di carte "esci di prigione" e pedoni unici');
+{
+  const game = newGame();
+  const [mario, giulia] = game.players;
+  mario.jailCards = 2;
+
+  const troppe = game.proposeTrade('a', { toId: 'b', offerJailCards: 3 });
+  check('non si offrono più carte di quante se ne hanno', !!troppe.error, troppe.error);
+
+  game.proposeTrade('a', { toId: 'b', offerJailCards: 1, requestMoney: 60 });
+  game.respondTrade('b', true);
+  check('la carta è passata', mario.jailCards === 1 && giulia.jailCards === 1, `${mario.jailCards}/${giulia.jailCards}`);
+  check('il denaro è passato', mario.balance === 1560 && giulia.balance === 1440, `${mario.balance}/${giulia.balance}`);
+
+  // Pedoni: due giocatori non possono avere lo stesso.
+  const dup = new GameEngine('DUP');
+  check('il primo pedone è accettato', !dup.addPlayer('x', 'Mario', '🎩').error);
+  const taken = dup.addPlayer('y', 'Giulia', '🎩');
+  check('il pedone duplicato è rifiutato', !!taken.error, taken.error);
+  check('l\'errore riporta i pedoni occupati', Array.isArray(taken.takenTokens) && taken.takenTokens.includes('🎩'));
+  check('un pedone libero è accettato', !dup.addPlayer('y', 'Giulia', '🐕').error);
+  check('i giocatori al tavolo sono due', dup.players.length === 2);
+}
+
 section('10e. Tre doppi consecutivi mandano in prigione');
 {
   const game = newGame();

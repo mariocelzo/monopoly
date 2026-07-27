@@ -55,12 +55,13 @@ non si creano saldi negativi intermedi.
 - Bottone "Proponi scambio" nel pannello di gioco, disabilitato quando c'è
   un'azione in sospeso.
 
+## Carte "esci di prigione"
+
+Aggiunte dopo la prima versione: `offerJailCards` e `requestJailCards` nella
+proposta, validate contro le carte effettivamente possedute e ricontrollate in
+accettazione come tutto il resto. Nel compositore i due campi compaiono solo se
+quel giocatore ha almeno una carta.
+
 ## Fuori scope
 
-Lo **scambio delle carte "esci di prigione"**, che il regolamento consente. Il
-motore non lo supporta: aggiungerlo richiede due campi in più nel
-`pendingAction` e un selettore nel compositore. Da valutare se serve davvero in
-una partita a due.
-
-Restano ai punti successivi: tre doppi consecutivi, riconnessione con
-`playerId` persistente, animazioni, deploy.
+Resta ai punti successivi: riconnessione con `playerId` persistente e deploy.

@@ -22,10 +22,10 @@ export default function TradeOfferModal({
   const isRecipient = pending.toId === myId;
 
   /** Un lato del baratto: le proprietà più l'eventuale denaro. */
-  const side = (title: string, positions: number[], money: number) => (
+  const side = (title: string, positions: number[], money: number, jailCards: number) => (
     <div style={styles.side}>
       <h3 style={styles.sideTitle}>{title}</h3>
-      {positions.length === 0 && money === 0 && <p style={styles.none}>niente</p>}
+      {positions.length === 0 && money === 0 && jailCards === 0 && <p style={styles.none}>niente</p>}
       {positions.map((position) => {
         const square = board.find((s) => s.position === position);
         const owned = state.ownership[position];
@@ -43,6 +43,11 @@ export default function TradeOfferModal({
         );
       })}
       {money > 0 && <div className="mono" style={styles.money}>€{money}</div>}
+      {jailCards > 0 && (
+        <div style={styles.cards}>
+          🔑 {jailCards} {jailCards === 1 ? 'carta uscita' : 'carte uscita'}
+        </div>
+      )}
     </div>
   );
 
@@ -55,8 +60,8 @@ export default function TradeOfferModal({
         </h2>
 
         <div style={styles.columns}>
-          {side(`${from?.name} dà`, pending.offerProperties, pending.offerMoney)}
-          {side(`${to?.name} dà`, pending.requestProperties, pending.requestMoney)}
+          {side(`${from?.name} dà`, pending.offerProperties, pending.offerMoney, pending.offerJailCards)}
+          {side(`${to?.name} dà`, pending.requestProperties, pending.requestMoney, pending.requestJailCards)}
         </div>
 
         {isRecipient ? (
@@ -90,6 +95,7 @@ const styles: Record<string, React.CSSProperties> = {
   rowName: { fontSize: '0.8rem', flex: 1 },
   mortgaged: { fontSize: '0.62rem', color: '#e18a8a', fontFamily: 'var(--font-mono)' },
   money: { fontSize: '1rem', color: 'var(--brass-2)', marginTop: 4 },
+  cards: { fontSize: '0.78rem', color: 'var(--paper)', marginTop: 2 },
   actions: { display: 'flex', gap: 10 },
   wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
 };

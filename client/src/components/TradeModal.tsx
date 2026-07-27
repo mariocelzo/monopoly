@@ -26,6 +26,8 @@ export default function TradeModal({
   const [requestProperties, setRequestProperties] = useState<number[]>([]);
   const [offerMoney, setOfferMoney] = useState('0');
   const [requestMoney, setRequestMoney] = useState('0');
+  const [offerJailCards, setOfferJailCards] = useState('0');
+  const [requestJailCards, setRequestJailCards] = useState('0');
   const [error, setError] = useState<string | null>(null);
 
   if (!other || !me) {
@@ -50,6 +52,8 @@ export default function TradeModal({
         requestProperties,
         offerMoney: Number(offerMoney) || 0,
         requestMoney: Number(requestMoney) || 0,
+        offerJailCards: Number(offerJailCards) || 0,
+        requestJailCards: Number(requestJailCards) || 0,
       },
       (res: { error?: string }) => {
         if (res?.error) setError(res.error);
@@ -109,6 +113,19 @@ export default function TradeModal({
                 onChange={(e) => setOfferMoney(e.target.value)}
               />
             </label>
+            {me.jailCards > 0 && (
+              <label style={styles.moneyLabel}>
+                Carte uscita di prigione (ne hai {me.jailCards})
+                <input
+                  style={styles.money}
+                  type="number"
+                  min={0}
+                  max={me.jailCards}
+                  value={offerJailCards}
+                  onChange={(e) => setOfferJailCards(e.target.value)}
+                />
+              </label>
+            )}
           </div>
 
           <div style={styles.column}>
@@ -127,6 +144,19 @@ export default function TradeModal({
                 onChange={(e) => setRequestMoney(e.target.value)}
               />
             </label>
+            {other.jailCards > 0 && (
+              <label style={styles.moneyLabel}>
+                Carte uscita di prigione (ne ha {other.jailCards})
+                <input
+                  style={styles.money}
+                  type="number"
+                  min={0}
+                  max={other.jailCards}
+                  value={requestJailCards}
+                  onChange={(e) => setRequestJailCards(e.target.value)}
+                />
+              </label>
+            )}
           </div>
         </div>
 

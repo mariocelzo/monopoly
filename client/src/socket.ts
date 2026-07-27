@@ -57,8 +57,10 @@ export interface AwaitingTrade {
   toId: string;
   offerProperties: number[];
   offerMoney: number;
+  offerJailCards: number;
   requestProperties: number[];
   requestMoney: number;
+  requestJailCards: number;
 }
 
 export type PendingAction = AwaitingBuy | AwaitingDebt | AwaitingTrade;

@@ -38,7 +38,8 @@ io.on('connection', (socket) => {
     const code = roomManager.createRoom();
     const room = roomManager.getRoom(code);
     const playerId = socket.id;
-    room.game.addPlayer(playerId, name, token);
+    const added = room.game.addPlayer(playerId, name, token);
+    if (added?.error) return cb?.(added);
     room.sockets.set(socket.id, playerId);
     socket.join(code);
     socket.data.roomCode = code;
@@ -52,7 +53,10 @@ io.on('connection', (socket) => {
     if (!room) return cb?.({ error: 'Stanza non trovata' });
     if (room.game.started) return cb?.({ error: 'Partita già iniziata' });
     const playerId = socket.id;
-    room.game.addPlayer(playerId, name, token);
+    // Il pedone può essere già preso: l'errore riporta quali sono occupati, così
+    // la lobby li disabilita invece di far tirare a indovinare.
+    const added = room.game.addPlayer(playerId, name, token);
+    if (added?.error) return cb?.(added);
     room.sockets.set(socket.id, playerId);
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
