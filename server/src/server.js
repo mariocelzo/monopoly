@@ -6,18 +6,38 @@ const { board } = require('./data/board');
 
 const PORT = process.env.PORT || 3001;
 
+// CLIENT_ORIGIN accetta più origini separate da virgola: in produzione servono
+// almeno il dominio vero e quelli di anteprima. Vuoto = tutte, comodo in locale.
+const ALLOWED_ORIGINS = (process.env.CLIENT_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+/** Origine da rimandare indietro, o null se non è ammessa. */
+function allowedOrigin(origin) {
+  if (ALLOWED_ORIGINS.length === 0) return '*';
+  if (!origin) return null; // richieste senza Origin (curl, health check): nessun header
+  return ALLOWED_ORIGINS.includes(origin) ? origin : null;
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: process.env.CLIENT_ORIGIN || '*' },
+  cors: { origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : '*' },
 });
 
 const roomManager = new RoomManager();
 
 // Le rotte HTTP hanno bisogno degli stessi header CORS di Socket.io: senza,
-// il client servito da Vite su un'altra porta non riesce a scaricare /board.
+// il client servito da un'altra origine non riesce a scaricare /board.
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', process.env.CLIENT_ORIGIN || '*');
+  const origin = allowedOrigin(req.headers.origin);
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+    // Con più origini ammesse la risposta cambia in base a Origin: le cache
+    // devono saperlo, altrimenti servono l'header sbagliato all'altro dominio.
+    if (origin !== '*') res.header('Vary', 'Origin');
+  }
   next();
 });
 

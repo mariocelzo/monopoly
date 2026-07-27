@@ -1,0 +1,18 @@
+# Blueprint per Render. Da "New > Blueprint" puntando a questa repo.
+# La cartella di lavoro è server/, quindi rootDir va impostato di conseguenza.
+services:
+  - type: web
+    name: noi-due-monopoly-api
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      # Origini del client separate da virgola. Da compilare dopo il primo
+      # deploy su Vercel, altrimenti il browser blocca le chiamate.
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: NODE_VERSION
+        value: "20"
