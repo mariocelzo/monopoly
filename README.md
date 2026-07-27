@@ -80,7 +80,7 @@ stato vive in memoria.
 server/
   smoke-test.js        Suite di asserzioni sul motore
   src/
-    data/board.js      Le 40 caselle, le carte Imprevisti e Probabilità
+    data/board.js      Le 40 caselle (edizione italiana), le carte
     gameEngine.js      Stato della partita e tutte le regole
     rooms.js           Stanze, aggancio dei socket, scadenza
     server.js          Eventi Socket.io
@@ -99,4 +99,8 @@ docs/superpowers/specs/  Documenti di design delle funzionalità
 Fatto: motore completo, bancarotta con liquidazione, costruzioni e ipoteche,
 scambi, tre doppi, riconnessione, assetto mobile.
 
-Da fare: nulla in lista. Il Via paga 500 (regola della casa).
+Regole della casa: il Via paga 500.
+
+Da fare: nulla in lista. Le idee successive sono da decidere; la piu' utile
+sarebbe far sopravvivere le partite ai riavvii del server, che oggi le
+azzerano perche' lo stato vive in memoria.

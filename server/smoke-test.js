@@ -124,8 +124,8 @@ section('6. Ordine di liquidazione: prima gli edifici, monopoli per ultimi');
   // uno scoperto di 300 si copre senza toccare il monopolio arancione.
   const game = newGame({ balanceA: 0 });
   ORANGE.forEach((pos) => give(game, 'a', pos, { houses: 1 }));
-  give(game, 'a', 5); // King's Cross Station, fuori da ogni monopolio
-  give(game, 'a', 15); // Marylebone Station, idem
+  give(game, 'a', 5); // Stazione Sud, fuori da ogni monopolio
+  give(game, 'a', 15); // Stazione Ovest, idem
   const mario = game.players[0];
 
   game.chargePlayer(mario, 300);
@@ -178,7 +178,7 @@ section('8. Bancarotta verso la banca');
 section('9. Interesse del 10% sulle ipoteche ereditate');
 {
   const game = newGame({ balanceA: 0, balanceB: 1000 });
-  // Whitechapel: prezzo 60, valore d'ipoteca 30, interesse dovuto 3.
+  // Vicolo Stretto: prezzo 60, valore d'ipoteca 30, interesse dovuto 3.
   give(game, 'a', BROWN[1], { mortgaged: true });
   const mario = game.players[0];
   const giulia = game.players[1];
@@ -194,7 +194,7 @@ section('9. Interesse del 10% sulle ipoteche ereditate');
 section('9b. Costo di riscatto senza errori di virgola mobile');
 {
   const game = newGame();
-  // King's Cross: prezzo 200, ipoteca 100, interesse 10, riscatto 110.
+  // Stazione Sud: prezzo 200, ipoteca 100, interesse 10, riscatto 110.
   // Con `100 * 1.1` in floating point verrebbe 111.
   const station = board[5];
   check('riscatto di 110 su un\'ipoteca da 100', game.unmortgageCost(station) === 110, `${game.unmortgageCost(station)}`);
@@ -287,7 +287,7 @@ section('10c. Scambio: rifiuto e vincoli');
 section('10d. Scambio: interesse sulle ipoteche ricevute');
 {
   const game = newGame({ balanceA: 500, balanceB: 500 });
-  // Whitechapel: prezzo 60, ipoteca 30, interesse 3.
+  // Vicolo Stretto: prezzo 60, ipoteca 30, interesse 3.
   give(game, 'a', BROWN[1], { mortgaged: true });
 
   game.proposeTrade('a', { toId: 'b', offerProperties: [BROWN[1]], requestMoney: 100 });
@@ -509,11 +509,11 @@ section('14. "Avanza fino a" va sempre in avanti, mai indietro');
 {
   const game = newGame();
   const mario = game.players[0];
-  // Trafalgar Square è la casella 24. Partendo dalla 30 la meta è alle spalle:
+  // Largo Colombo è la casella 24. Partendo dalla 30 la meta è alle spalle:
   // si deve fare il giro passando dal Via, non tornare indietro di 6.
   mario.position = 30;
   const saldoPrima = mario.balance;
-  game.chanceDeck = [{ text: 'Vai a Trafalgar Square.', action: 'advance_to', target: 24 }];
+  game.chanceDeck = [{ text: 'Vai a Largo Colombo.', action: 'advance_to', target: 24 }];
 
   game.drawCard(mario, 'chance');
   check('la carta resta in attesa di lettura', game.pendingAction?.type === 'awaiting_card');
@@ -576,7 +576,7 @@ section('17. Affitto raddoppiato dalla carta "stazione più vicina"');
 {
   const game = newGame();
   const [mario, giulia] = game.players;
-  give(game, 'b', 15); // Marylebone Station, unica di Giulia: affitto base 25
+  give(game, 'b', 15); // Stazione Ovest, unica di Giulia: affitto base 25
   mario.position = 12;
   giulia.balance = 1500;
   mario.balance = 1500;
@@ -605,7 +605,7 @@ section('17b. L\'affitto va confermato prima di essere addebitato');
 {
   const game = newGame();
   const [mario, giulia] = game.players;
-  give(game, 'b', ORANGE[0]); // Bow Street, affitto base 14
+  give(game, 'b', ORANGE[0]); // Via Verdi, affitto base 14
   mario.position = 10;
 
   game.movePlayer(mario, ORANGE[0] - 10);

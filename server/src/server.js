@@ -168,13 +168,6 @@ io.on('connection', (socket) => {
     return game.endTurn();
   }));
 
-  socket.on('chat_message', ({ text }) => {
-    const room = roomManager.getRoom(socket.data.roomCode);
-    if (!room) return;
-    const player = room.game.players.find((p) => p.id === socket.data.playerId);
-    io.to(socket.data.roomCode).emit('chat_message', { from: player?.name || '???', text, at: Date.now() });
-  });
-
   socket.on('disconnect', () => {
     // Il giocatore resta al tavolo con le sue proprietà: viene solo segnato
     // come disconnesso, così l'altro lo vede e lui può rientrare.
