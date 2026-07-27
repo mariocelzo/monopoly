@@ -928,5 +928,39 @@ section('13. Riconnessione: il giocatore sopravvive al cambio di socket');
 }
 
 // ---------------------------------------------------------------------------
+section('24. Bot: aggiunta e rimozione al tavolo');
+{
+  const game = new GameEngine('BOT');
+  game.addPlayer('umano', 'Mario', '🎩');
+
+  const res = game.addBot('Bot Aurelio', '🐕');
+  check('il bot viene aggiunto', !res.error, res.error);
+  check('i giocatori sono due', game.players.length === 2);
+
+  const bot = game.players[1];
+  check('il bot è marcato come tale', bot.isBot === true);
+  check('il bot risulta sempre connesso', bot.connected === true);
+  check('il bot ha un id proprio', typeof bot.id === 'string' && bot.id.startsWith('bot-'));
+  check('l\'umano non è marcato bot', game.players[0].isBot === false);
+  check('il creatore del tavolo resta l\'umano', game.hostId === 'umano');
+
+  // Il pedone occupato vale anche per i bot.
+  const doppio = game.addBot('Bot Bis', '🐕');
+  check('un pedone già preso è rifiutato anche al bot', !!doppio.error, doppio.error);
+
+  // Rimozione prima dell'inizio.
+  check('il bot si rimuove', !game.removeBot(bot.id).error);
+  check('resta solo l\'umano', game.players.length === 1);
+
+  const inesistente = game.removeBot('bot-999');
+  check('rimuovere un bot inesistente è rifiutato', !!inesistente.error, inesistente.error);
+
+  game.addBot('Bot Cleo', '🚗');
+  game.start();
+  const aPartitaIniziata = game.removeBot(game.players[1].id);
+  check('a partita iniziata non si rimuove', !!aPartitaIniziata.error, aPartitaIniziata.error);
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

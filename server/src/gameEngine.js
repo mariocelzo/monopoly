@@ -60,6 +60,9 @@ class GameEngine {
     // Chi ha chiesto la rivincita a partita finita: serve il consenso di
     // entrambi, così nessuno si ritrova la partita azzerata sotto il naso.
     this.rematchVotes = [];
+    // Progressivo per generare id univoci ai bot di questa stanza. Non si
+    // azzera alla rivincita: i bot restano quelli, con gli id che hanno.
+    this.botCounter = 0;
     // Alzata mentre resolveDebtAuto sta liquidando in serie: evita che ogni
     // singola vendita chiuda il debito e faccia girare il turno a metà loop.
     this.liquidating = false;
@@ -140,8 +143,34 @@ class GameEngine {
       // Un giocatore disconnesso resta al tavolo con le sue proprietà: può
       // rientrare con lo stesso id. Serve solo a segnalarlo nell'interfaccia.
       connected: true,
+      // Un giocatore artificiale: le sue mosse arrivano da bot.js invece che
+      // da un socket. Per il resto è un giocatore come tutti gli altri.
+      isBot: false,
     });
     this.addLog(`${name} si è unito alla partita.`);
+    return {};
+  }
+
+  /**
+   * Siede un giocatore artificiale. Riusa addPlayer per la validazione, così
+   * il tetto di sei giocatori e il pedone già occupato valgono anche per lui.
+   */
+  addBot(name, token) {
+    this.botCounter += 1;
+    const id = `bot-${this.botCounter}`;
+    const added = this.addPlayer(id, name, token);
+    if (added.error) return added;
+    this.players.find((p) => p.id === id).isBot = true;
+    return { botId: id };
+  }
+
+  /** Toglie un bot dal tavolo. Solo prima dell'inizio della partita. */
+  removeBot(botId) {
+    if (this.started) return { error: 'La partita è già iniziata' };
+    const i = this.players.findIndex((p) => p.id === botId && p.isBot);
+    if (i === -1) return { error: 'Bot non trovato' };
+    const [rimosso] = this.players.splice(i, 1);
+    this.addLog(`${rimosso.name} lascia il tavolo.`);
     return {};
   }
 
