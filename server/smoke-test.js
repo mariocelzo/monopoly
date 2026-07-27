@@ -4,6 +4,7 @@
 const { GameEngine } = require('./src/gameEngine');
 const { board } = require('./src/data/board');
 const { groupWeight, propertyScore, evaluateTrade } = require('./src/botStrategy');
+const { botMove, isBotTurn } = require('./src/bot');
 
 let passed = 0;
 let failed = 0;
@@ -1024,6 +1025,140 @@ section('26. Bot: valutazione degli scambi');
     requestProperties: [ORANGE[0]], requestMoney: 0, requestJailCards: 0,
   });
   check('non si rompe un proprio monopolio per poco denaro', rompeMonopolio === false);
+}
+
+// ---------------------------------------------------------------------------
+section('27. Bot: decisioni durante il turno');
+{
+  // Tira i dadi quando tocca a lui.
+  const game = new GameEngine('B1');
+  game.addPlayer('umano', 'Mario', '🎩');
+  game.addBot('Bot Aurelio', '🐕');
+  game.start();
+  game.turnIndex = 1; // tocca al bot
+
+  check('riconosce che tocca al bot', isBotTurn(game) === true);
+  const posPrima = game.players[1].position;
+  botMove(game);
+  check('il bot ha tirato i dadi', game.lastRoll !== null);
+  check('la pedina si è mossa o ha un\'azione aperta',
+    game.players[1].position !== posPrima || game.pendingAction !== null);
+
+  // Con una carta pescata, la conferma.
+  const g2 = new GameEngine('B2');
+  g2.addPlayer('umano', 'Mario', '🎩');
+  g2.addBot('Bot Aurelio', '🐕');
+  g2.start();
+  g2.turnIndex = 1;
+  g2.chanceDeck = [{ text: 'La banca ti paga 50.', action: 'collect', amount: 50 }];
+  g2.drawCard(g2.players[1], 'chance');
+  const saldoPrima = g2.players[1].balance;
+  botMove(g2);
+  check('il bot conferma la carta pescata', g2.pendingAction === null);
+  check('l\'effetto della carta è stato applicato', g2.players[1].balance === saldoPrima + 50);
+
+  // Con un affitto da pagare, paga.
+  const g3 = new GameEngine('B3');
+  g3.addPlayer('umano', 'Mario', '🎩');
+  g3.addBot('Bot Aurelio', '🐕');
+  g3.start();
+  g3.turnIndex = 1;
+  g3.ownership[ORANGE[0]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+  g3.players[1].position = 10;
+  g3.movePlayer(g3.players[1], ORANGE[0] - 10);
+  check('l\'affitto è in sospeso', g3.pendingAction?.type === 'awaiting_rent');
+  botMove(g3);
+  check('il bot ha pagato l\'affitto', g3.pendingAction === null);
+  check('il denaro è passato all\'umano', g3.players[0].balance > 1500);
+
+  // Con un debito copribile, liquida da solo.
+  const g4 = new GameEngine('B4');
+  g4.addPlayer('umano', 'Mario', '🎩');
+  g4.addBot('Bot Aurelio', '🐕');
+  g4.start();
+  const bot4 = g4.players[1];
+  bot4.balance = 100;
+  g4.ownership[ORANGE[0]] = { ownerId: bot4.id, houses: 0, hotel: false, mortgaged: false };
+  g4.ownership[ORANGE[1]] = { ownerId: bot4.id, houses: 0, hotel: false, mortgaged: false };
+  g4.chargePlayer(bot4, 200);
+  check('il debito è aperto sul bot', g4.pendingAction?.type === 'awaiting_debt');
+  botMove(g4);
+  check('il bot ha saldato il debito', bot4.balance >= 0, `saldo=${bot4.balance}`);
+
+  // Con un monopolio completo e cassa abbondante costruisce, e lo fa PRIMA di
+  // tirare: dopo un tiro non-doppio il motore chiude il turno da solo e la
+  // finestra per costruire non esisterebbe più.
+  const g5 = new GameEngine('B6');
+  g5.addPlayer('umano', 'Mario', '🎩');
+  g5.addBot('Bot Aurelio', '🐕');
+  g5.start();
+  g5.turnIndex = 1;
+  const bot5 = g5.players[1];
+  bot5.balance = 2000;
+  for (const pos of ORANGE) {
+    g5.ownership[pos] = { ownerId: bot5.id, houses: 0, hotel: false, mortgaged: false };
+  }
+  botMove(g5);
+  const case5 = ORANGE.reduce((tot, pos) => tot + g5.ownership[pos].houses, 0);
+  check('il bot costruisce prima di tirare', case5 === 1, `case=${case5}`);
+  check('costruendo non ha ancora tirato', g5.lastRoll === null);
+  botMove(g5);
+  const case5bis = ORANGE.reduce((tot, pos) => tot + g5.ownership[pos].houses, 0);
+  check('non costruisce due volte nello stesso turno', case5bis === 1, `case=${case5bis}`);
+
+  // Dopo un doppio il turno resta aperto e il bot deve tirare di nuovo, non
+  // chiudere il turno buttando via il tiro extra.
+  const g6 = new GameEngine('B7');
+  g6.addPlayer('umano', 'Mario', '🎩');
+  g6.addBot('Bot Aurelio', '🐕');
+  g6.start();
+  g6.turnIndex = 1;
+  const bot6 = g6.players[1];
+  // Lo stato "ho appena fatto doppio" si costruisce a mano invece di cercare
+  // dadi che ci arrivino per caso: così il test non dipende dal tabellone.
+  g6.lastRoll = { playerId: bot6.id, dice: [3, 3], seq: 1 };
+  g6.lastRollWasDouble = true;
+  g6.turnResolved = false;
+  bot6.doublesInARow = 1;
+  botMove(g6);
+  check('dopo un doppio il bot ritira', g6.lastRoll.seq === 2, `seq=${g6.lastRoll.seq}`);
+  check('il tiro extra è suo', g6.lastRoll.playerId === bot6.id);
+
+  // Senza doppio invece non deve ritirare: chiude il turno e passa la mano.
+  // (Stato costruito a mano: nel gioco vero il motore chiude da sé, qui si
+  // verifica che la rete di sicurezza del bot non tiri i dadi a sproposito.)
+  const g7 = new GameEngine('B8');
+  g7.addPlayer('umano', 'Mario', '🎩');
+  g7.addBot('Bot Aurelio', '🐕');
+  g7.start();
+  g7.turnIndex = 1;
+  const bot7 = g7.players[1];
+  g7.lastRoll = { playerId: bot7.id, dice: [2, 5], seq: 1 };
+  g7.lastRollWasDouble = false;
+  g7.turnResolved = false;
+  botMove(g7);
+  check('senza doppio non ritira', g7.lastRoll.seq === 1, `seq=${g7.lastRoll.seq}`);
+  check('senza doppio passa la mano', g7.turnIndex === 0, `turnIndex=${g7.turnIndex}`);
+}
+
+section('28. Bot: risposta agli scambi');
+{
+  const game = new GameEngine('B5');
+  game.addPlayer('umano', 'Mario', '🎩');
+  game.addBot('Bot Aurelio', '🐕');
+  game.start();
+  const botId = game.players[1].id;
+
+  // Offerta generosa: l'umano dà una proprietà cara e chiede pochi soldi.
+  game.ownership[ORANGE[0]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+  game.proposeTrade('umano', {
+    toId: botId, offerProperties: [ORANGE[0]], requestMoney: 50,
+  });
+  check('lo scambio è in attesa del bot', game.pendingAction?.type === 'awaiting_trade');
+  botMove(game);
+  check('il bot ha risposto', game.pendingAction === null);
+  check('il bot ha accettato l\'offerta conveniente',
+    game.ownership[ORANGE[0]].ownerId === botId);
 }
 
 // ---------------------------------------------------------------------------

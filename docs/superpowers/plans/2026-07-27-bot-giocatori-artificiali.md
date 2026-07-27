@@ -494,8 +494,21 @@ section('27. Bot: decisioni durante il turno');
   bot6.doublesInARow = 1;
   botMove(g6);
   check('dopo un doppio il bot ritira', g6.lastRoll.seq === 2, `seq=${g6.lastRoll.seq}`);
-  check('dopo un doppio il turno non è passato all\'umano',
-    g6.turnIndex === 1 || g6.players[1].inJail);
+  check('il tiro extra è suo', g6.lastRoll.playerId === bot6.id);
+
+  // Senza doppio invece non deve ritirare: chiude il turno e passa la mano.
+  const g7 = new GameEngine('B8');
+  g7.addPlayer('umano', 'Mario', '🎩');
+  g7.addBot('Bot Aurelio', '🐕');
+  g7.start();
+  g7.turnIndex = 1;
+  const bot7 = g7.players[1];
+  g7.lastRoll = { playerId: bot7.id, dice: [2, 5], seq: 1 };
+  g7.lastRollWasDouble = false;
+  g7.turnResolved = false;
+  botMove(g7);
+  check('senza doppio non ritira', g7.lastRoll.seq === 1, `seq=${g7.lastRoll.seq}`);
+  check('senza doppio passa la mano', g7.turnIndex === 0, `turnIndex=${g7.turnIndex}`);
 }
 
 section('28. Bot: risposta agli scambi');
@@ -788,7 +801,7 @@ module.exports = { botMove, botHasMove, isBotTurn, botMustAnswer };
 - [ ] **Step 4: Eseguire il test e verificare che passi**
 
 Run: `cd server && node smoke-test.js 2>&1 | grep -E "^2[78]\.|FAIL|superati"`
-Expected: le sezioni 27 e 28 tutte `ok`, totale `248 test superati, 0 falliti`
+Expected: le sezioni 27 e 28 tutte `ok`, totale `246 test superati, 0 falliti`
 
 - [ ] **Step 5: Eseguire i test 20 volte, perché il bot usa la casualità**
 
