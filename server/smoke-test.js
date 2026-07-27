@@ -3,6 +3,7 @@
 // gameEngine.js, come da convenzioni del progetto.
 const { GameEngine } = require('./src/gameEngine');
 const { board } = require('./src/data/board');
+const { groupWeight, propertyScore, evaluateTrade } = require('./src/botStrategy');
 
 let passed = 0;
 let failed = 0;
@@ -959,6 +960,70 @@ section('24. Bot: aggiunta e rimozione al tavolo');
   game.start();
   const aPartitaIniziata = game.removeBot(game.players[1].id);
   check('a partita iniziata non si rimuove', !!aPartitaIniziata.error, aPartitaIniziata.error);
+}
+
+// ---------------------------------------------------------------------------
+section('25. Bot: valutazioni pure della strategia');
+{
+  // Gli arancioni sono il gruppo più redditizio del tabellone: stanno a 6-8-9
+  // caselle dalla prigione, che è la casella più visitata.
+  check('gli arancioni pesano più dei marroni', groupWeight('orange') > groupWeight('brown'));
+  check('gli arancioni pesano più dei rosa', groupWeight('orange') > groupWeight('pink'));
+  check('ogni gruppo ha un peso positivo', ['brown', 'lightblue', 'pink', 'orange', 'red', 'yellow', 'green', 'blue']
+    .every((g) => groupWeight(g) > 0));
+  check('un gruppo sconosciuto ha peso neutro', groupWeight('inesistente') === 1);
+
+  const game = newGame();
+  const arancione = board[ORANGE[0]];
+
+  // Con tanta cassa si compra volentieri; con pochissima no.
+  const ricco = propertyScore(game, 'a', arancione, 2000);
+  const povero = propertyScore(game, 'a', arancione, 100);
+  check('con cassa alta il punteggio è positivo', ricco > 0, String(ricco));
+  check('con cassa quasi nulla il punteggio scende', povero < ricco, `${povero} vs ${ricco}`);
+
+  // Completare un monopolio vale molto di più che una proprietà isolata.
+  const g2 = newGame();
+  give(g2, 'a', ORANGE[1]);
+  give(g2, 'a', ORANGE[2]);
+  const completa = propertyScore(g2, 'a', board[ORANGE[0]], 2000);
+  const isolata = propertyScore(newGame(), 'a', board[ORANGE[0]], 2000);
+  check('completare un monopolio vale di più', completa > isolata, `${completa} vs ${isolata}`);
+}
+
+section('26. Bot: valutazione degli scambi');
+{
+  // Il bot ('a') è sempre il DESTINATARIO della proposta: riceve quanto sta in
+  // `offer*` (roba del proponente) e cede quanto sta in `request*` (roba sua).
+  const game = newGame();
+  give(game, 'b', ORANGE[0]);   // di Giulia, la vuole il bot
+  give(game, 'a', BROWN[0]);    // del bot, di scarso valore
+
+  // Offerta generosa verso il bot: riceve una proprietà cara, dà una scarsa.
+  const buona = evaluateTrade(game, 'a', {
+    offerProperties: [ORANGE[0]], offerMoney: 0, offerJailCards: 0,
+    requestProperties: [BROWN[0]], requestMoney: 0, requestJailCards: 0,
+  });
+  check('uno scambio vantaggioso è accettato', buona === true);
+
+  // Offerta assurda: il bot dà una proprietà cara e 500, riceve una scarsa.
+  const g2 = newGame();
+  give(g2, 'a', ORANGE[0]);
+  give(g2, 'b', BROWN[0]);
+  const pessima = evaluateTrade(g2, 'a', {
+    offerProperties: [BROWN[0]], offerMoney: 0, offerJailCards: 0,
+    requestProperties: [ORANGE[0]], requestMoney: 500, requestJailCards: 0,
+  });
+  check('uno scambio nettamente in perdita è rifiutato', pessima === false);
+
+  // Rompere un monopolio già posseduto è da rifiutare anche a prezzo pieno.
+  const g3 = newGame();
+  ORANGE.forEach((pos) => give(g3, 'a', pos));
+  const rompeMonopolio = evaluateTrade(g3, 'a', {
+    offerProperties: [], offerMoney: 250, offerJailCards: 0,
+    requestProperties: [ORANGE[0]], requestMoney: 0, requestJailCards: 0,
+  });
+  check('non si rompe un proprio monopolio per poco denaro', rompeMonopolio === false);
 }
 
 // ---------------------------------------------------------------------------

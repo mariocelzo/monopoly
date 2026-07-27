@@ -371,7 +371,7 @@ module.exports = { groupWeight, propertyScore, evaluateTrade, propertiesValue, G
 - [ ] **Step 4: Eseguire il test e verificare che passi**
 
 Run: `cd server && node smoke-test.js 2>&1 | grep -E "^2[56]\.|FAIL|superati"`
-Expected: le sezioni 25 e 26 tutte `ok`, e il totale a `229 test superati, 0 falliti`
+Expected: le sezioni 25 e 26 tutte `ok`, e il totale a `226 test superati, 0 falliti`
 
 - [ ] **Step 5: Commit**
 
