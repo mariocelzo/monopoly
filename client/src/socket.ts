@@ -76,7 +76,26 @@ export interface AwaitingCard {
   text: string;
 }
 
-export type PendingAction = AwaitingBuy | AwaitingCard | AwaitingDebt | AwaitingTrade;
+/**
+ * Affitto dovuto per essere atterrati su una proprietà altrui. Va confermato:
+ * prima il denaro passava di mano in silenzio.
+ */
+export interface AwaitingRent {
+  type: 'awaiting_rent';
+  playerId: string;
+  position: number;
+  amount: number;
+  ownerId: string;
+  /** Vero se una carta ha raddoppiato l'affitto. */
+  doubled: boolean;
+}
+
+export type PendingAction =
+  | AwaitingBuy
+  | AwaitingCard
+  | AwaitingRent
+  | AwaitingDebt
+  | AwaitingTrade;
 
 export interface GameState {
   roomCode: string;

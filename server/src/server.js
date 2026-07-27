@@ -132,6 +132,8 @@ io.on('connection', (socket) => {
   socket.on('buy_property', withGame((game, playerId) => game.buyProperty(playerId)));
   socket.on('decline_buy', withGame((game, playerId) => game.declineBuy(playerId)));
   // Conferma di lettura della carta: solo dopo l'effetto si applica.
+  // Conferma del pagamento dell'affitto.
+  socket.on('pay_rent', withGame((game, playerId) => game.payRent(playerId)));
   socket.on('acknowledge_card', withGame((game, playerId) => game.acknowledgeCard(playerId)));
   socket.on('pay_jail_fine', withGame((game, playerId) => game.payJailFine(playerId)));
   socket.on('use_jail_card', withGame((game, playerId) => game.useJailCard(playerId)));

@@ -40,11 +40,12 @@ class GameEngine {
     this.log = [];
     this.chanceDeck = shuffle(CHANCE_CARDS);
     this.communityDeck = shuffle(COMMUNITY_CARDS);
-    // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_debt' | 'awaiting_trade',
+    // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_debt' |
+    //   'awaiting_trade',
     //   playerId, ... }
     // Blocca il flusso del turno finché il giocatore indicato da playerId non
-    // risolve: compra o rinuncia, legge la carta, salda il debito, risponde
-    // allo scambio.
+    // risolve: compra o rinuncia, legge la carta, paga l'affitto, salda il
+    // debito, risponde allo scambio.
     this.pendingAction = null;
     this.finished = false;
     this.winnerId = null;
@@ -232,6 +233,10 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_card';
   }
 
+  hasPendingRent() {
+    return this.pendingAction?.type === 'awaiting_rent';
+  }
+
   /**
    * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
    * cambiare la merce dopo aver fatto l'offerta.
@@ -383,11 +388,42 @@ class GameEngine {
     if (owned.ownerId === player.id || owned.mortgaged) {
       return; // your own property, or mortgaged = no rent
     }
+    // L'affitto si calcola qui e si congela nel pendingAction: al momento del
+    // pagamento il moltiplicatore della carta è già tornato a 1, e per le
+    // società il conto dipende da un tiro di dadi che non va rifatto.
     const rent = this.calculateRent(square, owned) * this.rentMultiplier;
     const owner = this.players.find((p) => p.id === owned.ownerId);
-    if (this.rentMultiplier > 1) this.addLog(`Affitto raddoppiato dalla carta pescata.`);
-    this.addLog(`${player.name} paga ${rent} di affitto a ${owner.name} per ${square.name}.`);
-    this.chargePlayer(player, rent, owner);
+    this.pendingAction = {
+      type: 'awaiting_rent',
+      playerId: player.id,
+      position: square.position,
+      amount: rent,
+      ownerId: owner.id,
+      doubled: this.rentMultiplier > 1,
+    };
+    this.addLog(`${player.name} è su ${square.name}: deve ${rent} di affitto a ${owner.name}.`);
+  }
+
+  /**
+   * Il giocatore conferma il pagamento dell'affitto. Prima veniva addebitato da
+   * solo: il denaro spariva senza che nessuno lo vedesse, e sembrava che non si
+   * pagasse affatto.
+   */
+  payRent(playerId) {
+    if (this.pendingAction?.type !== 'awaiting_rent') return { error: 'Nessun affitto da pagare' };
+    if (this.pendingAction.playerId !== playerId) return { error: 'Non tocca a te' };
+
+    const { amount, ownerId, position } = this.pendingAction;
+    const player = this.players.find((p) => p.id === playerId);
+    const owner = this.players.find((p) => p.id === ownerId);
+    // Si sgombra prima: se il saldo non basta, chargePlayer deve poter aprire
+    // il debito al posto suo.
+    this.pendingAction = null;
+    this.addLog(`${player.name} paga ${amount} di affitto a ${owner.name} per ${board[position].name}.`);
+    this.chargePlayer(player, amount, owner);
+
+    if (!this.pendingAction) this.finishRoll(this.currentPlayer);
+    return {};
   }
 
   calculateRent(square, owned) {
@@ -1026,6 +1062,7 @@ class GameEngine {
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
     if (this.hasPendingTrade()) return { error: 'Prima rispondi allo scambio proposto' };
     if (this.hasPendingCard()) return { error: 'Prima leggi la carta pescata' };
+    if (this.hasPendingRent()) return { error: 'Prima paga l\'affitto' };
     // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
     // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
     if (this.turnResolved || this.finished) return {};

@@ -444,6 +444,12 @@ section('12. Partita simulata, 300 turni');
       const current = game.currentPlayer;
       if (!current) break;
 
+      // Affitto dovuto: va confermato, altrimenti il turno resta bloccato.
+      if (game.pendingAction?.type === 'awaiting_rent') {
+        game.payRent(game.pendingAction.playerId);
+        continue;
+      }
+
       // Carta pescata: va confermata, altrimenti il turno resta bloccato.
       if (game.pendingAction?.type === 'awaiting_card') {
         game.acknowledgeCard(game.pendingAction.playerId);
@@ -584,9 +590,76 @@ section('17. Affitto raddoppiato dalla carta "stazione più vicina"');
   game.acknowledgeCard('a');
 
   check('arriva alla stazione 15', mario.position === 15, `posizione=${mario.position}`);
+  check('l\'affitto è in attesa di pagamento', game.pendingAction?.type === 'awaiting_rent');
+  check('l\'importo congelato è il doppio', game.pendingAction?.amount === 50, `${game.pendingAction?.amount}`);
+  check('è segnalato come raddoppiato', game.pendingAction?.doubled === true);
+  // Il moltiplicatore torna a 1 subito, ma l'importo era già stato congelato.
+  check('il moltiplicatore è tornato a 1', game.rentMultiplier === 1);
+
+  game.payRent('a');
   check('paga 50 invece di 25', mario.balance === 1450, `saldo=${mario.balance}`);
   check('il proprietario incassa 50', giulia.balance === 1550, `saldo=${giulia.balance}`);
-  check('il moltiplicatore è tornato a 1', game.rentMultiplier === 1);
+}
+
+section('17b. L\'affitto va confermato prima di essere addebitato');
+{
+  const game = newGame();
+  const [mario, giulia] = game.players;
+  give(game, 'b', ORANGE[0]); // Bow Street, affitto base 14
+  mario.position = 10;
+
+  game.movePlayer(mario, ORANGE[0] - 10);
+  check('si apre un affitto in sospeso', game.pendingAction?.type === 'awaiting_rent');
+  check('nessun denaro è ancora passato', mario.balance === 1500 && giulia.balance === 1500);
+  check('l\'importo è indicato', game.pendingAction?.amount === 14, `${game.pendingAction?.amount}`);
+  check('è indicato il proprietario', game.pendingAction?.ownerId === 'b');
+
+  const altro = game.payRent('b');
+  check('solo chi deve pagare può confermare', !!altro.error, altro.error);
+  const rolled = game.rollDice('a');
+  check('con un affitto in sospeso non si tirano i dadi', !!rolled.error, rolled.error);
+  const ended = game.endTurn();
+  check('e non si chiude il turno', !!ended.error, ended.error);
+
+  game.payRent('a');
+  check('dopo la conferma il denaro passa', mario.balance === 1486 && giulia.balance === 1514, `${mario.balance}/${giulia.balance}`);
+  check('l\'affitto è chiuso', game.pendingAction === null);
+}
+
+section('17c. Affitto insostenibile: si passa al debito');
+{
+  const game = newGame({ balanceA: 5 });
+  const mario = game.players[0];
+  give(game, 'b', ORANGE[0], { hotel: true }); // affitto da hotel: 950
+  give(game, 'a', BROWN[0]);
+  give(game, 'a', BROWN[1]);
+  mario.position = 10;
+
+  game.movePlayer(mario, ORANGE[0] - 10);
+  check('l\'affitto è in sospeso', game.pendingAction?.type === 'awaiting_rent');
+  game.payRent('a');
+  check(
+    'non potendo pagare si arriva alla bancarotta o al debito',
+    mario.bankrupt || game.pendingAction?.type === 'awaiting_debt',
+    JSON.stringify(game.pendingAction)
+  );
+}
+
+section('17d. Niente affitto sulle ipotecate e sulle proprie');
+{
+  const game = newGame();
+  const mario = game.players[0];
+  give(game, 'b', ORANGE[0], { mortgaged: true });
+  give(game, 'a', ORANGE[1]);
+
+  mario.position = 10;
+  game.movePlayer(mario, ORANGE[0] - 10);
+  check('su una ipotecata non si paga', game.pendingAction === null, JSON.stringify(game.pendingAction));
+
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, ORANGE[1] - 10);
+  check('sulla propria non si paga', game.pendingAction === null, JSON.stringify(game.pendingAction));
 }
 
 section('18. Nessuna carta scavalca un debito già aperto');
