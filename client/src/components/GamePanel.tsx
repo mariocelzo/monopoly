@@ -1,5 +1,6 @@
 import { BoardSquare, GameState, socket } from '../socket';
 import PropertiesPanel from './PropertiesPanel';
+import EndGameControl from './EndGameControl';
 
 export default function GamePanel({
   state,
@@ -65,6 +66,8 @@ export default function GamePanel({
           <button className="btn-primary" onClick={() => socket.emit('start_game')}>
             Inizia partita
           </button>
+        ) : state.finished ? (
+          <span style={{ color: 'rgba(243,234,216,0.6)' }}>Partita finita</span>
         ) : isMyTurn && me?.inJail ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-primary" onClick={roll}>Tira i dadi (esci con doppio)</button>
@@ -104,6 +107,8 @@ export default function GamePanel({
           <PropertiesPanel board={board} state={state} myId={myId} />
         </div>
       )}
+
+      {state.started && <EndGameControl state={state} myId={myId} />}
 
       <div style={styles.log}>
         {state.log.slice().reverse().map((entry, i) => (

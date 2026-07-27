@@ -606,6 +606,48 @@ section('18. Nessuna carta scavalca un debito già aperto');
   check('la proposta d\'acquisto non sovrascrive il debito', game.pendingAction?.type === 'awaiting_debt');
 }
 
+section('19. Abbandono e chiusura del tavolo');
+{
+  const game = newGame();
+  check('chi crea il tavolo è il primo giocatore', game.hostId === 'a');
+
+  const nonHost = game.endGame('b');
+  check('solo chi ha creato può chiudere', !!nonHost.error, nonHost.error);
+
+  check('l\'abbandono è accettato', !game.abandonGame('b').error);
+  check('la partita è finita', game.finished === true);
+  check('vince chi resta', game.winnerId === 'a');
+  check('il motivo è l\'abbandono', game.endedReason === 'abandoned');
+  check('non si può abbandonare due volte', !!game.abandonGame('b').error);
+
+  // Chiusura da parte dell'host: nessun vincitore.
+  const g2 = newGame();
+  check('la chiusura è accettata', !g2.endGame('a').error);
+  check('la partita è finita', g2.finished === true);
+  check('senza vincitore', g2.winnerId === null);
+  check('il motivo è la chiusura', g2.endedReason === 'closed');
+
+  // Una fine anticipata non deve lasciare azioni in sospeso appese.
+  const g3 = newGame({ balanceA: 100 });
+  give(g3, 'a', ORANGE[0]);
+  give(g3, 'a', ORANGE[1]);
+  g3.chargePlayer(g3.players[0], 200);
+  check('c\'è un debito aperto', g3.pendingAction?.type === 'awaiting_debt');
+  g3.abandonGame('a');
+  check('la fine ripulisce il pendingAction', g3.pendingAction === null);
+}
+
+section('20. Chiusura della stanza');
+{
+  const { RoomManager } = require('./src/rooms');
+  const rooms = new RoomManager();
+  const code = rooms.createRoom();
+  rooms.attachSocket(code, 's1', 'x');
+  check('la stanza esiste', rooms.getRoom(code) !== undefined);
+  check('closeRoom la rimuove', rooms.closeRoom(code) === true);
+  check('il codice non vale più', rooms.getRoom(code) === undefined);
+}
+
 // ---------------------------------------------------------------------------
 section('13. Riconnessione: il giocatore sopravvive al cambio di socket');
 {

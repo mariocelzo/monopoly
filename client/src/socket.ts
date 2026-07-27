@@ -88,6 +88,10 @@ export interface GameState {
   pendingAction: PendingAction | null;
   finished: boolean;
   winnerId: string | null;
+  /** Come è finita: per bancarotta, per abbandono o per chiusura del tavolo. */
+  endedReason: 'bankruptcy' | 'abandoned' | 'closed' | null;
+  /** Chi ha creato il tavolo: solo lui può chiuderlo per entrambi. */
+  hostId: string | null;
   /** Ultimo tiro, mostrato al centro del tabellone. `seq` distingue tiri uguali. */
   lastRoll: { playerId: string; dice: [number, number]; seq: number } | null;
 }

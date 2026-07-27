@@ -74,6 +74,10 @@ export default function App() {
     return () => { socket.off('connect', rejoin); };
   }, []);
 
+  useEffect(() => {
+    if (state?.finished) clearRoom();
+  }, [state?.finished]);
+
   /**
    * Riaggancio forzato quando la pagina torna in primo piano o la rete ritorna.
    * Telefoni e schede in secondo piano vengono congelati dal browser: il server
@@ -114,6 +118,14 @@ export default function App() {
       />
     );
   }
+
+  /** Torna alla lobby dopo la fine: la stanza sul server non esiste più. */
+  const leaveTable = () => {
+    clearRoom();
+    setPlayerId(null);
+    setState(null);
+    setRejoining(false);
+  };
 
   const pending = state.pendingAction;
   // Un debito o uno scambio hanno la precedenza: congelano la partita.
@@ -176,19 +188,41 @@ export default function App() {
           onClose={() => setComposingTrade(false)}
         />
       )}
-      {winner && (
+      {state.finished && (
         <div style={styles.overlay}>
           <div className="panel" style={styles.winCard}>
-            <span style={styles.eyebrow}>partita finita</span>
-            <h2 style={styles.winTitle}>{winner.name} vince!</h2>
-            <p style={styles.winSub}>
-              {winner.id === playerId ? 'Complimenti.' : 'Sarà per la prossima.'}
-            </p>
+            <span style={styles.eyebrow}>
+              {state.endedReason === 'closed' ? 'tavolo chiuso' : 'partita finita'}
+            </span>
+            <h2 style={styles.winTitle}>
+              {winner ? `${winner.name} vince!` : 'Partita interrotta'}
+            </h2>
+            <p style={styles.winSub}>{endingMessage(state, winner, playerId)}</p>
+            <button className="btn-primary" style={styles.newGame} onClick={leaveTable}>
+              Nuova partita
+            </button>
           </div>
         </div>
       )}
     </div>
   );
+}
+
+/** Spiega come è finita, dal punto di vista di chi legge. */
+function endingMessage(
+  state: GameState,
+  winner: GameState['players'][number] | null | undefined,
+  myId: string
+): string {
+  if (state.endedReason === 'closed') {
+    return 'Chi ha creato il tavolo ha chiuso la partita.';
+  }
+  if (state.endedReason === 'abandoned') {
+    return winner?.id === myId
+      ? 'L\'altro giocatore ha abbandonato: vinci a tavolino.'
+      : 'Hai abbandonato la partita.';
+  }
+  return winner?.id === myId ? 'Complimenti.' : 'Sarà per la prossima.';
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -222,5 +256,6 @@ const styles: Record<string, React.CSSProperties> = {
   winCard: { padding: 40, width: 340, maxWidth: '100%', textAlign: 'center' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   winTitle: { fontSize: '2rem', marginTop: 10, color: 'var(--brass-2)' },
-  winSub: { color: 'rgba(243,234,216,0.65)', marginTop: 10 },
+  winSub: { color: 'rgba(243,234,216,0.65)', marginTop: 10, lineHeight: 1.5 },
+  newGame: { marginTop: 22, width: '100%' },
 };

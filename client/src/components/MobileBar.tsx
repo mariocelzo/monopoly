@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BoardSquare, GameState, socket } from '../socket';
 import { PLAYER_COLORS } from './Board';
 import PropertiesPanel from './PropertiesPanel';
+import EndGameControl from './EndGameControl';
 
 type Sheet = 'proprieta' | 'registro' | null;
 
@@ -87,6 +88,7 @@ export default function MobileBar({
                       <div key={i} style={styles.logLine}>{entry.message}</div>
                     ))}
                   </div>
+                  {state.started && <EndGameControl state={state} myId={myId} compact />}
                 </>
               )}
             </div>

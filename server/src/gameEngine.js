@@ -48,6 +48,11 @@ class GameEngine {
     this.pendingAction = null;
     this.finished = false;
     this.winnerId = null;
+    // Come è finita: bancarotta, abbandono o chiusura da parte di chi ha
+    // creato il tavolo. Serve al client per dire la cosa giusta.
+    this.endedReason = null;
+    // Il creatore del tavolo, cioè il primo che si siede.
+    this.hostId = null;
     // Alzata mentre resolveDebtAuto sta liquidando in serie: evita che ogni
     // singola vendita chiuda il debito e faccia girare il turno a metà loop.
     this.liquidating = false;
@@ -109,6 +114,7 @@ class GameEngine {
     if (this.players.some((p) => p.token === token)) {
       return { error: 'Pedone già scelto dall\'altro giocatore', takenTokens: this.takenTokens() };
     }
+    if (this.players.length === 0) this.hostId = id;
     this.players.push({
       id, name, token,
       balance: STARTING_BALANCE,
@@ -155,6 +161,8 @@ class GameEngine {
       pendingAction,
       finished: this.finished,
       winnerId: this.winnerId,
+      endedReason: this.endedReason,
+      hostId: this.hostId,
       lastRoll: this.lastRoll,
     };
   }
@@ -966,6 +974,41 @@ class GameEngine {
     this.chargePlayer(player, due);
   }
 
+  // ---- Fine anticipata ----
+
+  /**
+   * Un giocatore lascia il tavolo: l'avversario vince a tavolino. Diverso dalla
+   * bancarotta, dove si perde per esaurimento; qui si sceglie di smettere.
+   */
+  abandonGame(playerId) {
+    const player = this.players.find((p) => p.id === playerId);
+    if (!player) return { error: 'Giocatore non trovato' };
+    if (this.finished) return { error: 'La partita è già finita' };
+
+    const rimasti = this.players.filter((p) => p.id !== playerId && !p.bankrupt);
+    this.finished = true;
+    this.endedReason = 'abandoned';
+    this.winnerId = rimasti.length === 1 ? rimasti[0].id : null;
+    this.pendingAction = null;
+    this.addLog(`${player.name} abbandona la partita.`);
+    if (this.winnerId) this.addLog(`${rimasti[0].name} vince a tavolino.`);
+    return {};
+  }
+
+  /** Chi ha creato il tavolo lo chiude per entrambi, senza vincitori. */
+  endGame(playerId) {
+    if (playerId !== this.hostId) {
+      return { error: 'Solo chi ha creato il tavolo può chiudere la partita' };
+    }
+    if (this.finished) return { error: 'La partita è già finita' };
+    this.finished = true;
+    this.endedReason = 'closed';
+    this.winnerId = null;
+    this.pendingAction = null;
+    this.addLog('Il tavolo è stato chiuso da chi lo ha creato.');
+    return {};
+  }
+
   /** Con un solo giocatore ancora in piedi la partita è finita. */
   checkWinner() {
     if (!this.started || this.finished) return;
@@ -973,6 +1016,7 @@ class GameEngine {
     if (alive.length === 1) {
       this.finished = true;
       this.winnerId = alive[0].id;
+      this.endedReason = 'bankruptcy';
       this.addLog(`${alive[0].name} vince la partita!`);
     }
   }

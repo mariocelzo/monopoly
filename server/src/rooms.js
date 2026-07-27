@@ -69,6 +69,14 @@ class RoomManager {
     return touched;
   }
 
+  /**
+   * Chiude una stanza a partita conclusa. Il codice smette subito di funzionare:
+   * chi ricarica non rientra in un tavolo morto, torna alla lobby.
+   */
+  closeRoom(code) {
+    return this.rooms.delete(code);
+  }
+
   /** Butta via le stanze vuote da troppo tempo, per non accumularle in memoria. */
   sweep(now = Date.now()) {
     let removed = 0;
