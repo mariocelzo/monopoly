@@ -4,6 +4,7 @@ import { PLAYER_COLORS } from './Board';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
+import InviteLink from './InviteLink';
 
 type Sheet = 'proprieta' | 'registro' | null;
 
@@ -89,6 +90,9 @@ export default function MobileBar({
                   <div style={styles.codeRow}>
                     Codice tavolo: <span className="mono" style={styles.code}>{state.roomCode}</span>
                   </div>
+                  {state.players.length < 6 && (
+                    <InviteLink roomCode={state.roomCode} compact />
+                  )}
                   <div style={styles.log}>
                     {state.log.slice().reverse().map((entry, i) => (
                       <div key={i} style={styles.logLine}>{entry.message}</div>
@@ -108,10 +112,13 @@ export default function MobileBar({
       )}
 
       <div style={styles.bar}>
-        {/* Prima del via il codice serve per far entrare l'altro: va in evidenza. */}
+        {/* Prima del via il codice serve per far entrare gli altri: va in evidenza. */}
         {!state.started && (
-          <div style={styles.codeRow}>
-            Codice tavolo: <span className="mono" style={styles.code}>{state.roomCode}</span>
+          <div style={styles.preStart}>
+            <div style={styles.codeRow}>
+              Codice tavolo: <span className="mono" style={styles.code}>{state.roomCode}</span>
+            </div>
+            {state.players.length < 6 && <InviteLink roomCode={state.roomCode} compact />}
           </div>
         )}
 
@@ -217,6 +224,7 @@ const styles: Record<string, React.CSSProperties> = {
     backdropFilter: 'blur(8px)',
     boxShadow: '0 -6px 20px rgba(0,0,0,0.4)',
   },
+  preStart: { display: 'flex', flexDirection: 'column', gap: 6 },
   codeRow: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.6)', textAlign: 'center' },
   code: { color: 'var(--brass-2)', letterSpacing: '0.14em', fontSize: '0.92rem' },
   players: { display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' },

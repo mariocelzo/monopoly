@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { socket, GameState, BoardSquare } from './socket';
 import { useIsMobile } from './useIsMobile';
 import { clearRoom, getClientId, loadRoom, saveRoom } from './identity';
+import { clearInviteFromUrl, getInviteCodeFromUrl } from './invite';
 import Lobby from './components/Lobby';
 import Board from './components/Board';
 import GamePanel from './components/GamePanel';
@@ -25,9 +26,25 @@ export default function App() {
   const [composingTrade, setComposingTrade] = useState(false);
   // Casella toccata sul tabellone, di cui si mostra il contratto.
   const [inspected, setInspected] = useState<number | null>(null);
+  // Codice letto da un link di invito (?tavolo=XXXXX). Ha la precedenza sul
+  // rientro automatico silenzioso: se qualcuno manda un link a un tavolo
+  // diverso da quello salvato, si presume che si voglia entrare lì, non
+  // ritrovarsi nella vecchia partita senza nessun avviso.
+  const [inviteCode, setInviteCode] = useState<string | null>(() => getInviteCodeFromUrl());
+  // L'effect di rejoin si registra una volta sola: usa questo ref, non lo
+  // state, per non restare agganciato al valore letto al primo giro quando
+  // l'invito viene poi scartato o consumato.
+  const inviteRef = useRef(inviteCode);
+  useEffect(() => { inviteRef.current = inviteCode; }, [inviteCode]);
+
   // Finché si tenta il rientro automatico non si mostra la lobby, altrimenti
-  // comparirebbe per un istante a chi sta solo ricaricando la pagina.
-  const [rejoining, setRejoining] = useState(() => loadRoom() !== null);
+  // comparirebbe per un istante a chi sta solo ricaricando la pagina. Con un
+  // invito verso un altro tavolo si salta dritti alla lobby.
+  const [rejoining, setRejoining] = useState(() => {
+    const saved = loadRoom();
+    const invite = getInviteCodeFromUrl();
+    return saved !== null && (!invite || invite === saved);
+  });
   // Stato del collegamento: senza avviso si resterebbe a fissare un tabellone
   // fermo, credendo che stia solo giocando l'altro.
   const [online, setOnline] = useState(true);
@@ -51,6 +68,9 @@ export default function App() {
     const rejoin = () => {
       const roomCode = loadRoom();
       if (!roomCode) return;
+      // Un invito ancora attivo verso un tavolo diverso blocca il rientro
+      // automatico: si lascia decidere alla lobby, non si sceglie per l'utente.
+      if (inviteRef.current && inviteRef.current !== roomCode) return;
       socket.emit(
         'rejoin_room',
         { roomCode, clientId: getClientId() },
@@ -116,8 +136,17 @@ export default function App() {
     }
     return (
       <Lobby
+        inviteCode={inviteCode}
+        onDismissInvite={() => {
+          setInviteCode(null);
+          clearInviteFromUrl();
+        }}
         onJoined={(code, pid) => {
           saveRoom(code);
+          // Consumato: né in un rientro futuro né in un ricaricamento deve
+          // ripresentarsi la schermata d'invito sopra una partita già in corso.
+          setInviteCode(null);
+          clearInviteFromUrl();
           setPlayerId(pid);
         }}
       />

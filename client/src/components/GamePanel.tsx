@@ -2,6 +2,7 @@ import { BoardSquare, GameState, socket } from '../socket';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
+import InviteLink from './InviteLink';
 
 export default function GamePanel({
   state,
@@ -37,6 +38,7 @@ export default function GamePanel({
       <div style={styles.roomCode}>
         Codice tavolo: <span className="mono" style={{ color: 'var(--brass-2)' }}>{state.roomCode}</span>
       </div>
+      {state.players.length < 6 && <InviteLink roomCode={state.roomCode} />}
 
       <div style={styles.players}>
         {state.players.map((p) => (
