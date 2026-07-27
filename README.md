@@ -99,4 +99,4 @@ docs/superpowers/specs/  Documenti di design delle funzionalità
 Fatto: motore completo, bancarotta con liquidazione, costruzioni e ipoteche,
 scambi, tre doppi, riconnessione, assetto mobile.
 
-Da fare: nient'altro in lista. Le idee successive sono da decidere.
+Da fare: nulla in lista. Il Via paga 500 (regola della casa).

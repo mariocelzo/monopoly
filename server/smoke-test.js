@@ -444,6 +444,12 @@ section('12. Partita simulata, 300 turni');
       const current = game.currentPlayer;
       if (!current) break;
 
+      // Carta pescata: va confermata, altrimenti il turno resta bloccato.
+      if (game.pendingAction?.type === 'awaiting_card') {
+        game.acknowledgeCard(game.pendingAction.playerId);
+        continue;
+      }
+
       // Debito in sospeso: metà delle volte si liquida, metà ci si arrende.
       if (game.pendingAction?.type === 'awaiting_debt') {
         const debtor = game.pendingAction.playerId;
@@ -490,6 +496,114 @@ section('12. Partita simulata, 300 turni');
     'se la partita è finita c\'è un vincitore',
     !game.finished || !!game.winnerId
   );
+}
+
+// ---------------------------------------------------------------------------
+section('14. "Avanza fino a" va sempre in avanti, mai indietro');
+{
+  const game = newGame();
+  const mario = game.players[0];
+  // Trafalgar Square è la casella 24. Partendo dalla 30 la meta è alle spalle:
+  // si deve fare il giro passando dal Via, non tornare indietro di 6.
+  mario.position = 30;
+  const saldoPrima = mario.balance;
+  game.chanceDeck = [{ text: 'Vai a Trafalgar Square.', action: 'advance_to', target: 24 }];
+
+  game.drawCard(mario, 'chance');
+  check('la carta resta in attesa di lettura', game.pendingAction?.type === 'awaiting_card');
+  game.acknowledgeCard('a');
+
+  check('arriva a destinazione', mario.position === 24, `posizione=${mario.position}`);
+  check(
+    'ha incassato il Via facendo il giro',
+    mario.balance === saldoPrima + 500,
+    `${saldoPrima} -> ${mario.balance}`
+  );
+}
+
+section('15. Passaggio dal Via a 500');
+{
+  const game = newGame();
+  const mario = game.players[0];
+  mario.position = 38;
+  const prima = mario.balance;
+  game.movePlayer(mario, 4); // 38 -> 2, quindi passa dal Via
+  check('il Via vale 500', mario.balance === prima + 500, `+${mario.balance - prima}`);
+
+  // "Vai indietro" non passa dal Via e non deve pagare nulla.
+  const g2 = newGame();
+  const m2 = g2.players[0];
+  m2.position = 2;
+  const prima2 = m2.balance;
+  g2.chanceDeck = [{ text: 'Vai indietro di 3 caselle.', action: 'move_back', spaces: 3 }];
+  g2.drawCard(m2, 'chance');
+  g2.acknowledgeCard('a');
+  check('tornare indietro porta alla casella 39', m2.position === 39, `posizione=${m2.position}`);
+  check('e non fa incassare il Via', m2.balance === prima2, `saldo=${m2.balance}`);
+}
+
+section('16. La carta va letta prima di applicarsi');
+{
+  const game = newGame();
+  const mario = game.players[0];
+  mario.position = 5;
+  const prima = mario.balance;
+  game.chanceDeck = [{ text: 'La banca ti paga un dividendo di 50.', action: 'collect', amount: 50 }];
+
+  game.drawCard(mario, 'chance');
+  check('il testo della carta è nello stato', game.pendingAction?.text?.includes('dividendo'));
+  check('l\'effetto non è ancora applicato', mario.balance === prima, `saldo=${mario.balance}`);
+
+  const rolled = game.rollDice('a');
+  check('con una carta in sospeso non si tirano i dadi', !!rolled.error, rolled.error);
+  const ended = game.endTurn();
+  check('e non si chiude il turno', !!ended.error, ended.error);
+  const altro = game.acknowledgeCard('b');
+  check('solo il pescatore può confermare', !!altro.error, altro.error);
+
+  game.acknowledgeCard('a');
+  check('dopo la conferma l\'effetto è applicato', mario.balance === prima + 50);
+  check('la carta è chiusa', game.pendingAction === null);
+}
+
+section('17. Affitto raddoppiato dalla carta "stazione più vicina"');
+{
+  const game = newGame();
+  const [mario, giulia] = game.players;
+  give(game, 'b', 15); // Marylebone Station, unica di Giulia: affitto base 25
+  mario.position = 12;
+  giulia.balance = 1500;
+  mario.balance = 1500;
+
+  game.chanceDeck = [{
+    text: 'Vai alla stazione più vicina, paga il doppio.',
+    action: 'advance_to_nearest_station',
+    rentMultiplier: 2,
+  }];
+  game.drawCard(mario, 'chance');
+  game.acknowledgeCard('a');
+
+  check('arriva alla stazione 15', mario.position === 15, `posizione=${mario.position}`);
+  check('paga 50 invece di 25', mario.balance === 1450, `saldo=${mario.balance}`);
+  check('il proprietario incassa 50', giulia.balance === 1550, `saldo=${giulia.balance}`);
+  check('il moltiplicatore è tornato a 1', game.rentMultiplier === 1);
+}
+
+section('18. Nessuna carta scavalca un debito già aperto');
+{
+  // Due arancioni ipotecabili per 90 l'una: 100 di scoperto è copribile, quindi
+  // si apre un debito invece di scattare la bancarotta.
+  const game = newGame({ balanceA: 100 });
+  give(game, 'a', ORANGE[0]);
+  give(game, 'a', ORANGE[1]);
+  const mario = game.players[0];
+
+  game.chargePlayer(mario, 200); // apre un debito
+  check('il debito è aperto', game.pendingAction?.type === 'awaiting_debt');
+
+  mario.position = 6;
+  game.resolveLanding(mario); // casella 6 è una proprietà libera
+  check('la proposta d\'acquisto non sovrascrive il debito', game.pendingAction?.type === 'awaiting_debt');
 }
 
 // ---------------------------------------------------------------------------

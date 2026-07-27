@@ -28,6 +28,13 @@ export default function MobileBar({
   const me = state.players.find((p) => p.id === myId);
   const blocked = !!state.pendingAction;
 
+  // Il tiro extra da doppio confondeva: sembrava che il gioco facesse tirare
+  // due volte a caso. Ora lo si dice.
+  const rolledDouble =
+    !!state.lastRoll &&
+    state.lastRoll.playerId === current?.id &&
+    state.lastRoll.dice[0] === state.lastRoll.dice[1];
+
   const colorOf = (playerId: string) =>
     PLAYER_COLORS[state.players.findIndex((p) => p.id === playerId) % PLAYER_COLORS.length];
 
@@ -152,7 +159,7 @@ export default function MobileBar({
                 disabled={blocked}
                 onClick={() => socket.emit('roll_dice', {})}
               >
-                Tira i dadi
+                {rolledDouble ? 'Doppio! Tira ancora' : 'Tira i dadi'}
               </button>
               <button
                 className="btn-ghost"

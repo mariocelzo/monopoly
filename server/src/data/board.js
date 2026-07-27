@@ -3,6 +3,10 @@
 // stations use rentByOwned = [1,2,3,4 owned]
 // utilities use diceMultiplier = [oneOwned, bothOwned]
 
+// Quanto si incassa passando dal Via. I testi delle carte lo interpolano,
+// così cambiarlo qui aggiorna anche quello che legge il giocatore.
+const GO_AMOUNT = 500;
+
 const COLOR_GROUPS = {
   brown: '#8B4513',
   lightblue: '#87CEEB',
@@ -61,9 +65,9 @@ const STATION_RENT = [25, 50, 100, 200]; // rent when 1/2/3/4 stations owned
 const UTILITY_MULTIPLIER = { one: 4, both: 10 };
 
 const CHANCE_CARDS = [
-  { text: 'Avanza fino al Via. Incassi 200.', action: 'advance_to', target: 0, collectGo: true },
+  { text: `Avanza fino al Via. Incassi ${GO_AMOUNT}.`, action: 'advance_to', target: 0 },
   { text: 'Vai a Trafalgar Square.', action: 'advance_to', target: 24 },
-  { text: "Vai a Pall Mall. Se passi dal Via, incassi 200.", action: 'advance_to', target: 11, collectGo: true },
+  { text: `Vai a Pall Mall. Se passi dal Via, incassi ${GO_AMOUNT}.`, action: 'advance_to', target: 11 },
   { text: "Avanza fino a King's Cross Station.", action: 'advance_to', target: 5 },
   { text: 'Vai alla stazione più vicina, paga il doppio dell\'affitto se posseduta.', action: 'advance_to_nearest_station', rentMultiplier: 2 },
   { text: 'La banca ti paga un dividendo di 50.', action: 'collect', amount: 50 },
@@ -83,7 +87,7 @@ const COMMUNITY_CARDS = [
   { text: 'Errore della banca a tuo favore. Incassi 200.', action: 'collect', amount: 200 },
   { text: 'Spese mediche: paga 50.', action: 'pay', amount: 50 },
   { text: 'Vendi azioni: incassi 50.', action: 'collect', amount: 50 },
-  { text: 'Avanza fino al Via. Incassi 200.', action: 'advance_to', target: 0, collectGo: true },
+  { text: `Avanza fino al Via. Incassi ${GO_AMOUNT}.`, action: 'advance_to', target: 0 },
   { text: 'Vinci il concorso di bellezza: incassi 10.', action: 'collect', amount: 10 },
   { text: 'Eredità: incassi 100.', action: 'collect', amount: 100 },
   { text: 'Rimborso assicurazione: incassi 100.', action: 'collect', amount: 100 },
@@ -98,4 +102,4 @@ const COMMUNITY_CARDS = [
   { text: 'Paga l\'assicurazione sulla vita: 100.', action: 'pay', amount: 100 },
 ];
 
-module.exports = { board, COLOR_GROUPS, STATION_RENT, UTILITY_MULTIPLIER, CHANCE_CARDS, COMMUNITY_CARDS };
+module.exports = { board, GO_AMOUNT, COLOR_GROUPS, STATION_RENT, UTILITY_MULTIPLIER, CHANCE_CARDS, COMMUNITY_CARDS };

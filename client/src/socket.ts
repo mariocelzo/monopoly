@@ -65,7 +65,18 @@ export interface AwaitingTrade {
   requestJailCards: number;
 }
 
-export type PendingAction = AwaitingBuy | AwaitingDebt | AwaitingTrade;
+/**
+ * Carta pescata e non ancora letta. L'effetto scatta solo alla conferma: prima
+ * si applicava subito e la pedina sembrava muoversi da sola.
+ */
+export interface AwaitingCard {
+  type: 'awaiting_card';
+  playerId: string;
+  deck: 'chance' | 'community';
+  text: string;
+}
+
+export type PendingAction = AwaitingBuy | AwaitingCard | AwaitingDebt | AwaitingTrade;
 
 export interface GameState {
   roomCode: string;

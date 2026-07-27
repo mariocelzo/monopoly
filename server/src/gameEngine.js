@@ -1,7 +1,13 @@
-const { board, STATION_RENT, UTILITY_MULTIPLIER, CHANCE_CARDS, COMMUNITY_CARDS } = require('./data/board');
+const {
+  board,
+  GO_AMOUNT,
+  STATION_RENT,
+  UTILITY_MULTIPLIER,
+  CHANCE_CARDS,
+  COMMUNITY_CARDS,
+} = require('./data/board');
 
 const STARTING_BALANCE = 1500;
-const GO_AMOUNT = 200;
 const JAIL_POSITION = 10;
 const GO_TO_JAIL_POSITION = 30;
 const JAIL_FINE = 50;
@@ -34,9 +40,11 @@ class GameEngine {
     this.log = [];
     this.chanceDeck = shuffle(CHANCE_CARDS);
     this.communityDeck = shuffle(COMMUNITY_CARDS);
-    // { type: 'awaiting_buy' | 'awaiting_debt' | 'awaiting_trade', playerId, ... }
+    // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_debt' | 'awaiting_trade',
+    //   playerId, ... }
     // Blocca il flusso del turno finché il giocatore indicato da playerId non
-    // risolve: compra/rinuncia, salda il debito, accetta o rifiuta lo scambio.
+    // risolve: compra o rinuncia, legge la carta, salda il debito, risponde
+    // allo scambio.
     this.pendingAction = null;
     this.finished = false;
     this.winnerId = null;
@@ -48,6 +56,11 @@ class GameEngine {
     // Se l'ultimo tiro era un doppio il giocatore ha diritto a rigiocare, anche
     // se nel frattempo ha dovuto comprare o saldare un debito.
     this.lastRollWasDouble = false;
+    // Carta pescata e non ancora letta: l'effetto scatta alla conferma.
+    this.pendingCard = null;
+    // Moltiplicatore d'affitto per il prossimo atterraggio (carte "paga il
+    // doppio"). Torna a 1 subito dopo.
+    this.rentMultiplier = 1;
     // Ultimo tiro mostrato al centro del tabellone. `seq` cresce a ogni lancio
     // così il client riconosce un tiro nuovo anche se i dadi ripetono i valori.
     this.lastRoll = null;
@@ -207,6 +220,10 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_trade';
   }
 
+  hasPendingCard() {
+    return this.pendingAction?.type === 'awaiting_card';
+  }
+
   /**
    * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
    * cambiare la merce dopo aver fatto l'offerta.
@@ -249,8 +266,10 @@ class GameEngine {
           player.jailTurns = 0;
           this.addLog(`${player.name} paga ${JAIL_FINE} per uscire dopo 3 tentativi.`);
           this.chargePlayer(player, JAIL_FINE);
-          // Se la multa lo ha già mandato in bancarotta non c'è più nessuno da muovere.
-          if (!player.bankrupt) this.movePlayer(player, d1 + d2);
+          // Se la multa lo ha mandato in bancarotta non c'è più nessuno da
+          // muovere; se ha aperto un debito si salda quello e il turno finisce,
+          // altrimenti l'atterraggio sovrascriverebbe il debito in sospeso.
+          if (!player.bankrupt && !this.hasPendingDebt()) this.movePlayer(player, d1 + d2);
         } else {
           this.endTurn();
         }
@@ -293,6 +312,21 @@ class GameEngine {
     this.resolveLanding(player);
   }
 
+  /**
+   * Porta la pedina su una casella precisa muovendosi **in avanti**, girando dal
+   * Via se necessario. Le carte "avanza fino a" non teletrasportano indietro: se
+   * la meta è alle spalle si fa il giro, incassando il Via come qualunque
+   * passaggio. L'unico movimento a ritroso del gioco è la carta "vai indietro".
+   */
+  movePlayerTo(player, target) {
+    const spaces = (target - player.position + 40) % 40;
+    if (spaces === 0) {
+      this.resolveLanding(player);
+      return;
+    }
+    this.movePlayer(player, spaces);
+  }
+
   resolveLanding(player) {
     const square = board[player.position];
     switch (square.type) {
@@ -323,9 +357,9 @@ class GameEngine {
   }
 
   resolvePropertyLanding(player, square) {
-    // Con un debito già aperto non si apre una proposta d'acquisto: sovrascriverebbe
-    // il pendingAction del debito e lo farebbe sparire.
-    if (this.hasPendingDebt()) return;
+    // Con un debito o una carta già in sospeso non si apre una proposta
+    // d'acquisto: sovrascriverebbe quel pendingAction e lo farebbe sparire.
+    if (this.hasPendingDebt() || this.hasPendingCard()) return;
     const owned = this.ownership[square.position];
     if (!owned) {
       // offer to buy
@@ -341,8 +375,9 @@ class GameEngine {
     if (owned.ownerId === player.id || owned.mortgaged) {
       return; // your own property, or mortgaged = no rent
     }
-    const rent = this.calculateRent(square, owned);
+    const rent = this.calculateRent(square, owned) * this.rentMultiplier;
     const owner = this.players.find((p) => p.id === owned.ownerId);
+    if (this.rentMultiplier > 1) this.addLog(`Affitto raddoppiato dalla carta pescata.`);
     this.addLog(`${player.name} paga ${rent} di affitto a ${owner.name} per ${square.name}.`);
     this.chargePlayer(player, rent, owner);
   }
@@ -399,12 +434,41 @@ class GameEngine {
     return {};
   }
 
+  /**
+   * Pesca una carta e la mette in attesa di lettura **senza applicarla**. Prima
+   * l'effetto scattava subito: il giocatore vedeva la pedina saltare o il saldo
+   * cambiare senza sapere perché, e sembrava un secondo tiro impazzito.
+   */
   drawCard(player, deckType) {
     const deck = deckType === 'chance' ? this.chanceDeck : this.communityDeck;
     const card = deck.shift();
     deck.push(card);
     this.addLog(`${player.name} pesca: "${card.text}"`);
-    this.applyCard(player, card);
+    this.pendingCard = card;
+    this.pendingAction = {
+      type: 'awaiting_card',
+      playerId: player.id,
+      deck: deckType,
+      text: card.text,
+    };
+  }
+
+  /** Il giocatore ha letto la carta: ora l'effetto si applica. */
+  acknowledgeCard(playerId) {
+    if (this.pendingAction?.type !== 'awaiting_card') return { error: 'Nessuna carta da leggere' };
+    if (this.pendingAction.playerId !== playerId) return { error: 'Non è la tua carta' };
+
+    const card = this.pendingCard;
+    const player = this.players.find((p) => p.id === playerId);
+    this.pendingAction = null;
+    this.pendingCard = null;
+    if (card && player) this.applyCard(player, card);
+
+    // La carta può aver aperto un'altra cosa da risolvere: un acquisto, un
+    // debito, o perfino un'altra carta (con "vai indietro di 3" si può finire
+    // su Probabilità). In quel caso il turno resta in attesa.
+    if (!this.pendingAction) this.finishRoll(this.currentPlayer);
+    return {};
   }
 
   applyCard(player, card) {
@@ -427,25 +491,26 @@ class GameEngine {
           this.chargePlayer(p, card.amount, player);
         });
         break;
-      case 'advance_to': {
-        const passedGo = card.target < player.position;
-        player.position = card.target;
-        if (passedGo && card.collectGo) player.balance += GO_AMOUNT;
-        this.resolveLanding(player);
+      case 'advance_to':
+        // Sempre in avanti, incassando il Via se lo si supera.
+        this.movePlayerTo(player, card.target);
         break;
-      }
       case 'move_back': {
+        // L'unico movimento a ritroso: non si passa dal Via, quindi non si
+        // incassa, e movePlayer non va usata.
         player.position = (player.position - card.spaces + 40) % 40;
+        this.addLog(`${player.name} torna indietro fino a ${board[player.position].name}.`);
         this.resolveLanding(player);
         break;
       }
       case 'advance_to_nearest_station': {
         const stations = board.filter((s) => s.type === 'station').map((s) => s.position);
         const next = stations.find((pos) => pos > player.position) ?? stations[0];
-        const passedGo = next < player.position;
-        player.position = next;
-        if (passedGo) player.balance += GO_AMOUNT;
-        this.resolveLanding(player);
+        // Alcune di queste carte fanno pagare l'affitto raddoppiato: il
+        // moltiplicatore vale per il solo atterraggio che segue.
+        this.rentMultiplier = card.rentMultiplier || 1;
+        this.movePlayerTo(player, next);
+        this.rentMultiplier = 1;
         break;
       }
       case 'get_out_of_jail':
@@ -916,6 +981,7 @@ class GameEngine {
     // Un debito o uno scambio aperto congelano la partita per entrambi.
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
     if (this.hasPendingTrade()) return { error: 'Prima rispondi allo scambio proposto' };
+    if (this.hasPendingCard()) return { error: 'Prima leggi la carta pescata' };
     // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
     // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
     if (this.turnResolved || this.finished) return {};

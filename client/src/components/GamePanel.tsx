@@ -16,6 +16,13 @@ export default function GamePanel({
   const isMyTurn = current?.id === myId;
   const me = state.players.find((p) => p.id === myId);
 
+  // Il tiro extra da doppio confondeva: sembrava che il gioco facesse tirare
+  // due volte a caso. Ora lo si dice.
+  const rolledDouble =
+    !!state.lastRoll &&
+    state.lastRoll.playerId === current?.id &&
+    state.lastRoll.dice[0] === state.lastRoll.dice[1];
+
   const roll = () => socket.emit('roll_dice', {});
   const payJail = () => socket.emit('pay_jail_fine', {});
   const useCard = () => socket.emit('use_jail_card', {});
@@ -65,7 +72,8 @@ export default function GamePanel({
             {me.jailCards > 0 && <button className="btn-ghost" onClick={useCard}>Usa carta uscita</button>}
           </div>
         ) : isMyTurn ? (
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {rolledDouble && <div style={styles.doubleHint}>Doppio! Tiri ancora.</div>}
             <button className="btn-primary" onClick={roll} disabled={!!state.pendingAction}>
               Tira i dadi
             </button>
@@ -114,6 +122,7 @@ const styles: Record<string, React.CSSProperties> = {
   badge: { fontSize: '0.7rem', color: '#e18a8a', marginTop: 2 },
   offline: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.45)', marginTop: 2, fontStyle: 'italic' },
   turnBox: { paddingTop: 8, borderTop: '1px solid rgba(201,150,44,0.2)' },
+  doubleHint: { width: '100%', fontSize: '0.8rem', color: 'var(--brass-2)', marginBottom: 2 },
   tradeBtn: { width: '100%', fontSize: '0.85rem', padding: '8px 14px' },
   properties: { paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)', maxHeight: 300, overflowY: 'auto' },
   sectionTitle: { fontSize: '0.95rem', marginBottom: 10, color: 'var(--paper)' },
