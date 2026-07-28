@@ -1159,8 +1159,13 @@ section('27. Bot: decisioni durante il turno');
   g6.turnResolved = false;
   bot6.doublesInARow = 1;
   botMove(g6);
-  check('dopo un doppio il bot ritira', g6.lastRoll.seq === 2, `seq=${g6.lastRoll.seq}`);
-  check('il tiro extra è suo', g6.lastRoll.playerId === bot6.id);
+  // Si guarda rollCount e non lastRoll.seq: da quando il tabellone smette di
+  // mostrare il tiro di chi ha già giocato, lastRoll torna null appena il turno
+  // si chiude — e il secondo tiro, se non è a sua volta un doppio e non apre
+  // nulla in sospeso, chiude il turno all'istante. Leggere lì dentro faceva
+  // fallire questo test una volta ogni sette.
+  check('dopo un doppio il bot ritira', g6.rollCount === 2, `rollCount=${g6.rollCount}`);
+  check('il tiro extra è suo', g6.lastRoll === null || g6.lastRoll.playerId === bot6.id);
 
   // Senza doppio invece non deve ritirare: chiude il turno e passa la mano.
   // (Stato costruito a mano: nel gioco vero il motore chiude da sé, qui si
