@@ -6,7 +6,7 @@
 // concatena, con le pause fra una e l'altra, sta in server.js: qui non ci sono
 // timer, così le decisioni si testano in modo sincrono.
 const { board } = require('./data/board');
-const { propertyScore, evaluateTrade } = require('./botStrategy');
+const { propertyScore, evaluateTrade, groupWeight, regalaMonopolio } = require('./botStrategy');
 
 /** Contanti che un bot cerca sempre di non intaccare. */
 const RISERVA = 150;
@@ -214,33 +214,57 @@ function provaAProporreScambio(game, bot) {
   if (game.pendingAction) return false;
   if (Math.random() > 0.3) return false;
 
-  // Cerca una casella altrui che completerebbe un colore del bot.
-  for (const square of board) {
-    if (!square.group) continue;
-    const owned = game.ownership[square.position];
-    if (!owned || owned.ownerId === bot.id) continue;
-    const proprietario = game.players.find((p) => p.id === owned.ownerId);
-    if (!proprietario || proprietario.bankrupt) continue;
+  // I candidati si ordinano per quanto rende il colore, non per dove capitano
+  // sul tabellone: prima si prova a chiudere gli arancioni, poi i marroni. Il
+  // vecchio ciclo scorreva `board` in ordine e prendeva la prima casella utile,
+  // che è anche il motivo per cui rifaceva sempre la stessa identica offerta.
+  const candidati = board
+    .filter((square) => {
+      if (!square.group) return false;
+      const owned = game.ownership[square.position];
+      if (!owned || owned.ownerId === bot.id) return false;
+      const proprietario = game.players.find((p) => p.id === owned.ownerId);
+      if (!proprietario || proprietario.bankrupt) return false;
+      // Serve che sia l'ultima casella mancante per completare il colore.
+      const gruppo = board.filter((s) => s.group === square.group);
+      const mie = gruppo.filter(
+        (s) => s.position !== square.position && game.ownership[s.position]?.ownerId === bot.id
+      ).length;
+      return mie === gruppo.length - 1;
+    })
+    .sort((a, b) => groupWeight(b.group) - groupWeight(a.group));
 
-    const gruppo = board.filter((s) => s.group === square.group);
-    const mie = gruppo.filter(
-      (s) => s.position !== square.position && game.ownership[s.position]?.ownerId === bot.id
-    ).length;
-    if (mie !== gruppo.length - 1) continue;
+  for (const square of candidati) {
+    const proprietario = game.players.find(
+      (p) => p.id === game.ownership[square.position].ownerId
+    );
 
-    // Merce di scambio: una propria proprietà fuori dai colori già completi.
+    // Merce di scambio: una propria proprietà fuori dai colori già completi, e
+    // che non completi un colore a chi la riceve. Cedere per sbaglio la casella
+    // che mancava all'avversario vale molto più di quanto si incassa.
     const scarto = game.propertiesOf(bot.id)
       .filter(({ square: s, owned: o }) =>
         !o.mortgaged && o.houses === 0 && !o.hotel &&
-        (!s.group || !game.ownsFullGroup(bot.id, s.group))
+        (!s.group || !game.ownsFullGroup(bot.id, s.group)) &&
+        !regalaMonopolio(game, proprietario.id, [s.position])
       )
       .sort((a, b) => (a.square.price || 0) - (b.square.price || 0))[0];
 
-    // Offerta onesta: un po' sopra il listino, perché sta chiedendo un favore.
-    const target = Math.round(square.price * 1.2);
+    // Quanto spingersi sopra il listino: un colore che rende molto merita di
+    // essere pagato caro, e con la cassa piena ci si può permettere di insistere.
+    const generosita = 1.1 + groupWeight(square.group) * 0.15 + (bot.balance > 800 ? 0.2 : 0);
+    const target = Math.round(square.price * generosita);
     const valoreScarto = scarto ? scarto.square.price : 0;
     const denaro = Math.max(0, Math.min(bot.balance - RISERVA, target - valoreScarto));
-    if (denaro + valoreScarto < square.price) continue; // non può permetterselo
+    const valoreOfferto = denaro + valoreScarto;
+    if (valoreOfferto < square.price) continue; // non può permetterselo
+
+    // Non si ripropone lo stesso baratto a chi l'ha appena rifiutato. Si torna
+    // alla carica solo con un'offerta sensibilmente migliore — un terzo in più
+    // — che è quello che farebbe una persona: insistere sì, ma alzando.
+    const chiave = `${proprietario.id}:${square.position}`;
+    const precedente = offertaPrecedente(game, chiave);
+    if (precedente !== null && valoreOfferto <= precedente * 1.3) continue;
 
     const res = game.proposeTrade(bot.id, {
       toId: proprietario.id,
@@ -248,9 +272,29 @@ function provaAProporreScambio(game, bot) {
       offerMoney: denaro,
       requestProperties: [square.position],
     });
-    if (!res.error) return true;
+    if (!res.error) {
+      segnaProposta(game, chiave, valoreOfferto);
+      return true;
+    }
   }
   return false;
+}
+
+// Quanto valeva l'ultima offerta fatta per una certa casella a un certo
+// giocatore. Senza questa memoria il bot ricalcolava ogni turno la stessa
+// proposta — il calcolo è deterministico — e la ripeteva finché il tavolo non
+// cambiava, che è il motivo per cui sembrava un disco rotto.
+const offerteFatte = new WeakMap();
+
+function offertaPrecedente(game, chiave) {
+  const fatte = offerteFatte.get(game);
+  return fatte && fatte.has(chiave) ? fatte.get(chiave) : null;
+}
+
+function segnaProposta(game, chiave, valore) {
+  const fatte = offerteFatte.get(game) || new Map();
+  fatte.set(chiave, valore);
+  offerteFatte.set(game, fatte);
 }
 
 module.exports = { botMove, botHasMove, isBotTurn, botMustAnswer };

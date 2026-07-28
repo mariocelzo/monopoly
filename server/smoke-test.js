@@ -3,7 +3,7 @@
 // gameEngine.js, come da convenzioni del progetto.
 const { GameEngine } = require('./src/gameEngine');
 const { board } = require('./src/data/board');
-const { groupWeight, propertyScore, evaluateTrade } = require('./src/botStrategy');
+const { groupWeight, propertyScore, evaluateTrade, regalaMonopolio } = require('./src/botStrategy');
 const { botMove, isBotTurn } = require('./src/bot');
 
 let passed = 0;
@@ -1159,6 +1159,93 @@ section('28. Bot: risposta agli scambi');
   check('il bot ha risposto', game.pendingAction === null);
   check('il bot ha accettato l\'offerta conveniente',
     game.ownership[ORANGE[0]].ownerId === botId);
+}
+
+// ---------------------------------------------------------------------------
+section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
+{
+  const LIGHTBLUE = board.filter((s) => s.group === 'lightblue').map((s) => s.position);
+
+  // regalaMonopolio è la domanda "cedendogli questa, gli chiudo un colore?"
+  {
+    const g = newGame();
+    // L'umano ha due azzurre su tre: la terza gli completerebbe il gruppo.
+    give(g, 'b', LIGHTBLUE[0]);
+    give(g, 'b', LIGHTBLUE[1]);
+    check('cedere l\'ultima casella di un colore glielo regala',
+      regalaMonopolio(g, 'b', [LIGHTBLUE[2]]) === true);
+    check('cedere una casella di un colore che non chiude non regala nulla',
+      regalaMonopolio(g, 'b', [ORANGE[0]]) === false);
+  }
+
+  /** Prepara un bot a un passo dal monopolio arancione, con merce da scambiare. */
+  function tavoloDaScambio() {
+    const g = new GameEngine('SC');
+    g.addPlayer('umano', 'Mario', '🎩');
+    g.addBot('Bot Aurelio', '🐕');
+    g.start();
+    const bot = g.players[1];
+    g.turnIndex = 1;
+    bot.balance = 1500;
+    // Al bot mancano solo gli arancioni: due su tre sono suoi, la terza è dell'umano.
+    g.ownership[ORANGE[0]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
+    g.ownership[ORANGE[1]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
+    g.ownership[ORANGE[2]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+    return { g, bot };
+  }
+
+  // Il bot non ripropone lo stesso baratto a chi l'ha appena rifiutato: prima
+  // ricalcolava ogni turno la stessa identica offerta e la ripeteva all'infinito.
+  {
+    const { g, bot } = tavoloDaScambio();
+    // Una proprietà di scarto da mettere sul piatto.
+    g.ownership[BROWN[0]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
+
+    // Math.random fissato a 0: supera il filtro del 30% e toglie ogni casualità.
+    const vero = Math.random;
+    Math.random = () => 0;
+    try {
+      botMove(g);
+      check('il bot propone lo scambio', g.pendingAction?.type === 'awaiting_trade');
+      const chiesto = g.pendingAction?.requestProperties?.[0];
+      check('chiede la casella che gli completa il colore', chiesto === ORANGE[2], `chiesto=${chiesto}`);
+
+      g.respondTrade('umano', false);
+      check('dopo il rifiuto non c\'è più nulla in sospeso', g.pendingAction === null);
+
+      // Stesso turno, stessa situazione: non deve riproporre la stessa cosa.
+      botMove(g);
+      check('non ripropone lo stesso baratto appena rifiutato',
+        g.pendingAction?.type !== 'awaiting_trade',
+        `pendingAction=${g.pendingAction?.type}`);
+    } finally {
+      Math.random = vero;
+    }
+  }
+
+  // Fra due possibili scarti, non cede quello che completerebbe un colore
+  // all'avversario: quel pezzo vale molto più del suo prezzo di listino.
+  {
+    const { g, bot } = tavoloDaScambio();
+    // L'umano ha due azzurre: la terza gli chiuderebbe il gruppo.
+    g.ownership[LIGHTBLUE[0]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+    g.ownership[LIGHTBLUE[1]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+    // Il bot possiede sia quella pericolosa sia una marrone innocua.
+    g.ownership[LIGHTBLUE[2]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
+    g.ownership[BROWN[0]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
+
+    const vero = Math.random;
+    Math.random = () => 0;
+    try {
+      botMove(g);
+      const offerte = g.pendingAction?.offerProperties || [];
+      check('propone comunque qualcosa', g.pendingAction?.type === 'awaiting_trade');
+      check('non cede la casella che chiuderebbe il colore all\'avversario',
+        !offerte.includes(LIGHTBLUE[2]), `offerte=${offerte.join(',')}`);
+    } finally {
+      Math.random = vero;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
