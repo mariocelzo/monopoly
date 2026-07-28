@@ -64,7 +64,19 @@ cd server && node smoke-test.js
 ```
 
 Va eseguito prima e dopo ogni modifica sostanziale a `gameEngine.js`. La suite
-include una partita simulata di 300 turni, quindi conviene lanciarla più volte.
+include una partita simulata di 300 turni e i bot usano la casualità, quindi
+conviene lanciarla più volte.
+
+Anche il client ha le sue asserzioni, sulla sola logica pura. Girano sotto Node
+senza framework né bundler, perché Node sa eseguire TypeScript togliendo i tipi:
+
+```bash
+cd client && npm test
+```
+
+Perché funzioni, i moduli che finiscono lì dentro non devono avere import che
+solo Vite sa risolvere — alias, CSS, immagini — né toccare `window` al
+caricamento. È il motivo per cui `propertyGroups.ts` importa soltanto tipi.
 
 ## Variabili d'ambiente
 
@@ -114,9 +126,12 @@ server/
     rooms.js           Stanze, aggancio dei socket, scadenza
     server.js          Eventi Socket.io
 client/
+  logic-test.ts        Asserzioni sulla logica pura del client
   src/
     socket.ts          Connessione e tipi condivisi
     identity.ts        Identità del giocatore, stabile fra le riconnessioni
+    propertyGroups.ts  Proprietà per gruppo di colore, con quante su quante
+    touchTarget.ts     Altezza minima dei comandi che si toccano col dito
     App.tsx            Radice: lobby, assetto desktop o mobile, riconnessione
     components/        Tabellone, pannelli, modali
     styles/            Design tokens e stili base
@@ -126,7 +141,14 @@ docs/superpowers/specs/  Documenti di design delle funzionalità
 ## Stato
 
 Fatto: motore completo, bancarotta con liquidazione, costruzioni e ipoteche,
-scambi, tre doppi, riconnessione, assetto mobile, bot.
+tre doppi, riconnessione, assetto mobile, bot.
+
+Gli scambi hanno due schermate diverse di proposito: da telefono e da tablet
+una procedura guidata in tre passi — cosa vuoi da lui, cosa gli dai, riepilogo
+— perché le due colonne su 375px chiudevano seicento pixel di contenuto in una
+finestrella da centocinquanta, e a due sensi non si riusciva a comporre nulla.
+Da computer restano le due colonne, raggruppate per gruppo di colore col
+«completo» e il «2 di 3», che è l'unica cosa che conta mentre si tratta.
 
 Regole della casa: il Via paga 500.
 
