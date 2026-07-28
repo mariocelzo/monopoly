@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket, GameState, BoardSquare } from './socket';
 import { useIsMobile, useIsTouchLayout } from './useIsMobile';
-import { clearRoom, getClientId, loadRoom, saveRoom } from './identity';
+import {
+  clearLogBookmark,
+  clearRoom,
+  getClientId,
+  loadLogBookmark,
+  loadRoom,
+  saveLogBookmark,
+  saveRoom,
+} from './identity';
 import { clearInviteFromUrl, getInviteCodeFromUrl } from './invite';
+import { latestLogAt, missedSince } from './awayRecap';
 import { TOUCH_TARGET } from './touchTarget';
 import Lobby from './components/Lobby';
 import Board from './components/Board';
@@ -17,6 +26,7 @@ import CardModal from './components/CardModal';
 import RentModal from './components/RentModal';
 import TaxModal from './components/TaxModal';
 import SquareDetail from './components/SquareDetail';
+import AwayRecapModal from './components/AwayRecapModal';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -50,6 +60,25 @@ export default function App() {
   // Stato del collegamento: senza avviso si resterebbe a fissare un tabellone
   // fermo, credendo che stia solo giocando l'altro.
   const [online, setOnline] = useState(true);
+  // Righe di registro arrivate mentre si era disconnessi, da mostrare come
+  // riepilogo al rientro. `null` quando non c'è nulla da mostrare (chiuso
+  // dall'utente, o perché non è successo niente durante l'assenza).
+  const [missedLog, setMissedLog] = useState<{ message: string; at: number }[] | null>(null);
+  // Punto del registro oltre il quale tutto è "successo mentre non c'ero":
+  // parte da quanto salvato in localStorage (utile se la scheda è stata
+  // chiusa del tutto) e viene aggiornato a ogni disconnessione vera con
+  // l'ultimo punto davvero visto, non con un valore vecchio di sessioni fa.
+  const awayBookmarkRef = useRef<number | null>(loadLogBookmark());
+  // Punto più avanzato del registro mai ricevuto in questa sessione: si
+  // aggiorna a ogni `state` e viene scritto in localStorage, così è sempre
+  // pronto a diventare il prossimo `awayBookmarkRef` se la connessione cade.
+  const lastSeenAtRef = useRef<number | null>(awayBookmarkRef.current);
+  // Vero quando il prossimo `state` ricevuto va confrontato con
+  // `awayBookmarkRef` per capire cosa si è perso: solo al primo stato di
+  // questa sessione e subito dopo ogni disconnessione vera, mai durante il
+  // gioco normale (altrimenti ogni singola riga nuova farebbe comparire il
+  // riquadro anche mentre si sta guardando la partita dal vivo).
+  const checkMissedRef = useRef(true);
   const isMobile = useIsMobile();
   // Domanda diversa da isMobile: non "come si dispone la pagina" ma "questo
   // comando si usa col pollice". Un tablet in orizzontale è largo ma resta
@@ -61,8 +90,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    socket.on('state', (s: GameState) => setState(s));
-    return () => { socket.off('state'); };
+    const onState = (s: GameState) => {
+      // Confronto col segnalibro solo se questo `state` è il primo dopo il
+      // rientro (mount o riconnessione vera): dopo, si consuma subito, così
+      // gli aggiornamenti successivi del gioco dal vivo non lo rifanno scattare.
+      if (checkMissedRef.current) {
+        checkMissedRef.current = false;
+        const missed = missedSince(s.log, awayBookmarkRef.current);
+        if (missed.length > 0) setMissedLog(missed);
+      }
+
+      // Il punto più avanzato raggiunto dal registro finora, per capire fino
+      // a dove si era arrivati prima di un'eventuale prossima disconnessione.
+      lastSeenAtRef.current = latestLogAt(s.log, lastSeenAtRef.current);
+      saveLogBookmark(lastSeenAtRef.current);
+      setState(s);
+    };
+    socket.on('state', onState);
+    return () => { socket.off('state', onState); };
   }, []);
 
   /**
@@ -85,6 +130,7 @@ export default function App() {
             // La stanza non c'è più (server riavviato, partita scaduta): si
             // ricomincia dalla lobby invece di restare bloccati.
             clearRoom();
+            clearLogBookmark();
             setPlayerId(null);
             setState(null);
           } else if (res?.playerId) {
@@ -116,7 +162,15 @@ export default function App() {
    * resta a fissare un tabellone che non si aggiorna più.
    */
   useEffect(() => {
-    const [setOn, setOff] = [() => setOnline(true), () => setOnline(false)];
+    const setOn = () => setOnline(true);
+    // Una disconnessione vera: si fissa qui il punto da cui, al rientro,
+    // ricostruire il riepilogo — l'ultimo davvero visto, non un segnalibro
+    // vecchio rimasto da una sessione precedente.
+    const setOff = () => {
+      setOnline(false);
+      awayBookmarkRef.current = lastSeenAtRef.current;
+      checkMissedRef.current = true;
+    };
     const ensureConnected = () => {
       if (!document.hidden && !socket.connected) socket.connect();
     };
@@ -149,6 +203,13 @@ export default function App() {
         }}
         onJoined={(code, pid) => {
           saveRoom(code);
+          // Ingresso fresco in un tavolo, non un rientro: un segnalibro
+          // rimasto da una partita precedente farebbe apparire come "successo
+          // mentre non c'ero" tutto il registro di una partita mai vista.
+          clearLogBookmark();
+          awayBookmarkRef.current = null;
+          lastSeenAtRef.current = null;
+          checkMissedRef.current = true;
           // Consumato: né in un rientro futuro né in un ricaricamento deve
           // ripresentarsi la schermata d'invito sopra una partita già in corso.
           setInviteCode(null);
@@ -165,6 +226,11 @@ export default function App() {
    */
   const leaveTable = () => {
     clearRoom();
+    clearLogBookmark();
+    awayBookmarkRef.current = null;
+    lastSeenAtRef.current = null;
+    checkMissedRef.current = true;
+    setMissedLog(null);
     setPlayerId(null);
     setState(null);
     setRejoining(false);
@@ -264,6 +330,12 @@ export default function App() {
             onClose={() => setComposingTrade(false)}
           />
         )
+      )}
+      {/* Un debito, uno scambio o la fine partita hanno la precedenza sullo
+          schermo: si mostra il riepilogo solo quando nessuno di loro sta già
+          reclamando l'attenzione del giocatore. */}
+      {missedLog && !pending && !composingTrade && !state.finished && (
+        <AwayRecapModal entries={missedLog} onClose={() => setMissedLog(null)} />
       )}
       {state.finished && (
         <div style={styles.overlay}>

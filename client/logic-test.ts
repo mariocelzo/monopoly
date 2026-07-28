@@ -12,6 +12,7 @@ import { board } from '../server/src/data/board.js';
 import { propertyGroups } from './src/propertyGroups.ts';
 import type { BoardSquare, GameState } from './src/socket.ts';
 import { MOBILE_BREAKPOINT, TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
+import { latestLogAt, missedSince } from './src/awayRecap.ts';
 
 let passed = 0;
 let failed = 0;
@@ -106,6 +107,69 @@ section('2. Soglia di assetto touch');
     TOUCH_LAYOUT_QUERY.includes('hover: none'), TOUCH_LAYOUT_QUERY);
   check('la soglia comprende anche gli schermi stretti',
     TOUCH_LAYOUT_QUERY.includes(`max-width: ${MOBILE_BREAKPOINT}px`), TOUCH_LAYOUT_QUERY);
+}
+
+// ---------------------------------------------------------------------------
+section('3. Riepilogo del registro durante una disconnessione');
+{
+  const registro: GameState['log'] = [
+    { message: 'Mario tira 3 e 4', at: 100 },
+    { message: 'Mario paga affitto a Luigi', at: 200 },
+    { message: 'Luigi tira 5 e 1', at: 300 },
+  ];
+
+  // Senza un segnalibro precedente (primo ingresso al tavolo) non c'è nulla
+  // da riepilogare, anche se il registro non è vuoto.
+  check('nessun segnalibro precedente: niente da riepilogare',
+    missedSince(registro, null).length === 0);
+
+  // Il segnalibro coincide con l'ultima riga vista: non è successo nulla di
+  // nuovo, quindi il riquadro non deve comparire.
+  check('nulla di nuovo dopo l\'ultima riga vista',
+    missedSince(registro, 300).length === 0);
+
+  // Solo le righe più recenti del segnalibro sono "successe mentre non c'ero".
+  const perse = missedSince(registro, 100);
+  check('solo le righe successive al segnalibro',
+    perse.length === 2 && perse[0].at === 200 && perse[1].at === 300,
+    JSON.stringify(perse));
+
+  // Un segnalibro più avanzato dell'intero registro (caso limite) non deve
+  // far esplodere nulla: semplicemente non c'è niente da mostrare.
+  check('segnalibro oltre l\'ultima riga: nessun errore, lista vuota',
+    missedSince(registro, 9999).length === 0);
+
+  // Le righe di sola connessione (le logga il motore a ogni caduta di rete e
+  // a ogni rientro) sono rumore per il riepilogo: da sole non devono farlo
+  // comparire, altrimenti scatterebbe a ogni riconnessione anche quando in
+  // partita non cambia nulla.
+  const soloConnessione: GameState['log'] = [
+    { message: 'Mario si è disconnesso.', at: 150 },
+    { message: 'Mario è tornato.', at: 250 },
+  ];
+  check('le sole notifiche di connessione non contano come "successo qualcosa"',
+    missedSince(soloConnessione, 100).length === 0);
+
+  // Ma se nel frattempo è successo anche altro, quello resta nel riepilogo:
+  // si scartano solo le righe di connessione, non l'intera finestra.
+  const misto: GameState['log'] = [
+    { message: 'Mario si è disconnesso.', at: 150 },
+    { message: 'Bot Aurelio compra Corso Magellano per 220.', at: 180 },
+    { message: 'Mario è tornato.', at: 250 },
+  ];
+  const soloReale = missedSince(misto, 100);
+  check('tra rumore e contenuto reale, resta solo il contenuto reale',
+    soloReale.length === 1 && soloReale[0].message.includes('Corso Magellano'),
+    JSON.stringify(soloReale));
+
+  // latestLogAt tiene il punto più avanzato tra quanto già noto e il nuovo
+  // registro: non deve mai regredire.
+  check('latestLogAt prende il massimo del registro',
+    latestLogAt(registro, null) === 300);
+  check('latestLogAt non regredisce rispetto al segnalibro esistente',
+    latestLogAt([], 500) === 500);
+  check('latestLogAt avanza se il registro porta un punto più recente',
+    latestLogAt(registro, 150) === 300);
 }
 
 // ---------------------------------------------------------------------------
