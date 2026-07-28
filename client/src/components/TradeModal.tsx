@@ -133,7 +133,8 @@ export default function TradeModal({
           state={state}
           myId={myId}
           otherId={other.id}
-          selected={[...offerProperties, ...requestProperties]}
+          offered={offerProperties}
+          requested={requestProperties}
         />
 
         <div style={styles.columns}>

@@ -5,23 +5,28 @@ import { PLAYER_COLORS, gridPos } from './Board';
 /**
  * Mappa in miniatura del tabellone, per capire a colpo d'occhio com'è divisa la
  * proprietà prima di comporre uno scambio. Le caselle sono tinte del colore di
- * chi le possiede; quelle scelte per lo scambio pulsano col bordo dorato.
+ * chi le possiede; quelle nello scambio portano un anello, di colore diverso a
+ * seconda del verso — ottone per quello che esce, avorio per quello che entra.
  *
  * Serve a guardare, non a selezionare: a questa dimensione una casella è troppo
- * stretta per il pollice, quindi la scelta resta agli elenchi qui sotto.
+ * stretta per il pollice, quindi la scelta resta agli elenchi.
  */
 export default function TradeBoard({
   board,
   state,
   myId,
   otherId,
-  selected,
+  offered,
+  requested,
 }: {
   board: BoardSquare[];
   state: GameState;
   myId: string;
   otherId: string;
-  selected: number[];
+  /** Caselle tue che stai offrendo: escono da te. */
+  offered: number[];
+  /** Caselle sue che stai chiedendo: entrano da lui. */
+  requested: number[];
 }) {
   const colorOf = (playerId: string) =>
     PLAYER_COLORS[state.players.findIndex((p) => p.id === playerId) % PLAYER_COLORS.length];
@@ -33,7 +38,8 @@ export default function TradeBoard({
         const owned = state.ownership[square.position];
         const isMine = owned?.ownerId === myId;
         const isTheirs = owned?.ownerId === otherId;
-        const isSelected = selected.includes(square.position);
+        const inUscita = offered.includes(square.position);
+        const inEntrata = requested.includes(square.position);
         const scambiabile = square.price !== undefined;
 
         // Chi possiede la casella decide il riempimento; il colore del gruppo
@@ -52,7 +58,13 @@ export default function TradeBoard({
               gridRow: row,
               gridColumn: col,
               background: fill,
-              outline: isSelected ? '2px solid var(--brass-2)' : undefined,
+              // Due colori invece di due tratteggi: a venti pixel un bordo
+              // tratteggiato non si distingue da uno pieno.
+              outline: inUscita
+                ? '2px solid var(--brass-2)'
+                : inEntrata
+                  ? '2px solid var(--paper)'
+                  : undefined,
               outlineOffset: -2,
               opacity: owned?.mortgaged ? 0.45 : 1,
             }}
@@ -82,7 +94,11 @@ export default function TradeBoard({
         </div>
         <div style={styles.legendRow}>
           <span style={{ ...styles.chip, background: 'transparent', borderColor: 'var(--brass-2)' }} />
-          nello scambio
+          offri
+        </div>
+        <div style={styles.legendRow}>
+          <span style={{ ...styles.chip, background: 'transparent', borderColor: 'var(--paper)' }} />
+          chiedi
         </div>
       </div>
     </div>
