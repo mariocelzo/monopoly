@@ -72,20 +72,7 @@ export default function MobileBar({
 
             <div style={styles.sheetBody}>
               {sheet === 'proprieta' ? (
-                <>
-                  <PropertiesPanel board={board} state={state} myId={myId} />
-                  <button
-                    className="btn-ghost"
-                    style={styles.tradeBtn}
-                    disabled={blocked || state.finished}
-                    onClick={() => {
-                      setSheet(null);
-                      onProposeTrade();
-                    }}
-                  >
-                    Proponi scambio
-                  </button>
-                </>
+                <PropertiesPanel board={board} state={state} myId={myId} />
               ) : (
                 <>
                   <div style={styles.codeRow}>
@@ -232,8 +219,17 @@ export default function MobileBar({
           <button className="btn-ghost" style={styles.tab} onClick={() => setSheet('proprieta')}>
             🏠 Proprietà
           </button>
-          <button className="btn-ghost" style={styles.tab} onClick={() => setSheet('registro')}>
-            📜 Registro
+          {/* Lo scambio sale di livello: prima era sepolto dentro il foglio
+              delle proprietà. Il registro non si perde, ha la sua scheda lì
+              dentro. Prima del via resta visibile ma spento, così la barra non
+              cambia forma quando la partita comincia. */}
+          <button
+            className="btn-ghost"
+            style={styles.tab}
+            disabled={!state.started || state.finished || blocked}
+            onClick={onProposeTrade}
+          >
+            🤝 Scambio
           </button>
         </div>
       </div>
@@ -313,7 +309,6 @@ const styles: Record<string, React.CSSProperties> = {
   sheetTabs: { display: 'flex', gap: 8, marginBottom: 12 },
   sheetTab: { flex: 1, minHeight: 40, fontSize: '0.85rem', padding: '0 10px' },
   sheetBody: { overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 },
-  tradeBtn: { minHeight: TOUCH_TARGET, fontSize: '0.9rem' },
   log: { display: 'flex', flexDirection: 'column', gap: 5, fontSize: '0.8rem', color: 'rgba(243,234,216,0.78)' },
   logLine: { borderLeft: '2px solid rgba(201,150,44,0.35)', paddingLeft: 9 },
   closeSheet: { minHeight: 42, marginTop: 12 },
