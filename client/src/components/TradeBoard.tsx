@@ -6,7 +6,13 @@ import { PLAYER_COLORS, gridPos } from './Board';
  * Mappa in miniatura del tabellone, per capire a colpo d'occhio com'è divisa la
  * proprietà prima di comporre uno scambio. Le caselle sono tinte del colore di
  * chi le possiede; quelle nello scambio portano un anello, di colore diverso a
- * seconda del verso — ottone per quello che esce, avorio per quello che entra.
+ * seconda del verso — ottone per quello che esce, azzurro per quello che entra.
+ *
+ * L'anello da solo non basta: i suoi colori pescano dalla stessa tavolozza
+ * PLAYER_COLORS usata per tingere le caselle, quindi su un proprietario che ha
+ * proprio quel colore di pedina l'anello sparirebbe dentro il riempimento. Per
+ * questo ogni casella nello scambio porta anche un riquadro scuro appena dentro
+ * l'anello, che la stacca dalla tintura qualunque essa sia.
  *
  * Serve a guardare, non a selezionare: a questa dimensione una casella è troppo
  * stretta per il pollice, quindi la scelta resta agli elenchi.
@@ -58,21 +64,26 @@ export default function TradeBoard({
               gridRow: row,
               gridColumn: col,
               background: fill,
-              // Due colori invece di due tratteggi: a un bordo tratteggiato
-              // non si distinguerebbe comunque da uno pieno a questa scala.
-              // E i due colori non possono essere due tinte calde vicine tra
-              // loro (ottone e avorio erano a un rapporto di contrasto di
-              // circa 1,5:1): la mappa arriva a celle da circa 17px, con un
-              // anello spesso 2px sopra un riempimento diverso per ogni
-              // casella, quindi serve un contrasto caldo-contro-freddo, che
-              // regge anche a quello spessore e anche per chi fatica con il
-              // rosso-verde.
+              // Due colori invece di due tratteggi: un bordo tratteggiato non
+              // si distinguerebbe comunque da uno pieno a questa scala.
+              // Ma i due colori dell'anello pescano dalla stessa tavolozza
+              // PLAYER_COLORS usata per tingere le caselle (ottone e azzurro
+              // sono anche colori di pedina): in una partita a due dove il
+              // proprietario ha proprio quel colore, l'anello "offri"/"chiedi"
+              // cadrebbe su un riempimento identico e sparirebbe. Per questo
+              // non basta l'anello da solo: il riquadro scuro sotto lo stacca
+              // sempre dalla tintura della casella, qualunque essa sia.
               outline: inUscita
                 ? '2px solid var(--brass-2)'
                 : inEntrata
                   ? '2px solid #7EC8E3'
                   : undefined,
               outlineOffset: -2,
+              // Sta appena dentro l'anello (outlineOffset -2, quindi il bordo
+              // dell'outline è 2px dentro la cella): 3px di stacco scuro
+              // bastano a separarlo visivamente dal riempimento sottostante
+              // senza mangiarsi troppa casella.
+              boxShadow: inUscita || inEntrata ? 'inset 0 0 0 3px rgba(0,0,0,0.55)' : undefined,
               opacity: owned?.mortgaged ? 0.45 : 1,
             }}
             title={
