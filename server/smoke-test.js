@@ -1628,6 +1628,41 @@ section('32e. Il rilancio minimo scala col prezzo di listino, non è più fisso 
   );
 }
 
+section('32f. Un\'asta fra bot si chiude anche su una casella cara');
+{
+  // Il test 32d usa Vicolo Corto, che costa 60: lì il rilancio minimo resta 10
+  // e il difetto non si vedeva. Quando il minimo è diventato proporzionale al
+  // listino, bot.js continuava a offrire 10 di suo: il motore rifiutava, il
+  // rifiuto non cambiava lo stato, e toccava di nuovo allo stesso bot — asta
+  // bloccata per sempre, e con lei la partita. I test restavano verdi e solo la
+  // calibrazione lo mostrava, con le partite concluse crollate dal 99% al 13%.
+  // Quindi qui si usa la casella più cara del tabellone.
+  const CARA = board.reduce((m, s) => (s.price || 0) > (m.price || 0) ? s : m, board[1]);
+
+  const game = new GameEngine('ASTA-CARA');
+  game.addBot('Bot Uno', '🐕');
+  game.addBot('Bot Due', '🎩');
+  game.start();
+  const botA = game.players[0];
+
+  game.movePlayer(botA, CARA.position);
+  game.declineBuy(botA.id);
+  check('l\'asta sulla casella cara è aperta', game.pendingAction?.type === 'awaiting_auction',
+    `casella=${CARA.name} (${CARA.price})`);
+  check('il rilancio minimo è più alto che sulle caselle economiche',
+    game.pendingAction.minBid > 10, `minBid=${game.pendingAction.minBid}`);
+
+  let giri = 0;
+  while (game.pendingAction?.type === 'awaiting_auction' && giri < 60) {
+    if (!botMove(game)) break;
+    giri += 1;
+  }
+  check('l\'asta si chiude invece di girare a vuoto',
+    game.pendingAction?.type !== 'awaiting_auction',
+    `dopo ${giri} mosse è ancora aperta`);
+  check('e ci arriva in poche mosse, non decine', giri < 25, `mosse=${giri}`);
+}
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

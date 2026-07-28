@@ -100,15 +100,23 @@ function risolvePendingAction(game) {
 
     case 'awaiting_auction': {
       const square = board[pa.position];
-      const minBid = pa.currentBid === 0 ? 10 : pa.currentBid + 10;
+      // La soglia la dice il motore: qui non si ricalcola. Duplicarla è già
+      // costato caro una volta — quando il rilancio minimo è diventato
+      // proporzionale al listino, questo punto continuava a offrire 10, il
+      // motore rifiutava, il rifiuto non cambiava lo stato e toccava di nuovo
+      // allo stesso bot, all'infinito.
+      const minBid = pa.minBid;
       const tetto = tettoAsta(game, bot, square);
       // Non rilancia se supera il proprio tetto, o se non se lo può proprio
       // permettere: passare è sempre lecito, anche per chi ha appena rinunciato.
       if (minBid > tetto || minBid > bot.balance) {
         game.passAuction(bot.id);
-      } else {
-        game.bidAuction(bot.id, minBid);
+        return true;
       }
+      // Se per qualunque ragione il rilancio viene rifiutato, si passa invece
+      // di riprovare: un'offerta respinta non muove lo stato, e ritentarla
+      // bloccherebbe la partita per tutti.
+      if (game.bidAuction(bot.id, minBid).error) game.passAuction(bot.id);
       return true;
     }
 
