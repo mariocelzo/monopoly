@@ -4,22 +4,30 @@ import { useEffect, useState } from 'react';
 // passa all'assetto con barra fissa in basso.
 export const MOBILE_BREAKPOINT = 780;
 
-/** Vero su schermi stretti. Si aggiorna alla rotazione o al ridimensionamento. */
-export function useIsMobile(): boolean {
-  const query = `(max-width: ${MOBILE_BREAKPOINT}px)`;
-  const [isMobile, setIsMobile] = useState(
+// Struttura comune a tutti gli hook di media query di questo file: stato
+// iniziale letto in modo lazy (così l'import a livello di modulo non tocca
+// `window`), poi un listener che tiene lo stato allineato ai cambi di query.
+// `useIsMobile` e `useIsTouchLayout` differiscono solo nella stringa di query,
+// quindi condividono questa implementazione invece di duplicarla.
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(query).matches
   );
 
   useEffect(() => {
     const mql = window.matchMedia(query);
-    const update = () => setIsMobile(mql.matches);
+    const update = () => setMatches(mql.matches);
     update();
     mql.addEventListener('change', update);
     return () => mql.removeEventListener('change', update);
   }, [query]);
 
-  return isMobile;
+  return matches;
+}
+
+/** Vero su schermi stretti. Si aggiorna alla rotazione o al ridimensionamento. */
+export function useIsMobile(): boolean {
+  return useMediaQuery(`(max-width: ${MOBILE_BREAKPOINT}px)`);
 }
 
 // Assetto da dito. Non è la stessa domanda di `useIsMobile`: quella decide
@@ -30,17 +38,5 @@ export const TOUCH_LAYOUT_QUERY = `(hover: none), (max-width: ${MOBILE_BREAKPOIN
 
 /** Vero su telefoni e tablet, in qualunque orientamento. */
 export function useIsTouchLayout(): boolean {
-  const [isTouch, setIsTouch] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(TOUCH_LAYOUT_QUERY).matches
-  );
-
-  useEffect(() => {
-    const mql = window.matchMedia(TOUCH_LAYOUT_QUERY);
-    const update = () => setIsTouch(mql.matches);
-    update();
-    mql.addEventListener('change', update);
-    return () => mql.removeEventListener('change', update);
-  }, []);
-
-  return isTouch;
+  return useMediaQuery(TOUCH_LAYOUT_QUERY);
 }

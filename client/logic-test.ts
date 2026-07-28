@@ -1,13 +1,17 @@
 // Test della logica pura del client. Nessun framework, come per smoke-test.js
 // del server: si lancia con `npm test` dalla cartella client.
 //
-// Gira sotto node grazie a --experimental-strip-types. È il motivo per cui i
-// moduli qui testati non devono avere import a runtime oltre ai tipi: node non
-// saprebbe risolverli.
+// Gira sotto node grazie a --experimental-strip-types, senza il bundler di
+// Vite. Perciò ogni modulo importato qui deve rispettare due condizioni: node
+// deve saperlo risolvere con la risoluzione standard (niente alias, CSS o
+// altri asset che solo Vite capisce), e deve essere innocuo al caricamento —
+// niente `window`/`document` toccati a livello di modulo. `react` va bene: è
+// un pacchetto vero in node_modules e non fa nulla all'import; è l'uso di
+// `window` dentro `useIsMobile.ts` a essere circondato da un controllo lazy.
 import { board } from '../server/src/data/board.js';
 import { propertyGroups } from './src/propertyGroups.ts';
 import type { BoardSquare, GameState } from './src/socket.ts';
-import { TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
+import { MOBILE_BREAKPOINT, TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
 
 let passed = 0;
 let failed = 0;
@@ -101,7 +105,7 @@ section('2. Soglia di assetto touch');
   check('la soglia guarda la mancanza del passaggio del mouse',
     TOUCH_LAYOUT_QUERY.includes('hover: none'), TOUCH_LAYOUT_QUERY);
   check('la soglia comprende anche gli schermi stretti',
-    TOUCH_LAYOUT_QUERY.includes('max-width: 780px'), TOUCH_LAYOUT_QUERY);
+    TOUCH_LAYOUT_QUERY.includes(`max-width: ${MOBILE_BREAKPOINT}px`), TOUCH_LAYOUT_QUERY);
 }
 
 // ---------------------------------------------------------------------------
