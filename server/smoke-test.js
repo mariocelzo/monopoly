@@ -499,7 +499,9 @@ section('12. Partita simulata, 300 turni');
       if (game.pendingAction?.type === 'awaiting_auction') {
         const bidderId = game.pendingAction.playerId;
         const bidder = game.players.find((p) => p.id === bidderId);
-        const minBid = game.pendingAction.currentBid === 0 ? 10 : game.pendingAction.currentBid + 10;
+        // Il minimo non è più fisso: si legge quello esposto dal motore
+        // (game.pendingAction.minBid), calcolato sul listino della casella.
+        const minBid = game.pendingAction.minBid;
         if (bidder && minBid <= bidder.balance && Math.random() < 0.5) {
           game.bidAuction(bidderId, minBid);
         } else {
@@ -1558,6 +1560,71 @@ section('32d. Un bot partecipa all\'asta e la chiude da solo, in una partita di 
     'il denaro tornato alla banca coincide con l\'eventuale assegnazione',
     game.ownership[1] ? totaleDopo < totalePrima : totaleDopo === totalePrima,
     `prima=${totalePrima} dopo=${totaleDopo} ownership=${JSON.stringify(game.ownership[1])}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('32e. Il rilancio minimo scala col prezzo di listino, non è più fisso a 10');
+{
+  // Vicolo Corto (1), marrone, listino 60: casella economica. Con la formula
+  // (prezzo/80 arrotondato alla decina) l'incremento resta 10, come prima
+  // della modifica: su una casella così a buon mercato non doveva cambiare
+  // nulla.
+  const gameEconomica = newGame();
+  const marioEconomico = gameEconomica.players[0];
+  gameEconomica.movePlayer(marioEconomico, 1);
+  gameEconomica.declineBuy('a');
+  check(
+    'casella economica (60): il minimo d\'asta resta piccolo, sull\'ordine della decina',
+    gameEconomica.pendingAction.minBid === 10,
+    `minBid=${gameEconomica.pendingAction.minBid}`
+  );
+
+  // Parco della Vittoria (39), blu, listino 400: la più cara del tabellone.
+  // Si arriva in posizione 39 muovendo di 39 spazi da 0 (il Via), senza
+  // giro del tabellone: niente Via da incassare, la casella è ancora libera.
+  const gameCara = newGame();
+  const marioCaro = gameCara.players[0];
+  gameCara.movePlayer(marioCaro, 39);
+  gameCara.declineBuy('a');
+  check(
+    'casella cara (400): il minimo d\'asta è consistente ma non spropositato (400/8=50)',
+    gameCara.pendingAction.minBid === 50,
+    `minBid=${gameCara.pendingAction.minBid}`
+  );
+  check(
+    'il minimo su una casella cara resta un numero tondo (multiplo di 10)',
+    gameCara.pendingAction.minBid % 10 === 0
+  );
+  check(
+    'partendo da zero, per chiudere l\'asta intorno al listino bastano 8 rilanci (400/50), non i 40 di un incremento fisso da 10',
+    Math.ceil(400 / gameCara.pendingAction.minIncrement) === 8
+  );
+
+  // Un rilancio sotto il minimo va rifiutato, sia sulla casella economica che
+  // su quella cara: il tetto minimo non è solo esposto, va anche rispettato.
+  const bidBassoEconomico = gameEconomica.bidAuction('a', 5);
+  check(
+    'sotto il minimo su una casella economica il rilancio è rifiutato',
+    !!bidBassoEconomico.error,
+    JSON.stringify(bidBassoEconomico)
+  );
+  const bidBassoCaro = gameCara.bidAuction('a', 40);
+  check(
+    'sotto il minimo su una casella cara il rilancio è rifiutato (40 < 50)',
+    !!bidBassoCaro.error,
+    JSON.stringify(bidBassoCaro)
+  );
+  const bidValidoCaro = gameCara.bidAuction('a', 50);
+  check(
+    'al minimo esatto il rilancio su una casella cara va a buon fine',
+    !bidValidoCaro.error,
+    JSON.stringify(bidValidoCaro)
+  );
+  check(
+    'dopo il rilancio la soglia successiva è offerta + incremento (50+50=100)',
+    gameCara.pendingAction.minBid === 100,
+    `minBid=${gameCara.pendingAction.minBid}`
   );
 }
 
