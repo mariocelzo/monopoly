@@ -17,3 +17,10 @@ dist/
 # Log di npm
 npm-debug.log*
 .superpowers/
+
+# Partite salvate da PERSIST_FILE: sono stato di gioco, non codice, e
+# contengono i nomi dei giocatori. Il percorso suggerito in .env.example è
+# dentro il repo, quindi senza questa riga finirebbero committate.
+data/
+*.rooms-state.json
+rooms-state.json
