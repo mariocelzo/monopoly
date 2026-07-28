@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { BoardSquare, GameState, socket } from '../socket';
-import { GROUP_COLORS } from '../groupColors';
+import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
+import { propertyGroups } from '../propertyGroups';
+import MoneyStepper from './MoneyStepper';
 import TradeBoard from './TradeBoard';
 
 /**
@@ -29,25 +31,22 @@ export default function TradeModal({
 
   const [offerProperties, setOfferProperties] = useState<number[]>([]);
   const [requestProperties, setRequestProperties] = useState<number[]>([]);
-  const [offerMoney, setOfferMoney] = useState('0');
-  const [requestMoney, setRequestMoney] = useState('0');
-  const [offerJailCards, setOfferJailCards] = useState('0');
-  const [requestJailCards, setRequestJailCards] = useState('0');
+  const [offerMoney, setOfferMoney] = useState(0);
+  const [requestMoney, setRequestMoney] = useState(0);
+  const [offerJailCards, setOfferJailCards] = useState(0);
+  const [requestJailCards, setRequestJailCards] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   if (!other || !me) {
     return null;
   }
 
-  const ownedBy = (playerId: string) =>
-    board.filter((s) => state.ownership[s.position]?.ownerId === playerId);
-
   const cambiaDestinatario = (id: string) => {
     setToId(id);
     // Le richieste erano rivolte a un altro giocatore: si azzerano.
     setRequestProperties([]);
-    setRequestMoney('0');
-    setRequestJailCards('0');
+    setRequestMoney(0);
+    setRequestJailCards(0);
     setError(null);
   };
 
@@ -64,10 +63,10 @@ export default function TradeModal({
         toId: other.id,
         offerProperties,
         requestProperties,
-        offerMoney: Number(offerMoney) || 0,
-        requestMoney: Number(requestMoney) || 0,
-        offerJailCards: Number(offerJailCards) || 0,
-        requestJailCards: Number(requestJailCards) || 0,
+        offerMoney,
+        requestMoney,
+        offerJailCards,
+        requestJailCards,
       },
       (res: { error?: string }) => {
         if (res?.error) setError(res.error);
@@ -76,34 +75,57 @@ export default function TradeModal({
     );
   };
 
-  /** Elenco spuntabile delle proprietà di un giocatore. */
+  /** Elenco spuntabile delle proprietà di un giocatore, raggruppate per colore. */
   const propertyList = (playerId: string, selected: number[], setSelected: (v: number[]) => void) => {
-    const squares = ownedBy(playerId);
-    if (squares.length === 0) return <p style={styles.none}>nessuna proprietà</p>;
-    return squares.map((square) => {
-      const owned = state.ownership[square.position];
-      const isOn = selected.includes(square.position);
-      return (
-        <label
-          key={square.position}
-          style={{ ...styles.item, borderColor: isOn ? 'var(--brass)' : 'transparent' }}
-        >
-          <input
-            type="checkbox"
-            checked={isOn}
-            onChange={() => toggle(selected, setSelected, square.position)}
-          />
-          <span
-            style={{
-              ...styles.dot,
-              background: square.group ? GROUP_COLORS[square.group] : 'var(--brass)',
-            }}
-          />
-          <span style={styles.itemName}>{square.name}</span>
-          {owned.mortgaged && <span style={styles.mortgaged}>ipot.</span>}
-        </label>
-      );
-    });
+    const gruppi = propertyGroups(board, state.ownership, playerId);
+    if (gruppi.length === 0) return <p style={styles.none}>nessuna proprietà</p>;
+
+    return gruppi.map((gruppo) => (
+      <div key={gruppo.key} style={styles.gruppo}>
+        <div style={styles.gruppoTesta}>
+          <span style={{ ...styles.chip, background: GROUP_COLORS[gruppo.key] || 'var(--brass)' }} />
+          <span style={styles.gruppoNome}>{GROUP_LABELS[gruppo.key] || gruppo.key}</span>
+          {/* "completo" o "2 di 3": l'unica cosa che conta davvero quando si
+              tratta è a chi manca cosa. */}
+          <span style={gruppo.complete ? styles.completo : styles.parziale}>
+            {gruppo.complete ? 'completo' : `${gruppo.owned} di ${gruppo.total}`}
+          </span>
+        </div>
+
+        {gruppo.squares.map((square) => {
+          const owned = state.ownership[square.position];
+          const isOn = selected.includes(square.position);
+          return (
+            <label
+              key={square.position}
+              style={{
+                ...styles.item,
+                borderColor: isOn ? 'var(--brass)' : 'transparent',
+                background: isOn ? 'rgba(201,150,44,0.14)' : 'rgba(0,0,0,0.18)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isOn}
+                onChange={() => toggle(selected, setSelected, square.position)}
+              />
+              <span style={styles.itemName}>{square.name}</span>
+              {owned?.mortgaged && <span style={styles.mortgaged}>ipot.</span>}
+            </label>
+          );
+        })}
+      </div>
+    ));
+  };
+
+  /** Un lato del baratto in una riga sola, per il riepilogo del patto. */
+  const descrivi = (positions: number[], money: number, jailCards: number) => {
+    const pezzi = positions.map(
+      (position) => board.find((s) => s.position === position)?.name || `Casella ${position}`
+    );
+    if (money > 0) pezzi.push(`€${money}`);
+    if (jailCards > 0) pezzi.push(`${jailCards} carta uscita`);
+    return pezzi.length > 0 ? pezzi.join(' + ') : 'niente';
   };
 
   return (
@@ -128,74 +150,74 @@ export default function TradeModal({
           </div>
         )}
 
-        <TradeBoard
-          board={board}
-          state={state}
-          myId={myId}
-          otherId={other.id}
-          offered={offerProperties}
-          requested={requestProperties}
-        />
-
         <div style={styles.columns}>
           <div style={styles.column}>
-            <h3 style={styles.columnTitle}>Offri tu</h3>
+            <h3 style={styles.columnTitle}>Offri tu · €{me.balance}</h3>
             <div style={styles.list}>{propertyList(myId, offerProperties, setOfferProperties)}</div>
-            <label style={styles.moneyLabel}>
-              Denaro (hai €{me.balance})
-              <input
-                style={styles.money}
-                type="number"
-                min={0}
-                max={me.balance}
-                value={offerMoney}
-                onChange={(e) => setOfferMoney(e.target.value)}
-              />
-            </label>
+            <MoneyStepper
+              label="Denaro che offri"
+              value={offerMoney}
+              max={me.balance}
+              onChange={setOfferMoney}
+            />
             {me.jailCards > 0 && (
-              <label style={styles.moneyLabel}>
-                Carte uscita di prigione (ne hai {me.jailCards})
-                <input
-                  style={styles.money}
-                  type="number"
-                  min={0}
-                  max={me.jailCards}
-                  value={offerJailCards}
-                  onChange={(e) => setOfferJailCards(e.target.value)}
-                />
-              </label>
+              <MoneyStepper
+                label={`Carte uscita che offri (ne hai ${me.jailCards})`}
+                value={offerJailCards}
+                max={me.jailCards}
+                onChange={setOfferJailCards}
+                step={1}
+                quick={[]}
+                unit=""
+              />
             )}
           </div>
 
+          {/* La mappa sta in mezzo ai due: è il posto dove si guarda mentre si
+              confronta una colonna con l'altra. */}
+          <div style={styles.mapColumn}>
+            <TradeBoard
+              board={board}
+              state={state}
+              myId={myId}
+              otherId={other.id}
+              offered={offerProperties}
+              requested={requestProperties}
+            />
+          </div>
+
           <div style={styles.column}>
-            <h3 style={styles.columnTitle}>Chiedi a {other.name}</h3>
+            <h3 style={styles.columnTitle}>Chiedi a {other.name} · €{other.balance}</h3>
             <div style={styles.list}>
               {propertyList(other.id, requestProperties, setRequestProperties)}
             </div>
-            <label style={styles.moneyLabel}>
-              Denaro (ha €{other.balance})
-              <input
-                style={styles.money}
-                type="number"
-                min={0}
-                max={other.balance}
-                value={requestMoney}
-                onChange={(e) => setRequestMoney(e.target.value)}
-              />
-            </label>
+            <MoneyStepper
+              label={`Denaro che chiedi a ${other.name}`}
+              value={requestMoney}
+              max={other.balance}
+              onChange={setRequestMoney}
+            />
             {other.jailCards > 0 && (
-              <label style={styles.moneyLabel}>
-                Carte uscita di prigione (ne ha {other.jailCards})
-                <input
-                  style={styles.money}
-                  type="number"
-                  min={0}
-                  max={other.jailCards}
-                  value={requestJailCards}
-                  onChange={(e) => setRequestJailCards(e.target.value)}
-                />
-              </label>
+              <MoneyStepper
+                label={`Carte uscita che chiedi (ne ha ${other.jailCards})`}
+                value={requestJailCards}
+                max={other.jailCards}
+                onChange={setRequestJailCards}
+                step={1}
+                quick={[]}
+                unit=""
+              />
             )}
+          </div>
+        </div>
+
+        {/* Il patto, aggiornato mentre si sceglie e non solo dopo aver mandato. */}
+        <div style={styles.patto}>
+          <span style={styles.pattoLabel}>Il patto</span>
+          <div style={styles.pattoRiga}>
+            <span style={styles.pattoLato}>{descrivi(offerProperties, offerMoney, offerJailCards)}</span>
+            <span style={styles.pattoFreccia}>⇄</span>
+            <span style={styles.pattoLato}>{descrivi(requestProperties, requestMoney, requestJailCards)}</span>
           </div>
         </div>
 
@@ -212,23 +234,35 @@ export default function TradeModal({
 
 const styles: Record<string, React.CSSProperties> = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 25, padding: 20 },
-  card: { padding: 26, width: 560, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12 },
+  card: { padding: 26, width: 900, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12 },
   destinatari: { display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' },
   destLabel: { fontSize: '0.76rem', color: 'rgba(243,234,216,0.6)' },
   destBtn: { minHeight: 38, fontSize: '0.8rem', padding: '0 12px' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   title: { fontSize: '1.4rem' },
-  columns: { display: 'flex', gap: 16, flexWrap: 'wrap', overflowY: 'auto' },
-  column: { flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 8 },
+  // minHeight: 0 è indispensabile: senza, un figlio flex non si restringe sotto
+  // il proprio contenuto e deborda invece di scorrere.
+  columns: { display: 'flex', gap: 16, alignItems: 'flex-start', overflowY: 'auto', minHeight: 0, flex: 1 },
+  column: { flex: '1 1 250px', display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 },
+  mapColumn: { flex: '0 0 190px', position: 'sticky', top: 0 },
   columnTitle: { fontSize: '0.8rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.6)' },
-  list: { display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 240, overflowY: 'auto' },
+  list: { display: 'flex', flexDirection: 'column', gap: 9 },
   none: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic', margin: 0 },
-  item: { display: 'flex', alignItems: 'center', gap: 9, minHeight: 40, padding: '5px 9px', borderRadius: 6, border: '1px solid transparent', background: 'rgba(0,0,0,0.18)', cursor: 'pointer' },
-  dot: { width: 11, height: 11, borderRadius: 3, flexShrink: 0, border: '1px solid rgba(0,0,0,0.35)' },
+  item: { display: 'flex', alignItems: 'center', gap: 9, minHeight: 38, padding: '5px 9px', borderRadius: 6, border: '1px solid transparent', cursor: 'pointer' },
   itemName: { fontSize: '0.78rem', flex: 1 },
   mortgaged: { fontSize: '0.62rem', color: '#e18a8a', fontFamily: 'var(--font-mono)' },
-  moneyLabel: { fontSize: '0.74rem', color: 'rgba(243,234,216,0.6)', display: 'flex', flexDirection: 'column', gap: 5 },
-  money: { minHeight: 42, padding: '8px 11px', borderRadius: 7, border: '1px solid rgba(201,150,44,0.3)', background: 'rgba(0,0,0,0.25)', color: 'var(--paper)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' },
   error: { fontSize: '0.78rem', color: '#e18a8a', margin: 0 },
-  actions: { display: 'flex', gap: 10, borderTop: '1px solid rgba(201,150,44,0.2)', paddingTop: 14 },
+  gruppo: { display: 'flex', flexDirection: 'column', gap: 4 },
+  gruppoTesta: { display: 'flex', alignItems: 'center', gap: 7 },
+  chip: { width: 13, height: 13, borderRadius: 3, border: '1px solid rgba(0,0,0,0.35)', flexShrink: 0 },
+  gruppoNome: { fontSize: '0.68rem', letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.58)' },
+  completo: { fontSize: '0.6rem', color: 'var(--brass-2)', border: '1px solid var(--brass)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' },
+  parziale: { fontSize: '0.64rem', color: 'rgba(243,234,216,0.42)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' },
+  // Il patto, aggiornato mentre si sceglie: fuori dallo scorrimento come i bottoni.
+  patto: { borderTop: '1px solid rgba(201,150,44,0.2)', paddingTop: 11, display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 },
+  pattoLabel: { fontFamily: 'var(--font-mono)', fontSize: '0.64rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
+  pattoRiga: { display: 'flex', alignItems: 'center', gap: 12 },
+  pattoLato: { flex: 1, fontSize: '0.85rem', padding: '8px 11px', borderRadius: 8, background: 'rgba(0,0,0,0.24)' },
+  pattoFreccia: { fontSize: '1.1rem', color: 'var(--brass)' },
+  actions: { display: 'flex', gap: 10, borderTop: '1px solid rgba(201,150,44,0.2)', paddingTop: 14, flexShrink: 0 },
 };
