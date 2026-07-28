@@ -1,0 +1,71 @@
+name: Keep-alive backend
+
+# Perché questo workflow esiste: il backend su Render (piano gratuito) va in
+# sospensione dopo 15 minuti senza richieste. Non è solo un fastidio di
+# latenza alla prima richiesta: siccome lo stato delle partite vive solo in
+# memoria del processo, quando Render riaddormenta e poi risveglia il
+# servizio il processo riparte da zero e le partite in corso spariscono.
+# Un ping periodico a /health, più frequente della soglia di sospensione,
+# evita che il servizio si addormenti e quindi evita quel riavvio silenzioso.
+#
+# Questo NON è persistenza vera: se il servizio si riavvia per un motivo
+# diverso dall'inattività (un nuovo deploy, un crash, un riavvio manuale da
+# Render), lo stato in memoria si perde comunque. La persistenza reale
+# richiederebbe un archivio esterno (es. un DB), perché su Render il disco
+# è effimero e non sopravvive ai riavvii. Questo workflow toglie solo il caso
+# più comune e fastidioso — l'addormentamento per inattività serale — con un
+# costo minimo.
+
+on:
+  # Ogni 14 minuti: un minuto sotto la soglia di sospensione di Render (15
+  # minuti), così l'ultima richiesta utile arriva sempre prima che scatti
+  # l'addormentamento. Il margine di un solo minuto è voluto: GitHub Actions
+  # non garantisce la puntualità dei cron (sotto carico della piattaforma i
+  # job schedulati possono partire con diversi minuti di ritardo), quindi un
+  # margine più stretto rischierebbe di far scattare comunque la sospensione.
+  # Anche con 14 minuti il rischio non è azzerato, solo molto ridotto.
+  schedule:
+    - cron: "*/14 * * * *"
+  # Per poterlo lanciare a mano da GitHub e verificare che funzioni senza
+  # aspettare il prossimo giro di cron.
+  workflow_dispatch:
+
+# Il workflow deve solo leggere (chiamare un endpoint pubblico in GET), non
+# ha nessun motivo di poter scrivere sul repository.
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # Tetto di sicurezza: se qualcosa si inceppa (rete, DNS) il job non deve
+    # restare appeso fino al limite di default di GitHub.
+    timeout-minutes: 10
+    steps:
+      - name: Chiama /health e verifica che il backend sia sveglio e sano
+        run: |
+          set -e
+
+          # Il risveglio "a freddo" di Render (dopo la sospensione) può
+          # richiedere fino a circa 60 secondi prima che risponda qualcosa:
+          # --max-time generoso e qualche tentativo servono proprio a
+          # coprire quel caso, che è la norma e non l'eccezione per la prima
+          # chiamata dopo un periodo di inattività.
+          RESPONSE=$(curl \
+            --silent --show-error \
+            --max-time 90 \
+            --retry 4 \
+            --retry-delay 15 \
+            --retry-all-errors \
+            "https://noi-due-monopoly-api.onrender.com/health")
+
+          echo "Risposta ricevuta: $RESPONSE"
+
+          # Non basta che curl non fallisca (potrebbe arrivare una pagina di
+          # errore con HTTP 200, tipico dei proxy): si controlla il
+          # contenuto atteso, altrimenti un backend rotto passerebbe
+          # inosservato per settimane finché qualcuno non prova a giocare.
+          echo "$RESPONSE" | grep -q '"ok":true' || {
+            echo "Risposta inattesa da /health: il backend potrebbe essere rotto o irraggiungibile."
+            exit 1
+          }

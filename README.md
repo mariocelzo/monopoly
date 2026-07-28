@@ -112,6 +112,14 @@ po' di inattività, quindi la prima partita della giornata parte con qualche
 secondo di attesa; e a ogni riavvio le partite in corso si perdono, perché lo
 stato vive in memoria.
 
+Il workflow `.github/workflows/keep-alive.yml` chiama `/health` ogni 14
+minuti apposta per evitare l'addormentamento per inattività (GitHub Actions
+non garantisce però la puntualità dei cron, quindi il rischio è ridotto ma
+non azzerato). Resta comunque vero che un riavvio vero — un nuovo deploy, un
+crash, un riavvio manuale — azzera le partite in corso: quello non è un
+problema che un ping possa risolvere, serve persistenza su un archivio
+esterno.
+
 ## Struttura
 
 ```
