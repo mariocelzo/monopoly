@@ -7,6 +7,7 @@
 import { board } from '../server/src/data/board.js';
 import { propertyGroups } from './src/propertyGroups.ts';
 import type { BoardSquare, GameState } from './src/socket.ts';
+import { TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
 
 let passed = 0;
 let failed = 0;
@@ -90,6 +91,17 @@ section('1. Raggruppamento delle proprietà per gruppo di colore');
   };
   const conIpoteca = propertyGroups(tabellone, ipotecata, 'io');
   check('le ipotecate contano comunque', conIpoteca[0].owned === 1);
+}
+
+// ---------------------------------------------------------------------------
+section('2. Soglia di assetto touch');
+{
+  // Un tablet in orizzontale è largo 1024 ma si usa col dito: deve prendere la
+  // procedura guidata. Una finestra da 1024 su un computer, no.
+  check('la soglia guarda la mancanza del passaggio del mouse',
+    TOUCH_LAYOUT_QUERY.includes('hover: none'), TOUCH_LAYOUT_QUERY);
+  check('la soglia comprende anche gli schermi stretti',
+    TOUCH_LAYOUT_QUERY.includes('max-width: 780px'), TOUCH_LAYOUT_QUERY);
 }
 
 // ---------------------------------------------------------------------------

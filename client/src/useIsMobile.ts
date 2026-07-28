@@ -21,3 +21,26 @@ export function useIsMobile(): boolean {
 
   return isMobile;
 }
+
+// Assetto da dito. Non è la stessa domanda di `useIsMobile`: quella decide
+// come si dispone la pagina, questa se un comando si usa col pollice. Un tablet
+// in orizzontale è largo 1024px ma resta touch, mentre una finestra da 1024px
+// su un computer si usa col mouse — `hover: none` è ciò che li distingue.
+export const TOUCH_LAYOUT_QUERY = `(hover: none), (max-width: ${MOBILE_BREAKPOINT}px)`;
+
+/** Vero su telefoni e tablet, in qualunque orientamento. */
+export function useIsTouchLayout(): boolean {
+  const [isTouch, setIsTouch] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(TOUCH_LAYOUT_QUERY).matches
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia(TOUCH_LAYOUT_QUERY);
+    const update = () => setIsTouch(mql.matches);
+    update();
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, []);
+
+  return isTouch;
+}
