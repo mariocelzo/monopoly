@@ -79,6 +79,10 @@ class GameEngine {
     // Ultimo tiro mostrato al centro del tabellone. `seq` cresce a ogni lancio
     // così il client riconosce un tiro nuovo anche se i dadi ripetono i valori.
     this.lastRoll = null;
+    // Regola della casa (come il Via a 500): il denaro che i giocatori pagano
+    // alla banca - tasse, multe delle carte, multa di prigione - non sparisce
+    // ma si accumula qui, e chi atterra sulla Sosta Gratuita lo incassa tutto.
+    this.freeParkingPot = 0;
   }
 
   /**
@@ -207,6 +211,7 @@ class GameEngine {
       hostId: this.hostId,
       rematchVotes: this.rematchVotes,
       lastRoll: this.lastRoll,
+      freeParkingPot: this.freeParkingPot,
     };
   }
 
@@ -406,7 +411,15 @@ class GameEngine {
         this.sendToJail(player);
         break;
       case 'jail':
+        break;
       case 'free_parking':
+        // Se il montepremi è vuoto non c'è nulla da incassare: nessun log, per
+        // non riempire il registro con un evento che di fatto non è successo.
+        if (this.freeParkingPot > 0) {
+          player.balance += this.freeParkingPot;
+          this.addLog(`${player.name} incassa il montepremi della Sosta Gratuita: ${this.freeParkingPot}.`);
+          this.freeParkingPot = 0;
+        }
         break;
       case 'chance':
         this.drawCard(player, 'chance');
@@ -654,7 +667,9 @@ class GameEngine {
     const player = this.players.find((p) => p.id === playerId);
     if (!player || !player.inJail) return { error: 'Non sei in prigione' };
     if (player.balance < JAIL_FINE) return { error: 'Saldo insufficiente' };
-    player.balance -= JAIL_FINE;
+    // Passa da chargePlayer (creditore nullo) così la multa finisce anche lei
+    // nel montepremi della Sosta Gratuita, come quella pagata dopo 3 tentativi.
+    this.chargePlayer(player, JAIL_FINE);
     player.inJail = false;
     player.jailTurns = 0;
     this.addLog(`${player.name} paga ${JAIL_FINE} per uscire di prigione.`);
@@ -785,7 +800,17 @@ class GameEngine {
   chargePlayer(player, amount, creditor = null) {
     if (amount <= 0) return;
     player.balance -= amount;
-    if (creditor) creditor.balance += amount;
+    if (creditor) {
+      // C'è un creditore preciso (l'affitto, o una carta "paga a ogni
+      // giocatore"): il denaro cambia mano fra giocatori, non tocca la banca,
+      // quindi non deve gonfiare il montepremi della Sosta Gratuita.
+      creditor.balance += amount;
+    } else {
+      // Nessun creditore = il denaro va alla banca (tasse, multe delle carte,
+      // multa di prigione, interessi): è esattamente il denaro che altrimenti
+      // sparirebbe nel nulla, quindi finisce nel montepremi.
+      this.freeParkingPot += amount;
+    }
     if (player.balance >= 0) return;
 
     // Si ricorda a chi vanno i soldi: se questo debito finisce in coda dietro a
@@ -1204,6 +1229,9 @@ class GameEngine {
     this.turnResolved = false;
     this.lastRollWasDouble = false;
     this.lastRoll = null;
+    // Senza questo azzeramento il montepremi si porterebbe dietro nella
+    // rivincita i soldi della partita precedente.
+    this.freeParkingPot = 0;
     this.log = [];
     this.started = true;
     this.addLog('Rivincita! Si riparte da zero.');

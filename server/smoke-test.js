@@ -1249,5 +1249,86 @@ section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
 }
 
 // ---------------------------------------------------------------------------
+section('30. Regola della casa: montepremi della Sosta Gratuita');
+{
+  // Una tassa pagata alla banca deve far crescere il montepremi.
+  const game = newGame();
+  const mario = game.players[0];
+  mario.position = 0;
+  game.movePlayer(mario, 4); // casella 4: Tassa patrimoniale, 200
+  check('la tassa è in sospeso', game.pendingAction?.type === 'awaiting_tax');
+  game.payTax('a');
+  check(
+    'la tassa pagata alla banca gonfia il montepremi',
+    game.freeParkingPot === 200,
+    `pot=${game.freeParkingPot}`
+  );
+
+  // Un affitto pagato a un altro giocatore non deve toccare il montepremi.
+  const primaDelAffitto = game.freeParkingPot;
+  give(game, 'b', ORANGE[0]);
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, ORANGE[0] - 10);
+  check('l\'affitto è in sospeso', game.pendingAction?.type === 'awaiting_rent');
+  game.payRent('a');
+  check(
+    'l\'affitto pagato a un altro giocatore non gonfia il montepremi',
+    game.freeParkingPot === primaDelAffitto,
+    `pot=${game.freeParkingPot}`
+  );
+
+  // La multa di prigione (pagata alla banca) gonfia il montepremi.
+  const primaDellaMulta = game.freeParkingPot;
+  mario.inJail = true;
+  game.payJailFine('a');
+  check(
+    'la multa di prigione gonfia il montepremi',
+    game.freeParkingPot === primaDellaMulta + 50,
+    `pot=${game.freeParkingPot}`
+  );
+
+  // Chi atterra sulla Sosta Gratuita incassa tutto e il montepremi torna a zero.
+  const saldoPrimaDiIncassare = mario.balance;
+  const potPrimaDiIncassare = game.freeParkingPot;
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, 10); // casella 20: Sosta Gratuita
+  check(
+    'chi atterra sulla Sosta incassa il montepremi',
+    mario.balance === saldoPrimaDiIncassare + potPrimaDiIncassare,
+    `saldo=${mario.balance}`
+  );
+  check('il montepremi torna a zero dopo l\'incasso', game.freeParkingPot === 0);
+
+  // Atterrare sulla Sosta col montepremi già vuoto non deve rompere nulla.
+  const saldoConPotVuoto = mario.balance;
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, 10); // di nuovo sulla Sosta Gratuita, montepremi vuoto
+  check(
+    'atterrare sulla Sosta col montepremi vuoto non cambia il saldo',
+    mario.balance === saldoConPotVuoto,
+    `saldo=${mario.balance}`
+  );
+  check('il montepremi resta a zero', game.freeParkingPot === 0);
+
+  // Il montepremi arriva nello stato serializzato per il client.
+  game.freeParkingPot = 42;
+  const state = game.serialize();
+  check(
+    'il montepremi è nello stato serializzato',
+    state.freeParkingPot === 42,
+    `serialized=${state.freeParkingPot}`
+  );
+
+  // La rivincita azzera il montepremi, senza portarselo dietro.
+  game.finished = true;
+  game.requestRematch('a');
+  game.requestRematch('b');
+  check('la rivincita azzera il montepremi', game.freeParkingPot === 0, `pot=${game.freeParkingPot}`);
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);
