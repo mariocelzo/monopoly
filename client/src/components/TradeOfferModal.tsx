@@ -1,5 +1,6 @@
 import { AwaitingTrade, BoardSquare, GameState, socket } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
+import { TOUCH_TARGET } from '../touchTarget';
 
 /**
  * Offerta di scambio ricevuta. Al destinatario mostra i due lati del baratto con
@@ -121,5 +122,5 @@ const styles: Record<string, React.CSSProperties> = {
   // sia nel baratto, Accetta e Rifiuta restano raggiungibili.
   actions: { display: 'flex', gap: 10, flexShrink: 0 },
   wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
-  actionBtn: { flex: 1, minHeight: 46, fontSize: '0.95rem' },
+  actionBtn: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.95rem' },
 };

@@ -1,4 +1,5 @@
 import { AwaitingCard, GameState, socket } from '../socket';
+import { TOUCH_TARGET } from '../touchTarget';
 
 // Imprevisti e Probabilità hanno colori e simboli distinti, come i due mazzi
 // sul tabellone vero.
@@ -58,6 +59,6 @@ const styles: Record<string, React.CSSProperties> = {
   ribbonText: { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.7)', fontWeight: 700 },
   symbol: { fontFamily: 'var(--font-display)', fontSize: '2.6rem', lineHeight: 1, display: 'block' },
   text: { fontSize: '1.05rem', lineHeight: 1.5, color: 'var(--paper)', margin: '14px 0 22px' },
-  button: { width: '100%', minHeight: 44 },
+  button: { width: '100%', minHeight: TOUCH_TARGET },
   wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
 };

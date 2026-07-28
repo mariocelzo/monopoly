@@ -3,6 +3,7 @@ import { socket, GameState, BoardSquare } from './socket';
 import { useIsMobile } from './useIsMobile';
 import { clearRoom, getClientId, loadRoom, saveRoom } from './identity';
 import { clearInviteFromUrl, getInviteCodeFromUrl } from './invite';
+import { TOUCH_TARGET } from './touchTarget';
 import Lobby from './components/Lobby';
 import Board from './components/Board';
 import GamePanel from './components/GamePanel';
@@ -349,6 +350,6 @@ const styles: Record<string, React.CSSProperties> = {
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   winTitle: { fontSize: '2rem', marginTop: 10, color: 'var(--brass-2)' },
   winSub: { color: 'rgba(243,234,216,0.65)', marginTop: 10, lineHeight: 1.5 },
-  newGame: { marginTop: 18, width: '100%', minHeight: 46 },
+  newGame: { marginTop: 18, width: '100%', minHeight: TOUCH_TARGET },
   rematchNote: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.55)', marginTop: 10, lineHeight: 1.4 },
 };
