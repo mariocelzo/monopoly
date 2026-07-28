@@ -1,3 +1,5 @@
+import { TOUCH_TARGET } from '../touchTarget';
+
 /**
  * Campo denaro pensato per il pollice: due tasti −/+ e le scorciatoie, invece
  * del campo numerico che su telefono apre la tastiera e si mangia mezzo schermo
@@ -100,11 +102,10 @@ const styles: Record<string, React.CSSProperties> = {
   label: { fontSize: '0.74rem', color: 'rgba(243,234,216,0.62)' },
   max: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.4)' },
   row: { display: 'flex', gap: 7, alignItems: 'stretch' },
-  // 46px: sopra il minimo raccomandato per un bersaglio da toccare.
-  pm: { minWidth: 52, minHeight: 46, fontSize: '1.2rem', padding: 0 },
+  pm: { minWidth: 52, minHeight: TOUCH_TARGET, fontSize: '1.2rem', padding: 0 },
   field: {
     flex: 1,
-    minHeight: 46,
+    minHeight: TOUCH_TARGET,
     padding: '8px 12px',
     borderRadius: 8,
     border: '1px solid rgba(201,150,44,0.3)',
@@ -116,9 +117,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
   },
   quick: { display: 'flex', gap: 6, flexWrap: 'wrap' },
-  // 38px sta sotto i 44 che il progetto si è dato per i bersagli da toccare, ed
-  // è voluto: queste sono scorciatoie, non il comando principale — quello sono
-  // i tasti −/+ qui sopra, che stanno a 46. Portarle a 44 significherebbe
-  // stringere quattro bottoni in fila su uno schermo da telefono.
+  // 38px sta sotto TOUCH_TARGET, ed è voluto: queste sono scorciatoie, non il
+  // comando principale — quello sono i tasti −/+ qui sopra. Allinearle
+  // significherebbe stringere quattro bottoni in fila su uno schermo da telefono.
   quickBtn: { flex: 1, minWidth: 62, minHeight: 38, fontSize: '0.78rem', padding: '0 8px' },
 };

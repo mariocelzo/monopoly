@@ -1,5 +1,6 @@
 import { AwaitingRent, BoardSquare, GameState, socket } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
+import { TOUCH_TARGET } from '../touchTarget';
 
 /**
  * L'affitto dovuto, mostrato prima che il denaro cambi di mano. Prima veniva
@@ -74,6 +75,6 @@ const styles: Record<string, React.CSSProperties> = {
   doubled: { fontSize: '0.75rem', color: 'var(--brass-2)', margin: '6px 0 0', fontStyle: 'italic' },
   who: { fontSize: '0.86rem', color: 'rgba(243,234,216,0.7)', margin: '12px 0 0' },
   warning: { fontSize: '0.78rem', color: '#e18a8a', margin: '14px 0 0', lineHeight: 1.4 },
-  button: { width: '100%', minHeight: 46, marginTop: 20, fontSize: '1rem' },
+  button: { width: '100%', minHeight: TOUCH_TARGET, marginTop: 20, fontSize: '1rem' },
   wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: '18px 0 0' },
 };

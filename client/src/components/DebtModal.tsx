@@ -1,4 +1,5 @@
 import { AwaitingDebt, BoardSquare, GameState, socket } from '../socket';
+import { TOUCH_TARGET } from '../touchTarget';
 import PropertiesPanel from './PropertiesPanel';
 
 /**
@@ -50,10 +51,18 @@ export default function DebtModal({
         </div>
 
         <div style={styles.actions}>
-          <button className="btn-primary" onClick={() => socket.emit('resolve_debt_auto', {})}>
+          <button
+            className="btn-primary"
+            style={styles.actionBtn}
+            onClick={() => socket.emit('resolve_debt_auto', {})}
+          >
             Vendi automaticamente
           </button>
-          <button className="btn-ghost" onClick={() => socket.emit('declare_bankruptcy', {})}>
+          <button
+            className="btn-ghost"
+            style={styles.actionBtn}
+            onClick={() => socket.emit('declare_bankruptcy', {})}
+          >
             Dichiara bancarotta
           </button>
         </div>
@@ -95,5 +104,8 @@ const styles: Record<string, React.CSSProperties> = {
   // abbia il debitore, «Vendi automaticamente» e «Dichiara bancarotta» restano
   // raggiungibili — sono le uniche uscite da un turno congelato.
   actions: { display: 'flex', gap: 10, flexWrap: 'wrap', flexShrink: 0 },
+  // I 46px costano spazio proprio dove ce n'è poco, ma sono le due uscite da un
+  // turno congelato: a rimetterci è semmai l'elenco proprietà, che scorre.
+  actionBtn: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.95rem' },
   wait: { color: 'rgba(243,234,216,0.6)', marginTop: 12, fontSize: '0.85rem', lineHeight: 1.5 },
 };

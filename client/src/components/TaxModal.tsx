@@ -1,4 +1,5 @@
 import { AwaitingTax, BoardSquare, GameState, socket } from '../socket';
+import { TOUCH_TARGET } from '../touchTarget';
 
 /**
  * La tassa dovuta, mostrata prima del pagamento. Stesso trattamento
@@ -64,6 +65,6 @@ const styles: Record<string, React.CSSProperties> = {
   amount: { fontSize: '2.2rem', color: 'var(--brass-2)', margin: '10px 0 0' },
   who: { fontSize: '0.86rem', color: 'rgba(243,234,216,0.7)', margin: '12px 0 0' },
   warning: { fontSize: '0.78rem', color: '#e18a8a', margin: '14px 0 0', lineHeight: 1.4 },
-  button: { width: '100%', minHeight: 46, marginTop: 20, fontSize: '1rem' },
+  button: { width: '100%', minHeight: TOUCH_TARGET, marginTop: 20, fontSize: '1rem' },
   wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: '18px 0 0' },
 };

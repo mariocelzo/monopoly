@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { GameState, socket } from '../socket';
+import { TOUCH_TARGET } from '../touchTarget';
 
 /**
  * Uscita anticipata dal tavolo. Chi lo ha creato può chiuderlo per entrambi,
@@ -64,7 +65,7 @@ const styles: Record<string, React.CSSProperties> = {
   // conferma a due passi, non il fatto di renderlo piccolo.
   button: {
     width: '100%',
-    minHeight: 46,
+    minHeight: TOUCH_TARGET,
     fontSize: '0.95rem',
     fontWeight: 700,
     borderColor: 'rgba(179,58,58,0.65)',
@@ -82,6 +83,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   question: { fontSize: '0.78rem', color: 'var(--paper)', margin: 0, lineHeight: 1.4 },
   row: { display: 'flex', gap: 8 },
-  danger: { flex: 1, minHeight: 44, fontSize: '0.85rem', borderColor: 'var(--danger)', color: '#e18a8a' },
-  cancel: { flex: 1, minHeight: 44, fontSize: '0.85rem' },
+  danger: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem', borderColor: 'var(--danger)', color: '#e18a8a' },
+  cancel: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem' },
 };

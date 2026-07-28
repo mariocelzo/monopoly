@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BoardSquare, GameState, socket } from '../socket';
+import { TOUCH_TARGET } from '../touchTarget';
 import { PLAYER_COLORS } from './Board';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
@@ -284,10 +285,11 @@ const styles: Record<string, React.CSSProperties> = {
   botList: { display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' },
   botChip: { minHeight: 40, fontSize: '0.78rem', padding: '0 12px' },
   actions: { display: 'flex', gap: 7, alignItems: 'center', justifyContent: 'center' },
-  // 44px è la dimensione minima raccomandata per un bersaglio da toccare.
-  mainBtn: { flex: 1, minHeight: 44, fontSize: '0.95rem' },
-  smallBtn: { minHeight: 44, padding: '0 14px', fontSize: '0.85rem' },
-  waiting: { color: 'rgba(243,234,216,0.6)', fontSize: '0.88rem', minHeight: 44, display: 'flex', alignItems: 'center' },
+  mainBtn: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.95rem' },
+  smallBtn: { minHeight: TOUCH_TARGET, padding: '0 14px', fontSize: '0.85rem' },
+  // Stessa altezza dei bottoni anche quando al loro posto c'è solo l'attesa,
+  // così la barra non si alza e abbassa a ogni cambio di turno.
+  waiting: { color: 'rgba(243,234,216,0.6)', fontSize: '0.88rem', minHeight: TOUCH_TARGET, display: 'flex', alignItems: 'center' },
   tabs: { display: 'flex', gap: 7 },
   tab: { flex: 1, minHeight: 38, fontSize: '0.8rem', padding: '0 10px' },
 
@@ -311,7 +313,7 @@ const styles: Record<string, React.CSSProperties> = {
   sheetTabs: { display: 'flex', gap: 8, marginBottom: 12 },
   sheetTab: { flex: 1, minHeight: 40, fontSize: '0.85rem', padding: '0 10px' },
   sheetBody: { overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 },
-  tradeBtn: { minHeight: 44, fontSize: '0.9rem' },
+  tradeBtn: { minHeight: TOUCH_TARGET, fontSize: '0.9rem' },
   log: { display: 'flex', flexDirection: 'column', gap: 5, fontSize: '0.8rem', color: 'rgba(243,234,216,0.78)' },
   logLine: { borderLeft: '2px solid rgba(201,150,44,0.35)', paddingLeft: 9 },
   closeSheet: { minHeight: 42, marginTop: 12 },
