@@ -15,6 +15,7 @@ import { MOBILE_BREAKPOINT, TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
 import { latestLogAt, missedSince } from './src/awayRecap.ts';
 import { capTickerQueue, TICKER_ENTRY_LIFETIME_MS, TICKER_MAX_VISIBLE, visibleTickerEntries } from './src/eventTicker.ts';
 import type { TickerItem } from './src/eventTicker.ts';
+import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts';
 
 let passed = 0;
 let failed = 0;
@@ -221,6 +222,36 @@ section('4. Striscia degli eventi: quali voci restano in coda e per quanto');
   // Sotto il tetto, nessun taglio: la coda passa invariata.
   const poche = [voce(1, 0), voce(2, 0)];
   check('una coda già corta non viene toccata', capTickerQueue(poche) === poche);
+}
+
+// ---------------------------------------------------------------------------
+section('5. Riepilogo di fine partita');
+{
+  // formatDuration: sotto l'ora si mostrano solo i minuti, arrotondati.
+  check('meno di un minuto arrotonda a 0 min', formatDuration(20_000) === '0 min');
+  check('42 minuti esatti', formatDuration(42 * 60_000) === '42 min');
+  // 41 min 58s arrotonda a 42 min: i secondi non contano nel riepilogo.
+  check('arrotonda al minuto più vicino', formatDuration(41 * 60_000 + 58_000) === '42 min');
+  check('un\'ora esatta', formatDuration(60 * 60_000) === '1h 00min');
+  check('un\'ora e mezza', formatDuration(90 * 60_000) === '1h 30min');
+  check('minuti a due cifre col padding dopo l\'ora', formatDuration(65 * 60_000) === '1h 05min');
+  check('una durata negativa (orologi disallineati) non va sotto zero', formatDuration(-5000) === '0 min');
+
+  // mostVisitedSquare: cerca il massimo tra gli atterraggi registrati.
+  check('nessun atterraggio registrato: nessuna casella', mostVisitedSquare({}, tabellone) === null);
+  const atterraggi = { 1: 3, 5: 7, 10: 2 };
+  const piuVisitata = mostVisitedSquare(atterraggi, tabellone);
+  check('trova la casella col conteggio più alto',
+    piuVisitata?.square.position === 5 && piuVisitata.count === 7,
+    JSON.stringify(piuVisitata));
+  // Una posizione fuori dal tabellone noto (client disallineato dal server)
+  // non deve far esplodere il riepilogo: si ignora e basta.
+  check('posizione sconosciuta al tabellone non esplode',
+    mostVisitedSquare({ 999: 5 }, tabellone) === null);
+
+  // statFor: 0 per chi non compare ancora nella mappa, non undefined/NaN.
+  check('giocatore assente dalla mappa vale 0', statFor({}, 'chiunque') === 0);
+  check('giocatore presente restituisce il suo valore', statFor({ io: 250 }, 'io') === 250);
 }
 
 // ---------------------------------------------------------------------------

@@ -127,6 +127,27 @@ export type PendingAction =
   | AwaitingTrade
   | AwaitingAuction;
 
+/**
+ * Statistiche accumulate dal motore durante la partita, contatore per
+ * contatore mano a mano che le cose succedono — non ricostruite dal
+ * registro, che è tappato alle ultime righe e su una partita lunga non
+ * basterebbe. Servono solo per il riepilogo di fine partita (vedi
+ * GameSummary.tsx). Le mappe sono playerId -> numero, tranne `landings` che
+ * è posizione -> numero; un giocatore/casella assente vale 0.
+ */
+export interface GameStats {
+  startedAt: number | null;
+  finishedAt: number | null;
+  rentPaid: Record<string, number>;
+  rentCollected: Record<string, number>;
+  bankPaid: Record<string, number>;
+  purchases: Record<string, number>;
+  housesBuilt: Record<string, number>;
+  landings: Record<number, number>;
+  laps: Record<string, number>;
+  tradesCompleted: number;
+}
+
 export interface GameState {
   roomCode: string;
   players: Player[];
@@ -145,6 +166,8 @@ export interface GameState {
   rematchVotes: string[];
   /** Ultimo tiro, mostrato al centro del tabellone. `seq` distingue tiri uguali. */
   lastRoll: { playerId: string; dice: [number, number]; seq: number } | null;
+  /** Statistiche per il riepilogo di fine partita. */
+  stats: GameStats;
 }
 
 export interface BoardSquare {

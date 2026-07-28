@@ -91,6 +91,44 @@ class GameEngine {
     // alla banca - tasse, multe delle carte, multa di prigione - non sparisce
     // ma si accumula qui, e chi atterra sulla Sosta Gratuita lo incassa tutto.
     this.freeParkingPot = 0;
+    // Contatori per il riepilogo di fine partita (vedi resetStats). Il
+    // registro (`log`) da solo non basta: è tappato alle ultime 200 righe, e
+    // una partita lunga ne genera molte di più. Questi contatori crescono nei
+    // punti in cui le cose succedono già, così restano sempre esatti anche
+    // dopo migliaia di eventi, senza dover rileggere il registro.
+    this.resetStats();
+  }
+
+  /**
+   * Azzera i contatori statistici. Separato dal costruttore perché va
+   * richiamato anche da rematch(): senza, la rivincita si porterebbe dietro i
+   * numeri della partita precedente (lo stesso errore già capitato con altri
+   * campi di questa classe, vedi il commento in rematch()).
+   */
+  resetStats() {
+    this.stats = {
+      // Timestamp di inizio/fine, per calcolare la durata mostrata a fine
+      // partita. `null` finché non sono impostati (partita non ancora
+      // iniziata, o non ancora finita).
+      startedAt: null,
+      finishedAt: null,
+      // Tutte le mappe sotto sono playerId -> numero (tranne `landings`, che è
+      // posizione -> numero), create al volo dal primo evento: un giocatore
+      // che non compare vale 0 (vedi bumpStat).
+      rentPaid: {}, // affitti pagati, per chi li paga
+      rentCollected: {}, // affitti incassati, per chi li riceve
+      bankPaid: {}, // denaro finito alla banca: tasse, multe di prigione, carte "paga", riparazioni, interessi
+      purchases: {}, // proprietà comprate, sia a prezzo di listino sia all'asta
+      housesBuilt: {}, // case e hotel costruiti (ogni costruzione conta 1, hotel incluso)
+      landings: {}, // atterraggi per casella: la più visitata si legge cercando il massimo
+      laps: {}, // giri di tabellone completati (passaggi dal Via)
+      tradesCompleted: 0, // scambi andati a buon fine, conteggio unico e globale
+    };
+  }
+
+  /** Incrementa un contatore in una mappa chiave -> numero, creandolo se serve. */
+  bumpStat(map, key, amount = 1) {
+    map[key] = (map[key] || 0) + amount;
   }
 
   /**
@@ -190,6 +228,7 @@ class GameEngine {
     if (this.players.length < 1) return;
     this.started = true;
     this.turnIndex = 0;
+    this.stats.startedAt = Date.now();
     this.addLog('La partita è iniziata!');
   }
 
@@ -220,6 +259,7 @@ class GameEngine {
       rematchVotes: this.rematchVotes,
       lastRoll: this.lastRoll,
       freeParkingPot: this.freeParkingPot,
+      stats: this.stats,
     };
   }
 
@@ -395,6 +435,8 @@ class GameEngine {
     if (next < prev) {
       player.balance += GO_AMOUNT;
       this.addLog(`${player.name} passa dal Via e incassa ${GO_AMOUNT}.`);
+      // Passare dal Via è, per definizione, chiudere un giro di tabellone.
+      this.bumpStat(this.stats.laps, player.id);
     }
     player.position = next;
     this.resolveLanding(player);
@@ -417,6 +459,10 @@ class GameEngine {
 
   resolveLanding(player) {
     const square = board[player.position];
+    // Unico punto attraverso cui la pedina "atterra" davvero su una casella
+    // (movePlayer, movePlayerTo e la carta "vai indietro" ci passano tutti):
+    // il posto giusto per contare gli atterraggi una volta sola a testa.
+    this.bumpStat(this.stats.landings, player.position);
     switch (square.type) {
       case 'go':
         break;
@@ -526,6 +572,11 @@ class GameEngine {
     this.pendingAction = null;
     this.addLog(`${player.name} paga ${amount} di affitto a ${owner.name} per ${board[position].name}.`);
     this.chargePlayer(player, amount, owner);
+    // Si conta l'importo nominale dell'affitto, non quanto il proprietario
+    // finisce davvero a incassare se il debitore fallisce subito dopo: è
+    // un'approssimazione accettabile per un riepilogo, non un bilancio contabile.
+    this.bumpStat(this.stats.rentPaid, player.id, amount);
+    this.bumpStat(this.stats.rentCollected, owner.id, amount);
 
     if (!this.pendingAction) this.finishRoll(this.currentPlayer);
     return {};
@@ -569,6 +620,7 @@ class GameEngine {
     player.balance -= price;
     this.ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false };
     this.addLog(`${player.name} compra ${board[position].name} per ${price}.`);
+    this.bumpStat(this.stats.purchases, playerId);
     this.pendingAction = null;
     this.finishRoll(player);
     return {};
@@ -749,6 +801,7 @@ class GameEngine {
       winner.balance -= auction.currentBid;
       this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotel: false, mortgaged: false };
       this.addLog(`${winner.name} si aggiudica ${square.name} all'asta per ${auction.currentBid}.`);
+      this.bumpStat(this.stats.purchases, winner.id);
     } else {
       this.addLog(`Nessuno fa offerte per ${square.name}: resta libera.`);
     }
@@ -952,6 +1005,9 @@ class GameEngine {
       owned.houses += 1;
       this.addLog(`${player.name} costruisce una casa su ${square.name} (${owned.houses}/4).`);
     }
+    // Conta la costruzione (casa o hotel indifferentemente): quante volte il
+    // giocatore ha investito in edifici, non quante unità possiede ora.
+    this.bumpStat(this.stats.housesBuilt, playerId);
     return {};
   }
 
@@ -1039,6 +1095,7 @@ class GameEngine {
       // multa di prigione, interessi): è esattamente il denaro che altrimenti
       // sparirebbe nel nulla, quindi finisce nel montepremi.
       this.freeParkingPot += amount;
+      this.bumpStat(this.stats.bankPaid, player.id, amount);
     }
     if (player.balance >= 0) return;
 
@@ -1348,6 +1405,7 @@ class GameEngine {
     to.balance += net;
 
     this.addLog(`${from.name} e ${to.name} concludono lo scambio.`);
+    this.stats.tradesCompleted += 1;
     this.pendingAction = null;
 
     // Chi riceve una proprietà ipotecata paga subito il 10% alla banca. Si fa
@@ -1410,6 +1468,7 @@ class GameEngine {
     this.endedReason = 'closed';
     this.winnerId = null;
     this.pendingAction = null;
+    this.stats.finishedAt = Date.now();
     this.addLog('Il tavolo è stato chiuso da chi lo ha creato.');
     return {};
   }
@@ -1466,6 +1525,11 @@ class GameEngine {
     // Senza questo azzeramento il montepremi si porterebbe dietro nella
     // rivincita i soldi della partita precedente.
     this.freeParkingPot = 0;
+    // Stesso discorso per le statistiche del riepilogo: senza resetStats() la
+    // rivincita mostrerebbe alla fine i numeri sommati anche alla partita
+    // precedente, invece di ripartire da zero come fa il resto del tavolo.
+    this.resetStats();
+    this.stats.startedAt = Date.now();
     this.log = [];
     this.started = true;
     this.addLog('Rivincita! Si riparte da zero.');
@@ -1479,6 +1543,7 @@ class GameEngine {
       this.finished = true;
       this.winnerId = alive[0].id;
       this.endedReason = motivo;
+      this.stats.finishedAt = Date.now();
       this.addLog(`${alive[0].name} vince la partita!`);
     }
   }

@@ -29,6 +29,7 @@ import TaxModal from './components/TaxModal';
 import SquareDetail from './components/SquareDetail';
 import AwayRecapModal from './components/AwayRecapModal';
 import EventTicker from './components/EventTicker';
+import GameSummary from './components/GameSummary';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -385,25 +386,30 @@ export default function App() {
       {state.finished && (
         <div style={styles.overlay}>
           <div className="panel" style={styles.winCard}>
-            <span style={styles.eyebrow}>
-              {state.endedReason === 'closed' ? 'tavolo chiuso' : 'partita finita'}
-            </span>
-            <h2 style={styles.winTitle}>
-              {winner ? `${winner.name} vince!` : 'Partita interrotta'}
-            </h2>
-            <p style={styles.winSub}>{endingMessage(state, winner, playerId)}</p>
+            {/* Il riepilogo può crescere parecchio (una statistica per ogni
+                giocatore): scorre per conto suo dentro un'altezza massima,
+                così Rivincita e Lascia il tavolo restano sempre raggiungibili
+                sotto, fuori dallo scorrimento. Stesso schema di
+                TradeOfferModal (vedi i commenti lì per il perché di ogni
+                pezzo: maxHeight sulla card, overflowY+minHeight:0 solo qui,
+                bottoni con flexShrink:0 fuori da quest'area). */}
+            <div style={styles.winScroll}>
+              <span style={styles.eyebrow}>
+                {state.endedReason === 'closed' ? 'tavolo chiuso' : 'partita finita'}
+              </span>
+              <h2 style={styles.winTitle}>
+                {winner ? `${winner.name} vince!` : 'Partita interrotta'}
+              </h2>
+              <p style={styles.winSub}>{endingMessage(state, winner, playerId)}</p>
 
-            {/* Dopo un tavolo chiuso non c'è più nulla a cui tornare. */}
-            {state.endedReason !== 'closed' && (
-              <>
-                <button
-                  className="btn-primary"
-                  style={styles.newGame}
-                  disabled={hoChiestoRivincita}
-                  onClick={() => socket.emit('request_rematch', {})}
-                >
-                  {hoChiestoRivincita ? 'In attesa…' : 'Rivincita'}
-                </button>
+              {/* Niente riepilogo per un tavolo chiuso a metà: i numeri di una
+                  partita interrotta prima di finire non raccontano nulla di
+                  compiuto. */}
+              {state.endedReason !== 'closed' && (
+                <GameSummary state={state} board={board} myId={playerId} />
+              )}
+
+              {state.endedReason !== 'closed' && (
                 <p style={styles.rematchNote}>
                   {hoChiestoRivincita
                     ? `Manca${mancanti.length === 1 ? '' : 'no'} ${mancanti
@@ -415,7 +421,19 @@ export default function App() {
                         } la rivincita!`
                       : 'Stesso tavolo, tutto da capo.'}
                 </p>
-              </>
+              )}
+            </div>
+
+            {/* Dopo un tavolo chiuso non c'è più nulla a cui tornare. */}
+            {state.endedReason !== 'closed' && (
+              <button
+                className="btn-primary"
+                style={styles.newGame}
+                disabled={hoChiestoRivincita}
+                onClick={() => socket.emit('request_rematch', {})}
+              >
+                {hoChiestoRivincita ? 'In attesa…' : 'Rivincita'}
+              </button>
             )}
 
             <button
@@ -476,11 +494,24 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--danger)',
     color: 'var(--paper)',
   },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 30, padding: 18 },
-  winCard: { padding: 40, width: 340, maxWidth: '100%', textAlign: 'center' },
+  // alignItems: flex-start + overflowY: auto sull'overlay stesso, come in
+  // TradeOfferModal: rete di sicurezza per i viewport bassissimi dove nemmeno
+  // comprimendo il contenuto della card tutto ci starebbe.
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 30, padding: 18, overflowY: 'auto' },
+  // margin: auto centra la card quando c'è spazio e la tiene attaccata in
+  // alto (senza uscire da sopra) quando non ce n'è. maxHeight + flex column
+  // sono ciò che rende scorrevole solo winScroll qui sotto, coi bottoni
+  // sempre fuori e sempre raggiungibili.
+  winCard: { padding: 40, width: 340, maxWidth: '100%', maxHeight: 'calc(100vh - 36px)', margin: 'auto', display: 'flex', flexDirection: 'column', textAlign: 'center' },
+  // minHeight: 0 è indispensabile: senza, questo figlio flex non si
+  // restringe sotto il proprio contenuto e la card deborda in silenzio —
+  // esattamente il difetto già capitato due volte in questo progetto.
+  winScroll: { overflowY: 'auto', minHeight: 0 },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   winTitle: { fontSize: '2rem', marginTop: 10, color: 'var(--brass-2)' },
   winSub: { color: 'rgba(243,234,216,0.65)', marginTop: 10, lineHeight: 1.5 },
-  newGame: { marginTop: 18, width: '100%', minHeight: TOUCH_TARGET },
+  // flexShrink: 0 tiene Rivincita e Lascia il tavolo fuori dall'area che
+  // scorre: qualunque cosa contenga il riepilogo, restano raggiungibili.
+  newGame: { marginTop: 18, width: '100%', minHeight: TOUCH_TARGET, flexShrink: 0 },
   rematchNote: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.55)', marginTop: 10, lineHeight: 1.4 },
 };
