@@ -11,9 +11,15 @@ const PORT = process.env.PORT || 3001;
 const BOT_NAMES = ['Bot Aurelio', 'Bot Cleopatra', 'Bot Fulvio', 'Bot Ottavia', 'Bot Silvio'];
 const BOT_TOKENS = ['🐕', '🎩', '🚗', '🚢', '🐈', '🎸'];
 
-// Pausa fra una mossa del bot e la successiva: abbastanza per seguire il
-// registro senza sembrare lento.
-const BOT_PAUSA_MS = 1000;
+// Pausa fra una mossa del bot e la successiva. Un secondo fisso era troppo
+// svelto per seguire cosa stesse succedendo, e soprattutto si sentiva il
+// metronomo: una persona non risponde mai due volte alla stessa distanza.
+// L'intervallo casuale toglie quella cadenza meccanica.
+const BOT_PAUSA_MIN_MS = 1700;
+const BOT_PAUSA_MAX_MS = 3000;
+
+const pausaBot = () =>
+  BOT_PAUSA_MIN_MS + Math.floor(Math.random() * (BOT_PAUSA_MAX_MS - BOT_PAUSA_MIN_MS));
 
 // CLIENT_ORIGIN accetta più origini separate da virgola: in produzione servono
 // almeno il dominio vero e quelli di anteprima. Vuoto = tutte, comodo in locale.
@@ -76,7 +82,7 @@ function scheduleBotMove(roomCode) {
     const ancora = roomManager.getRoom(roomCode);
     if (!ancora) return;
     if (botMove(ancora.game)) broadcastState(roomCode);
-  }, BOT_PAUSA_MS);
+  }, pausaBot());
   room.botTimer.unref?.();
 }
 

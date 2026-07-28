@@ -88,6 +88,25 @@ function propertiesValue(positions) {
 }
 
 /**
+ * Cedendo queste caselle a `toId`, gli si completa un colore?
+ *
+ * È la domanda che un giocatore esperto si fa sempre prima di sbarazzarsi di
+ * una proprietà che a lui non serve: il pezzo di scarto può essere esattamente
+ * quello che mancava all'altro, e regalargli il monopolio vale molto più di
+ * quanto si incassa.
+ */
+function regalaMonopolio(game, toId, positions) {
+  return positions.some((pos) => {
+    const square = board[pos];
+    if (!square || !square.group) return false;
+    const gruppo = board.filter((s) => s.group === square.group);
+    return gruppo.every(
+      (s) => s.position === pos || game.ownership[s.position]?.ownerId === toId
+    );
+  });
+}
+
+/**
  * Il bot accetta lo scambio? Confronta cosa dà e cosa riceve, con un bonus
  * forte per i monopoli che completerebbe e un malus per quelli che
  * romperebbe. Tollera un piccolo svantaggio: un giocatore vero non calcola al
@@ -133,4 +152,6 @@ function evaluateTrade(game, botId, trade) {
   return valoreRicevuto >= valoreCeduto * 0.9;
 }
 
-module.exports = { groupWeight, propertyScore, evaluateTrade, propertiesValue, GROUP_WEIGHTS };
+module.exports = {
+  groupWeight, propertyScore, evaluateTrade, propertiesValue, regalaMonopolio, GROUP_WEIGHTS,
+};
