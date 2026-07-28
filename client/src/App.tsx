@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket, GameState, BoardSquare } from './socket';
-import { useIsMobile } from './useIsMobile';
+import { useIsMobile, useIsTouchLayout } from './useIsMobile';
 import { clearRoom, getClientId, loadRoom, saveRoom } from './identity';
 import { clearInviteFromUrl, getInviteCodeFromUrl } from './invite';
 import { TOUCH_TARGET } from './touchTarget';
@@ -11,6 +11,7 @@ import MobileBar from './components/MobileBar';
 import BuyModal from './components/BuyModal';
 import DebtModal from './components/DebtModal';
 import TradeModal from './components/TradeModal';
+import TradeWizard from './components/TradeWizard';
 import TradeOfferModal from './components/TradeOfferModal';
 import CardModal from './components/CardModal';
 import RentModal from './components/RentModal';
@@ -50,6 +51,10 @@ export default function App() {
   // fermo, credendo che stia solo giocando l'altro.
   const [online, setOnline] = useState(true);
   const isMobile = useIsMobile();
+  // Domanda diversa da isMobile: non "come si dispone la pagina" ma "questo
+  // comando si usa col pollice". Un tablet in orizzontale è largo ma resta
+  // touch, e per comporre uno scambio conta quello.
+  const isTouch = useIsTouchLayout();
 
   useEffect(() => {
     fetch(`${SERVER_URL}/board`).then((r) => r.json()).then(setBoard).catch(() => {});
@@ -244,12 +249,21 @@ export default function App() {
       {debt && <DebtModal pending={debt} board={board} state={state} myId={playerId} />}
       {trade && <TradeOfferModal pending={trade} board={board} state={state} myId={playerId} />}
       {composingTrade && !pending && (
-        <TradeModal
-          board={board}
-          state={state}
-          myId={playerId}
-          onClose={() => setComposingTrade(false)}
-        />
+        isTouch ? (
+          <TradeWizard
+            board={board}
+            state={state}
+            myId={playerId}
+            onClose={() => setComposingTrade(false)}
+          />
+        ) : (
+          <TradeModal
+            board={board}
+            state={state}
+            myId={playerId}
+            onClose={() => setComposingTrade(false)}
+          />
+        )
       )}
       {state.finished && (
         <div style={styles.overlay}>
