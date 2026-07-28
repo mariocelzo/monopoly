@@ -63,14 +63,37 @@ export default function DebtModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20, padding: 20 },
-  card: { padding: 28, width: 420, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12, borderColor: 'rgba(179,58,58,0.5)' },
-  waitCard: { padding: 32, width: 340, textAlign: 'center' },
+  // Su schermi bassi la finestra deve stare dentro il viewport e scorrere al
+  // suo interno: `alignItems: flex-start` evita che il contenuto più alto dello
+  // schermo esca da sopra, dove non lo raggiunge nessuno scorrimento.
+  // L'`overflowY` qui sotto sembra ridondante col `maxHeight` della card, e non
+  // lo è: non toglierlo. È la rete di sicurezza per i casi in cui nemmeno
+  // comprimendo l'elenco delle proprietà il contenuto fisso ci sta — viewport
+  // bassissimi, testi che vanno a capo — e per i browser mobile dove 100vh non
+  // coincide con l'area davvero visibile. Qui pesa più che altrove: un debito
+  // congela il turno di tutti, e un bottone irraggiungibile pianta la partita.
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 20, padding: 20, overflowY: 'auto' },
+  // `calc(100vh - 40px)` toglie i 20px di padding dell'overlay sopra e sotto:
+  // con `90vh` la card poteva chiedere più dello spazio che l'overlay le lascia.
+  // `margin: auto` la centra quando c'è spazio e collassa quando non ce n'è,
+  // lasciando che sia `alignItems: flex-start` a tenerla attaccata in alto.
+  card: { padding: 28, width: 420, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12, borderColor: 'rgba(179,58,58,0.5)' },
+  // Anche la card d'attesa ha bisogno di `margin: auto`: condivide l'overlay, che
+  // ora allinea in alto, e senza resterebbe incollata al bordo superiore.
+  waitCard: { padding: 32, width: 340, maxWidth: '100%', margin: 'auto', textAlign: 'center' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#e18a8a' },
   title: { fontSize: '1.45rem' },
   hint: { fontSize: '0.82rem', color: 'rgba(243,234,216,0.7)', margin: 0, lineHeight: 1.5 },
   value: { color: 'var(--brass-2)', fontFamily: 'var(--font-mono)' },
-  panelScroll: { overflowY: 'auto', flex: 1, paddingRight: 4, borderTop: '1px solid rgba(201,150,44,0.2)', borderBottom: '1px solid rgba(201,150,44,0.2)', paddingTop: 12, paddingBottom: 12 },
-  actions: { display: 'flex', gap: 10, flexWrap: 'wrap' },
+  // minHeight: 0 rende esplicito che questo è il solo blocco che può rimpicciolirsi:
+  // di default un figlio flex non si restringe sotto il proprio contenuto e deborda
+  // in silenzio. Oggi ci arriverebbe comunque, perché `overflowY: auto` annulla da
+  // sé quel minimo automatico, ma così l'elenco resta comprimibile anche se un
+  // domani l'overflow qui cambia.
+  panelScroll: { overflowY: 'auto', flex: 1, minHeight: 0, paddingRight: 4, borderTop: '1px solid rgba(201,150,44,0.2)', borderBottom: '1px solid rgba(201,150,44,0.2)', paddingTop: 12, paddingBottom: 12 },
+  // flexShrink: 0 tiene i bottoni fuori dall'area che scorre: per quante proprietà
+  // abbia il debitore, «Vendi automaticamente» e «Dichiara bancarotta» restano
+  // raggiungibili — sono le uniche uscite da un turno congelato.
+  actions: { display: 'flex', gap: 10, flexWrap: 'wrap', flexShrink: 0 },
   wait: { color: 'rgba(243,234,216,0.6)', marginTop: 12, fontSize: '0.85rem', lineHeight: 1.5 },
 };
