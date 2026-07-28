@@ -44,11 +44,11 @@ class GameEngine {
     this.chanceDeck = shuffle(CHANCE_CARDS);
     this.communityDeck = shuffle(COMMUNITY_CARDS);
     // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_tax' |
-    //   'awaiting_debt' | 'awaiting_trade',
+    //   'awaiting_debt' | 'awaiting_trade' | 'awaiting_auction',
     //   playerId, ... }
     // Blocca il flusso del turno finché il giocatore indicato da playerId non
     // risolve: compra o rinuncia, legge la carta, paga l'affitto, salda il
-    // debito, risponde allo scambio.
+    // debito, risponde allo scambio, rilancia o passa all'asta.
     this.pendingAction = null;
     this.finished = false;
     this.winnerId = null;
@@ -296,12 +296,27 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_tax';
   }
 
+  hasPendingAuction() {
+    return this.pendingAction?.type === 'awaiting_auction';
+  }
+
   /**
    * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
    * cambiare la merce dopo aver fatto l'offerta.
    */
   tradeFreezeBlocker() {
     return this.hasPendingTrade() ? { error: 'Prima rispondi allo scambio proposto' } : null;
+  }
+
+  /**
+   * Con un'asta in corso il denaro di chi ci partecipa deve restare certo:
+   * costruire o riscattare un'ipoteca a metà asta potrebbe rendere
+   * inaffrontabile un'offerta già fatta, e il conto tornerebbe scoperto solo
+   * all'aggiudicazione. Si congela la spesa libera per tutti finché non si
+   * chiude, come già succede per lo scambio.
+   */
+  auctionFreezeBlocker() {
+    return this.hasPendingAuction() ? { error: 'Prima risolvi l\'asta in corso' } : null;
   }
 
   // ---- Turn flow ----
@@ -559,13 +574,175 @@ class GameEngine {
     return {};
   }
 
+  /**
+   * Chi rinuncia non lascia la casella semplicemente libera: come nel Monopoli
+   * vero, va all'asta. Il turno resta congelato (vedi endTurn) finché l'asta
+   * non si chiude: a riprendere la risoluzione del tiro ci pensa closeAuction.
+   */
   declineBuy(playerId) {
     if (!this.pendingAction || this.pendingAction.type !== 'awaiting_buy') return { error: 'Nessun acquisto in sospeso' };
     if (this.pendingAction.playerId !== playerId) return { error: 'Non tocca a te' };
-    this.addLog(`${this.currentPlayer.name} rinuncia all'acquisto di ${board[this.pendingAction.position].name}.`);
+    const { position } = this.pendingAction;
+    const decliner = this.players.find((p) => p.id === playerId);
+    this.addLog(`${decliner.name} rinuncia all'acquisto di ${board[position].name}.`);
     this.pendingAction = null;
-    this.finishRoll(this.currentPlayer);
+    this.openAuction(position, decliner);
     return {};
+  }
+
+  // ---- Asta sulla proprietà rifiutata ----
+
+  /**
+   * Ordine di turno dell'asta: parte da chi ha rinunciato e prosegue in ordine
+   * di tavolo, saltando chi è già fallito. I falliti non partecipano perché
+   * non hanno più cassa con cui offrire.
+   */
+  auctionOrderFrom(startId) {
+    const startIdx = this.players.findIndex((p) => p.id === startId);
+    if (startIdx === -1) return [];
+    const order = [];
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[(startIdx + i) % this.players.length];
+      if (!p.bankrupt) order.push(p.id);
+    }
+    return order;
+  }
+
+  /**
+   * Apre l'asta sulla casella appena rifiutata. `decliner` è chi stava
+   * giocando il turno (o rigiocando dopo un doppio): non serve per l'asta in
+   * sé, ma per sapere chi far riprendere quando si chiude (vedi closeAuction).
+   */
+  openAuction(position, decliner) {
+    const square = board[position];
+    const order = this.auctionOrderFrom(decliner.id);
+    // Non dovrebbe succedere in partita (con un solo giocatore in piedi la
+    // partita sarebbe già finita), ma se capitasse la casella resta libera
+    // invece di aprire un'asta senza nessuno che possa offrire.
+    if (order.length === 0) {
+      this.finishRoll(decliner);
+      return;
+    }
+    this.pendingAction = {
+      type: 'awaiting_auction',
+      playerId: order[0],
+      position,
+      price: square.price,
+      currentBid: 0,
+      currentBidderId: null,
+      // Coda di rotazione: chi è in testa deve rilanciare o passare adesso.
+      // Chi rilancia torna in fondo; chi passa esce e non rientra più.
+      queue: order,
+      passedIds: [],
+      originalPlayerId: decliner.id,
+    };
+    this.addLog(`${square.name} va all'asta.`);
+  }
+
+  /**
+   * Rilancio: minimo 10 se non c'è ancora un'offerta, altrimenti almeno 10 in
+   * più dell'offerta corrente. Non si può offrire più di quanto si ha in
+   * cassa: il denaro si scala solo alla chiusura dell'asta (closeAuction), ma
+   * il tetto va rispettato subito per non promettere ciò che non si ha.
+   */
+  bidAuction(playerId, rawAmount) {
+    if (this.finished) return { error: 'La partita è finita' };
+    if (!this.hasPendingAuction()) return { error: 'Nessuna asta in corso' };
+    const auction = this.pendingAction;
+    if (auction.playerId !== playerId) return { error: 'Non tocca a te' };
+    const player = this.players.find((p) => p.id === playerId);
+    const amount = Math.floor(Number(rawAmount) || 0);
+    const minBid = auction.currentBid === 0 ? 10 : auction.currentBid + 10;
+    if (amount < minBid) return { error: `Rilancio minimo ${minBid}` };
+    if (amount > player.balance) return { error: 'Saldo insufficiente' };
+
+    auction.currentBid = amount;
+    auction.currentBidderId = playerId;
+    this.addLog(`${player.name} offre ${amount} per ${board[auction.position].name}.`);
+
+    // Chi ha appena rilanciato torna in fondo alla coda: tocca al prossimo.
+    const idx = auction.queue.indexOf(playerId);
+    if (idx !== -1) {
+      auction.queue.splice(idx, 1);
+      auction.queue.push(playerId);
+    }
+    auction.playerId = auction.queue[0];
+    return {};
+  }
+
+  /**
+   * Passa: esce dall'asta e non gli viene più chiesto. Quando resta un solo
+   * giocatore in coda l'asta si chiude da sé, senza bisogno che risponda.
+   */
+  passAuction(playerId) {
+    if (this.finished) return { error: 'La partita è finita' };
+    if (!this.hasPendingAuction()) return { error: 'Nessuna asta in corso' };
+    const auction = this.pendingAction;
+    if (auction.playerId !== playerId) return { error: 'Non tocca a te' };
+    const player = this.players.find((p) => p.id === playerId);
+
+    auction.queue = auction.queue.filter((id) => id !== playerId);
+    auction.passedIds.push(playerId);
+    this.addLog(`${player.name} passa.`);
+
+    if (auction.queue.length <= 1) {
+      this.closeAuction();
+      return {};
+    }
+    auction.playerId = auction.queue[0];
+    return {};
+  }
+
+  /**
+   * Chiude l'asta: se resta un'offerta la casella va a chi l'ha fatta, al
+   * prezzo offerto (anche molto sotto il listino); se nessuno ha mai offerto
+   * resta libera come prima di questa regola. In ogni caso la risoluzione del
+   * tiro riprende da dove l'aveva lasciata declineBuy, tiro extra da doppio
+   * compreso: è lo stesso finishRoll che avrebbe chiuso il turno subito, se
+   * l'asta non l'avesse messo in pausa.
+   */
+  closeAuction() {
+    const auction = this.pendingAction;
+    if (!auction || auction.type !== 'awaiting_auction') return;
+    const square = board[auction.position];
+    const original = this.players.find((p) => p.id === auction.originalPlayerId);
+
+    if (auction.currentBidderId) {
+      const winner = this.players.find((p) => p.id === auction.currentBidderId);
+      winner.balance -= auction.currentBid;
+      this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotel: false, mortgaged: false };
+      this.addLog(`${winner.name} si aggiudica ${square.name} all'asta per ${auction.currentBid}.`);
+    } else {
+      this.addLog(`Nessuno fa offerte per ${square.name}: resta libera.`);
+    }
+
+    this.pendingAction = null;
+    this.finishRoll(original);
+  }
+
+  /**
+   * Toglie un giocatore fallito da un'asta in corso, se ci stava
+   * partecipando. Senza questo aggancio un'asta potrebbe restare in attesa di
+   * un'offerta da parte di chi non può più farla, bloccando la partita per
+   * tutti — chiamata da bankruptPlayer, l'unico punto in cui si diventa
+   * falliti, qualunque sia la causa (multa di prigione, abbandono, debito).
+   * Se il fallito era il miglior offerente la sua offerta si annulla: non
+   * potrebbe comunque pagarla.
+   */
+  removeFromAuctionIfPresent(playerId) {
+    if (!this.hasPendingAuction()) return;
+    const auction = this.pendingAction;
+    if (auction.currentBidderId === playerId) {
+      auction.currentBid = 0;
+      auction.currentBidderId = null;
+    }
+    if (!auction.queue.includes(playerId)) return;
+    auction.queue = auction.queue.filter((id) => id !== playerId);
+    if (auction.queue.length <= 1) {
+      this.closeAuction();
+      return;
+    }
+    if (auction.playerId === playerId) auction.playerId = auction.queue[0];
   }
 
   /**
@@ -711,6 +888,7 @@ class GameEngine {
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
     if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     if (!this.ownsFullGroup(playerId, square.group)) return { error: 'Serve il monopolio del colore per costruire' };
     // Regola ufficiale: niente costruzioni su un colore con proprietà ipotecate.
     const groupMortgaged = board.some(
@@ -791,6 +969,7 @@ class GameEngine {
     if (!owned.mortgaged) return { error: 'Non è ipotecata' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
     if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     const cost = this.unmortgageCost(square);
     if (player.balance < cost) return { error: 'Saldo insufficiente' };
     player.balance -= cost;
@@ -989,6 +1168,10 @@ class GameEngine {
     player.balance = 0;
     player.debtTo = null;
     if (this.hasPendingDebt() && this.pendingAction.playerId === player.id) this.pendingAction = null;
+    // Se stava partecipando a un'asta (o doveva rispondere lei) va tolto
+    // subito: altrimenti l'asta resterebbe ad aspettare un'offerta da chi non
+    // può più farla.
+    this.removeFromAuctionIfPresent(player.id);
     this.checkWinner(motivo);
 
     // Il turno si chiude solo se a uscire è stato chi stava giocando. Quando a
@@ -1266,6 +1449,10 @@ class GameEngine {
     if (this.hasPendingCard()) return { error: 'Prima leggi la carta pescata' };
     if (this.hasPendingRent()) return { error: 'Prima paga l\'affitto' };
     if (this.hasPendingTax()) return { error: 'Prima paga la tassa' };
+    // Anche l'asta congela il turno: si è aperta a metà della risoluzione del
+    // tiro (vedi declineBuy) e deve chiudersi da sé (closeAuction) prima che
+    // il turno possa avanzare, tiro extra da doppio compreso.
+    if (this.hasPendingAuction()) return { error: 'Prima risolvi l\'asta in corso' };
     // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
     // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
     if (this.turnResolved || this.finished) return {};

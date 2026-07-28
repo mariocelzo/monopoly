@@ -100,13 +100,32 @@ export interface AwaitingTax {
   amount: number;
 }
 
+/**
+ * Asta sulla proprietà appena rifiutata. `playerId` è chi deve rilanciare o
+ * passare adesso: cambia a ogni mossa, girando in ordine di tavolo a partire
+ * da chi ha rinunciato. `queue` sono gli ancora in gara (in ordine di turno,
+ * chi ha appena rilanciato è in fondo), `passedIds` chi è già uscito.
+ */
+export interface AwaitingAuction {
+  type: 'awaiting_auction';
+  playerId: string;
+  position: number;
+  /** Prezzo di listino, solo per mostrarlo: l'asta può chiudersi molto sotto. */
+  price: number;
+  currentBid: number;
+  currentBidderId: string | null;
+  queue: string[];
+  passedIds: string[];
+}
+
 export type PendingAction =
   | AwaitingBuy
   | AwaitingCard
   | AwaitingRent
   | AwaitingTax
   | AwaitingDebt
-  | AwaitingTrade;
+  | AwaitingTrade
+  | AwaitingAuction;
 
 export interface GameState {
   roomCode: string;

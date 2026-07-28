@@ -18,6 +18,7 @@ import Board from './components/Board';
 import GamePanel from './components/GamePanel';
 import MobileBar from './components/MobileBar';
 import BuyModal from './components/BuyModal';
+import AuctionModal from './components/AuctionModal';
 import DebtModal from './components/DebtModal';
 import TradeModal from './components/TradeModal';
 import TradeWizard from './components/TradeWizard';
@@ -244,6 +245,7 @@ export default function App() {
   const card = pending?.type === 'awaiting_card' ? pending : null;
   const rent = pending?.type === 'awaiting_rent' ? pending : null;
   const tax = pending?.type === 'awaiting_tax' ? pending : null;
+  const auction = pending?.type === 'awaiting_auction' ? pending : null;
   const buySquare = buy ? board.find((s) => s.position === buy.position) : null;
   const winner = state.finished ? state.players.find((p) => p.id === state.winnerId) : null;
   const inspectedSquare = inspected !== null ? board.find((s) => s.position === inspected) : null;
@@ -308,6 +310,14 @@ export default function App() {
         <TaxModal
           pending={tax}
           square={board.find((s) => s.position === tax.position)}
+          state={state}
+          myId={playerId}
+        />
+      )}
+      {auction && (
+        <AuctionModal
+          pending={auction}
+          square={board.find((s) => s.position === auction.position)}
           state={state}
           myId={playerId}
         />

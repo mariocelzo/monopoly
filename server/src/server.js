@@ -208,6 +208,11 @@ io.on('connection', (socket) => {
   socket.on('sell_house', withGame((game, playerId, { position }) => game.sellHouse(playerId, position)));
   socket.on('mortgage_property', withGame((game, playerId, { position }) => game.mortgageProperty(playerId, position)));
   socket.on('unmortgage_property', withGame((game, playerId, { position }) => game.unmortgageProperty(playerId, position)));
+  // Asta sulla proprietà rifiutata: rilancio o passo. L'importo arriva dal
+  // client come intento grezzo; la validazione (minimo, cassa) sta tutta nel
+  // motore, qui si passa solo il dato.
+  socket.on('auction_bid', withGame((game, playerId, { amount }) => game.bidAuction(playerId, amount)));
+  socket.on('auction_pass', withGame((game, playerId) => game.passAuction(playerId)));
   // Risoluzione di un debito: liquidazione automatica oppure resa.
   socket.on('resolve_debt_auto', withGame((game, playerId) => game.resolveDebtAuto(playerId)));
   socket.on('declare_bankruptcy', withGame((game, playerId) => game.declareBankruptcy(playerId)));

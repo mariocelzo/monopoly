@@ -98,9 +98,42 @@ function risolvePendingAction(game) {
       game.respondTrade(bot.id, evaluateTrade(game, bot.id, pa));
       return true;
 
+    case 'awaiting_auction': {
+      const square = board[pa.position];
+      const minBid = pa.currentBid === 0 ? 10 : pa.currentBid + 10;
+      const tetto = tettoAsta(game, bot, square);
+      // Non rilancia se supera il proprio tetto, o se non se lo può proprio
+      // permettere: passare è sempre lecito, anche per chi ha appena rinunciato.
+      if (minBid > tetto || minBid > bot.balance) {
+        game.passAuction(bot.id);
+      } else {
+        game.bidAuction(bot.id, minBid);
+      }
+      return true;
+    }
+
     default:
       return false;
   }
+}
+
+/**
+ * Quanto è disposto a spendere un bot per aggiudicarsi una casella all'asta.
+ * Si parte da propertyScore, lo stesso giudizio usato per decidere se
+ * comprare al listino: un punteggio alto (vicino a un monopolio) alza il
+ * tetto anche oltre il prezzo di listino, uno basso lo tiene comunque un po'
+ * sopra zero, perché in un'asta il prezzo può scendere molto sotto il
+ * listino e vale la pena tentare. La casualità (±15%) evita che due bot con
+ * lo stesso punteggio si fermino sempre alla cifra identica.
+ */
+function tettoAsta(game, bot, square) {
+  const punteggio = propertyScore(game, bot.id, square, bot.balance);
+  const interesse = Math.max(0.15, 0.5 + punteggio * 0.5);
+  const casualita = 0.85 + Math.random() * 0.3;
+  const tetto = Math.round(square.price * interesse * casualita);
+  // Non si scende mai sotto la riserva di sicurezza: un'asta persa per una
+  // casella non deve lasciare il bot senza contanti per gli affitti altrui.
+  return Math.max(0, Math.min(tetto, bot.balance - RISERVA));
 }
 
 /** Una mossa del turno del bot: prigione, costruzione, scambio, dadi. */
