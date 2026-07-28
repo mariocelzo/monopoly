@@ -1,4 +1,5 @@
 const { GameEngine } = require('./gameEngine');
+const persistence = require('./persistence');
 
 // Una stanza rimasta senza nessuno collegato per più di così viene buttata via.
 // Deve essere abbondante: i giocatori possono chiudere il browser e rientrare.
@@ -17,6 +18,50 @@ class RoomManager {
     // code -> { game, sockets: Map<socketId, playerId>, emptySince: number | null,
     //           botTimer: Timeout | null }
     this.rooms = new Map();
+    // Se la persistenza è attiva (vedi persistence.js) le stanze salvate da un
+    // avvio precedente sono già pronte qui prima ancora che arrivi un socket:
+    // un client con la partita in localStorage può fare rejoin_room da subito.
+    this.restoreFromDisk();
+  }
+
+  /**
+   * Ricostruisce le stanze da un eventuale salvataggio su disco. GameEngine
+   * resta puro e non sa ricostruirsi da solo (nessun metodo apposta, per non
+   * toccare gameEngine.js): si crea un'istanza vuota con `new GameEngine` e le
+   * si assegnano sopra i campi salvati, esattamente come suggerisce la
+   * consegna. Ogni stanza si ricostruisce per conto suo: una voce corrotta o
+   * incompleta non deve far perdere anche le altre, quindi si scarta solo lei
+   * (e si toglie anche dall'archivio, così non la si ritenta ai prossimi avvii).
+   */
+  restoreFromDisk() {
+    if (!persistence.enabled) return;
+    const states = persistence.load();
+    const codes = [];
+    for (const [code, state] of Object.entries(states)) {
+      try {
+        const game = Object.assign(new GameEngine(code), state);
+        // In questo processo non è ancora agganciato nessun socket: chi al
+        // salvataggio risultava online va segnato come offline finché non
+        // rientra con rejoin_room, altrimenti il tabellone lo mostrerebbe
+        // connesso senza che nessuno stia davvero giocando per lui. I bot non
+        // hanno mai un socket: restano come sono.
+        game.players.forEach((p) => { if (!p.isBot) p.connected = false; });
+        // emptySince riparte da adesso: come se la stanza fosse rimasta vuota
+        // da questo istante, dà ai giocatori l'intera finestra di ROOM_TTL_MS
+        // per rientrare prima che sweep() la consideri scaduta (vedi sotto).
+        this.rooms.set(code, { game, sockets: new Map(), emptySince: Date.now(), botTimer: null });
+        codes.push(code);
+      } catch (err) {
+        console.warn(`[persistence] stanza ${code} scartata alla ricostruzione: ${err.message}`);
+        persistence.remove(code);
+      }
+    }
+    if (codes.length) console.log(`[persistence] stanze pronte al riavvio: ${codes.join(', ')}.`);
+  }
+
+  /** Codici di tutte le stanze aperte in questo momento. */
+  roomCodes() {
+    return [...this.rooms.keys()];
   }
 
   createRoom() {
@@ -77,6 +122,10 @@ class RoomManager {
   closeRoom(code) {
     const room = this.rooms.get(code);
     if (room) clearTimeout(room.botTimer);
+    // Anche l'archivio va chiuso con la stanza: senza questo, una partita
+    // conclusa e già ripulita dalla memoria ricomparirebbe al prossimo
+    // riavvio del processo, presa dal file rimasto indietro.
+    persistence.remove(code);
     return this.rooms.delete(code);
   }
 
@@ -88,6 +137,9 @@ class RoomManager {
         // Se un bot aveva una mossa in coda, muore con la stanza.
         clearTimeout(room.botTimer);
         this.rooms.delete(code);
+        // Stessa scadenza anche nell'archivio: altrimenti crescerebbe
+        // all'infinito con stanze che in memoria non esistono già più.
+        persistence.remove(code);
         removed += 1;
       }
     }

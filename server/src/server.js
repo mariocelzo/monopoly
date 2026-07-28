@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const { RoomManager } = require('./rooms');
 const { board } = require('./data/board');
 const { botMove, botHasMove } = require('./bot');
+const persistence = require('./persistence');
 
 const PORT = process.env.PORT || 3001;
 
@@ -63,6 +64,12 @@ function broadcastState(roomCode) {
   const room = roomManager.getRoom(roomCode);
   if (!room) return;
   io.to(roomCode).emit('state', room.game.serialize());
+  // Salvataggio differito della stanza (no-op se PERSIST_FILE non è
+  // impostata, vedi persistence.js): si aggancia qui perché broadcastState
+  // gira già dopo ogni cambiamento di stato, lo stesso identico punto da cui
+  // parte il broadcast ai client. Non rallenta questo giro: la scrittura vera
+  // è accodata e parte solo dopo un attimo di quiete.
+  persistence.save(roomCode, room.game);
   scheduleBotMove(roomCode);
 }
 
@@ -261,7 +268,29 @@ io.on('connection', (socket) => {
   });
 });
 
+// Le stanze ripristinate da un salvataggio (persistenza attiva, vedi
+// persistence.js) possono avere un bot con una mossa in attesa: senza questo
+// aggancio resterebbero ferme finché non arriva un evento qualsiasi a far
+// ripartire lo scheduling. Nessun socket è ancora connesso a questo punto,
+// quindi tutte le stanze in roomManager sono esattamente quelle ripristinate
+// (se la persistenza è spenta, l'elenco è semplicemente vuoto).
+roomManager.roomCodes().forEach(scheduleBotMove);
+
 roomManager.startSweeping();
+
+/**
+ * Uno spegnimento pulito (SIGTERM: un nuovo deploy, `docker stop`, o SIGINT
+ * da Ctrl+C in locale) forza subito la scrittura su disco invece di aspettare
+ * il debounce, così non si perdono le ultime mosse fatte prima di spegnere.
+ * Un `kill -9` non passa da qui: in quel caso si perde al più la finestra di
+ * debounce, per la scelta di design spiegata in persistence.js.
+ */
+function shutdown() {
+  persistence.flushNow();
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 server.listen(PORT, () => {
   console.log(`Monopoly server listening on port ${PORT}`);
