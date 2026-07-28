@@ -153,12 +153,15 @@ const ultimaCostruzione = new WeakMap();
 
 function haGiaCostruito(game, bot) {
   const mappa = ultimaCostruzione.get(game) || {};
-  return mappa[bot.id] === (game.lastRoll?.seq || 0);
+  // Si usa rollCount e non lastRoll?.seq: lastRoll sparisce a fine turno (il
+  // tabellone non deve più mostrare il tiro di chi ha già giocato), ma questo
+  // controllo deve continuare a funzionare anche a lastRoll già azzerato.
+  return mappa[bot.id] === game.rollCount;
 }
 
 function segnaCostruito(game, bot) {
   const mappa = ultimaCostruzione.get(game) || {};
-  mappa[bot.id] = game.lastRoll?.seq || 0;
+  mappa[bot.id] = game.rollCount;
   ultimaCostruzione.set(game, mappa);
 }
 

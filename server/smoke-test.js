@@ -1040,7 +1040,10 @@ section('27. Bot: decisioni durante il turno');
   check('riconosce che tocca al bot', isBotTurn(game) === true);
   const posPrima = game.players[1].position;
   botMove(game);
-  check('il bot ha tirato i dadi', game.lastRoll !== null);
+  // rollCount e non lastRoll: se il tiro non apre nulla in sospeso (niente da
+  // comprare, niente carta) il turno si chiude subito e lastRoll torna null,
+  // ma il tiro c'è comunque stato.
+  check('il bot ha tirato i dadi', game.rollCount > 0, `rollCount=${game.rollCount}`);
   check('la pedina si è mossa o ha un\'azione aperta',
     game.players[1].position !== posPrima || game.pendingAction !== null);
 
@@ -1117,6 +1120,7 @@ section('27. Bot: decisioni durante il turno');
   // Lo stato "ho appena fatto doppio" si costruisce a mano invece di cercare
   // dadi che ci arrivino per caso: così il test non dipende dal tabellone.
   g6.lastRoll = { playerId: bot6.id, dice: [3, 3], seq: 1 };
+  g6.rollCount = 1;
   g6.lastRollWasDouble = true;
   g6.turnResolved = false;
   bot6.doublesInARow = 1;
@@ -1134,11 +1138,15 @@ section('27. Bot: decisioni durante il turno');
   g7.turnIndex = 1;
   const bot7 = g7.players[1];
   g7.lastRoll = { playerId: bot7.id, dice: [2, 5], seq: 1 };
+  g7.rollCount = 1;
   g7.lastRollWasDouble = false;
   g7.turnResolved = false;
   botMove(g7);
-  check('senza doppio non ritira', g7.lastRoll.seq === 1, `seq=${g7.lastRoll.seq}`);
+  // rollCount non si tocca a fine turno (a differenza di lastRoll): resta 1
+  // a conferma che il bot non ha ritirato i dadi una seconda volta.
+  check('senza doppio non ritira', g7.rollCount === 1, `rollCount=${g7.rollCount}`);
   check('senza doppio passa la mano', g7.turnIndex === 0, `turnIndex=${g7.turnIndex}`);
+  check('senza doppio la scritta del tiro sparisce', g7.lastRoll === null);
 }
 
 section('28. Bot: risposta agli scambi');
@@ -1327,6 +1335,53 @@ section('30. Regola della casa: montepremi della Sosta Gratuita');
   game.requestRematch('a');
   game.requestRematch('b');
   check('la rivincita azzera il montepremi', game.freeParkingPot === 0, `pot=${game.freeParkingPot}`);
+}
+
+// ---------------------------------------------------------------------------
+section('31. lastRoll sparisce a fine turno, resta col doppio');
+{
+  // Chiusura normale del turno: senza doppio il tiro non è più quello in
+  // corso, quindi il tabellone non deve più mostrare chi ha tirato.
+  const game = newGame();
+  const mario = game.players[0];
+  mario.position = 0;
+  give(game, mario.id, 3); // già sua: atterrarci non apre un acquisto in sospeso
+  game.turnResolved = false;
+  game.movePlayer(mario, 3); // niente da comprare, niente doppio
+  game.lastRoll = { playerId: mario.id, dice: [1, 2], seq: 7 };
+  game.finishRoll(mario);
+  check('dopo la chiusura del turno il tiro non è più esposto', game.lastRoll === null);
+  check('il turno è passato all\'avversario', game.turnIndex === 1, `turnIndex=${game.turnIndex}`);
+
+  // Col doppio il turno resta suo: la scritta deve restare, perché quel tiro
+  // è ancora quello in corso e sta per ritirare.
+  const game2 = newGame();
+  const mario2 = game2.players[0];
+  game2.turnResolved = false;
+  game2.lastRollWasDouble = true;
+  game2.lastRoll = { playerId: mario2.id, dice: [4, 4], seq: 3 };
+  game2.finishRoll(mario2);
+  check('dopo un doppio il tiro resta esposto', game2.lastRoll !== null);
+  check('è ancora il turno di chi ha fatto doppio', game2.turnIndex === 0, `turnIndex=${game2.turnIndex}`);
+
+  // Tiro in prigione senza doppio: si resta dentro, il turno passa e la
+  // scritta del tiro precedente non deve restare a suggerire che stia ancora
+  // giocando lui. Dadi truccati (2 e 5, non doppio) per non dipendere dalla
+  // sorte: con un doppio si uscirebbe di prigione senza che il turno passi.
+  const game3 = newGame();
+  const mario3 = game3.players[0];
+  mario3.inJail = true;
+  const realRandom = Math.random;
+  Math.random = (() => {
+    const dadi = [2, 5];
+    let i = 0;
+    return () => (dadi[i++ % 2] - 1) / 6 + 0.001;
+  })();
+  game3.rollDice('a');
+  Math.random = realRandom;
+  check('tiro in prigione senza doppio: resta dentro', mario3.inJail === true);
+  check('tiro in prigione senza doppio: il turno passa', game3.turnIndex === 1, `turnIndex=${game3.turnIndex}`);
+  check('tiro in prigione senza doppio: il tiro non è più esposto', game3.lastRoll === null);
 }
 
 // ---------------------------------------------------------------------------

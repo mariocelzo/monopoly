@@ -78,7 +78,15 @@ class GameEngine {
     this.rentMultiplier = 1;
     // Ultimo tiro mostrato al centro del tabellone. `seq` cresce a ogni lancio
     // così il client riconosce un tiro nuovo anche se i dadi ripetono i valori.
+    // Si azzera a fine turno (vedi endTurn) perché è uno stato di *visualizzazione*:
+    // a turno chiuso quel tiro non è più quello in corso e non va più mostrato.
     this.lastRoll = null;
+    // Contatore di lanci che invece non si azzera mai a fine turno (solo alla
+    // rivincita): genera i `seq` di lastRoll e, soprattutto, resta disponibile
+    // anche quando lastRoll è già stato ripulito per il tabellone. Serve al bot
+    // per sapere se ha già costruito dopo il proprio ultimo tiro (vedi bot.js),
+    // un controllo che altrimenti si romperebbe non appena lastRoll torna null.
+    this.rollCount = 0;
     // Regola della casa (come il Via a 500): il denaro che i giocatori pagano
     // alla banca - tasse, multe delle carte, multa di prigione - non sparisce
     // ma si accumula qui, e chi atterra sulla Sosta Gratuita lo incassa tutto.
@@ -310,10 +318,11 @@ class GameEngine {
     const isDouble = d1 === d2;
     // Uscire di prigione col doppio non dà il tiro extra: si esce e basta.
     this.lastRollWasDouble = isDouble && !player.inJail;
+    this.rollCount += 1;
     this.lastRoll = {
       playerId: player.id,
       dice: [d1, d2],
-      seq: (this.lastRoll?.seq || 0) + 1,
+      seq: this.rollCount,
     };
 
     if (player.inJail) {
@@ -1229,6 +1238,7 @@ class GameEngine {
     this.turnResolved = false;
     this.lastRollWasDouble = false;
     this.lastRoll = null;
+    this.rollCount = 0;
     // Senza questo azzeramento il montepremi si porterebbe dietro nella
     // rivincita i soldi della partita precedente.
     this.freeParkingPot = 0;
@@ -1261,6 +1271,12 @@ class GameEngine {
     if (this.turnResolved || this.finished) return {};
     this.turnResolved = true;
     this.pendingAction = null;
+    // Il tiro appena chiuso non è più quello in corso: se restasse in
+    // `lastRoll` il tabellone continuerebbe a mostrare nome e somma di chi ha
+    // già finito, facendo credere che stia ancora giocando lui. Col doppio
+    // invece `finishRoll` non arriva fin qui (vedi sopra), quindi la scritta
+    // resta finché il giocatore che deve rigiocare non tira di nuovo.
+    this.lastRoll = null;
     // I doppi contano solo entro il turno di chi li ha tirati.
     if (this.currentPlayer) this.currentPlayer.doublesInARow = 0;
     if (this.players.every((p) => p.bankrupt)) return {};
