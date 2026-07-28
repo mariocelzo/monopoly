@@ -16,3 +16,4 @@ dist/
 
 # Log di npm
 npm-debug.log*
+.superpowers/
