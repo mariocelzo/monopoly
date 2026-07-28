@@ -58,12 +58,19 @@ export default function TradeBoard({
               gridRow: row,
               gridColumn: col,
               background: fill,
-              // Due colori invece di due tratteggi: a venti pixel un bordo
-              // tratteggiato non si distingue da uno pieno.
+              // Due colori invece di due tratteggi: a un bordo tratteggiato
+              // non si distinguerebbe comunque da uno pieno a questa scala.
+              // E i due colori non possono essere due tinte calde vicine tra
+              // loro (ottone e avorio erano a un rapporto di contrasto di
+              // circa 1,5:1): la mappa arriva a celle da circa 17px, con un
+              // anello spesso 2px sopra un riempimento diverso per ogni
+              // casella, quindi serve un contrasto caldo-contro-freddo, che
+              // regge anche a quello spessore e anche per chi fatica con il
+              // rosso-verde.
               outline: inUscita
                 ? '2px solid var(--brass-2)'
                 : inEntrata
-                  ? '2px solid var(--paper)'
+                  ? '2px solid #7EC8E3'
                   : undefined,
               outlineOffset: -2,
               opacity: owned?.mortgaged ? 0.45 : 1,
@@ -97,7 +104,7 @@ export default function TradeBoard({
           offri
         </div>
         <div style={styles.legendRow}>
-          <span style={{ ...styles.chip, background: 'transparent', borderColor: 'var(--paper)' }} />
+          <span style={{ ...styles.chip, background: 'transparent', borderColor: '#7EC8E3' }} />
           chiedi
         </div>
       </div>
