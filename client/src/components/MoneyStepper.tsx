@@ -66,12 +66,15 @@ export default function MoneyStepper({
       {/* Le scorciatoie hanno senso per il denaro, non per contare due carte. */}
       {quick.length > 0 && (
         <div style={styles.quick}>
+          {/* Le scorciatoie non si spengono quando sfondano il tetto, ci si fermano:
+              con pochi contanti "+200" significa "dammi tutto quello che posso",
+              ed è quasi sempre quello che si intende (passa() taglia già a max). */}
           {quick.map((importo) => (
             <button
               key={importo}
               className="btn-ghost"
               style={styles.quickBtn}
-              disabled={value + importo > max}
+              disabled={value >= max}
               onClick={() => passa(importo)}
             >
               +{importo}
