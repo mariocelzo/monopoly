@@ -116,5 +116,9 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
   },
   quick: { display: 'flex', gap: 6, flexWrap: 'wrap' },
+  // 38px sta sotto i 44 che il progetto si è dato per i bersagli da toccare, ed
+  // è voluto: queste sono scorciatoie, non il comando principale — quello sono
+  // i tasti −/+ qui sopra, che stanno a 46. Portarle a 44 significherebbe
+  // stringere quattro bottoni in fila su uno schermo da telefono.
   quickBtn: { flex: 1, minWidth: 62, minHeight: 38, fontSize: '0.78rem', padding: '0 8px' },
 };
