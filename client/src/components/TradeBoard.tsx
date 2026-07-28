@@ -64,25 +64,16 @@ export default function TradeBoard({
               gridRow: row,
               gridColumn: col,
               background: fill,
-              // Due colori invece di due tratteggi: un bordo tratteggiato non
-              // si distinguerebbe comunque da uno pieno a questa scala.
-              // Ma i due colori dell'anello pescano dalla stessa tavolozza
-              // PLAYER_COLORS usata per tingere le caselle (ottone e azzurro
-              // sono anche colori di pedina): in una partita a due dove il
-              // proprietario ha proprio quel colore, l'anello "offri"/"chiedi"
-              // cadrebbe su un riempimento identico e sparirebbe. Per questo
-              // non basta l'anello da solo: il riquadro scuro sotto lo stacca
-              // sempre dalla tintura della casella, qualunque essa sia.
+              // Colori e non tratteggi: a questa scala un bordo tratteggiato
+              // non si distingue da uno pieno.
               outline: inUscita
                 ? '2px solid var(--brass-2)'
                 : inEntrata
                   ? '2px solid #7EC8E3'
                   : undefined,
               outlineOffset: -2,
-              // Sta appena dentro l'anello (outlineOffset -2, quindi il bordo
-              // dell'outline è 2px dentro la cella): 3px di stacco scuro
-              // bastano a separarlo visivamente dal riempimento sottostante
-              // senza mangiarsi troppa casella.
+              // Il riquadro scuro spiegato in cima al file: 3px stanno appena
+              // dentro l'anello, che con outlineOffset -2 corre a 2px dal bordo.
               boxShadow: inUscita || inEntrata ? 'inset 0 0 0 3px rgba(0,0,0,0.55)' : undefined,
               opacity: owned?.mortgaged ? 0.45 : 1,
             }}
