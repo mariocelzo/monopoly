@@ -10,6 +10,13 @@ import TradeBoard from './TradeBoard';
  * quelle da chiedere, si aggiunge del denaro da una parte o dall'altra e si
  * manda. Come per il resto, il client si limita a raccogliere l'intento: ogni
  * regola (edifici sul colore, denaro disponibile) la applica il server.
+ *
+ * App.tsx tiene questo componente montato anche quando nel frattempo si apre
+ * un `pendingAction` altrui (l'affitto di un bot, per esempio): prima si
+ * smontava e tutto quello che si era composto andava perso. Il server
+ * continua comunque a rifiutare l'invio finché `pendingAction` non si libera
+ * — per questo il bottone "Manda la proposta" si disabilita da solo qui
+ * sotto, invece che sparire il componente intero.
  */
 export default function TradeModal({
   board,
@@ -221,10 +228,30 @@ export default function TradeModal({
           </div>
         </div>
 
+        {/* Un'altra azione in sospeso (l'affitto di un bot, un'asta, un
+            debito...) fa rifiutare la proposta dal server comunque: non ha
+            senso far credere che si possa mandare. Prima questo si traduceva
+            nello smontare tutto il compositore, buttando via ciò che si era
+            già scelto — ora si resta montati e si spiega perché il bottone è
+            spento, così si può continuare a comporre e mandare non appena si
+            libera. */}
+        {state.pendingAction && (
+          <p style={styles.pendingNote}>
+            C'è un'altra azione in sospeso al tavolo: si può continuare a
+            comporre, ma l'invio resta fermo finché non si risolve.
+          </p>
+        )}
         {error && <p style={styles.error}>{error}</p>}
 
         <div style={styles.actions}>
-          <button className="btn-primary" onClick={send}>Manda la proposta</button>
+          <button
+            className="btn-primary"
+            onClick={send}
+            disabled={!!state.pendingAction}
+            title={state.pendingAction ? 'Prima si risolve l\'azione in sospeso' : undefined}
+          >
+            Manda la proposta
+          </button>
           <button className="btn-ghost" onClick={onClose}>Annulla</button>
         </div>
       </div>
@@ -252,6 +279,7 @@ const styles: Record<string, React.CSSProperties> = {
   itemName: { fontSize: '0.78rem', flex: 1 },
   mortgaged: { fontSize: '0.62rem', color: '#e18a8a', fontFamily: 'var(--font-mono)' },
   error: { fontSize: '0.78rem', color: '#e18a8a', margin: 0 },
+  pendingNote: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.6)', fontStyle: 'italic', margin: 0 },
   gruppo: { display: 'flex', flexDirection: 'column', gap: 4 },
   gruppoTesta: { display: 'flex', alignItems: 'center', gap: 7 },
   chip: { width: 13, height: 13, borderRadius: 3, border: '1px solid rgba(0,0,0,0.35)', flexShrink: 0 },

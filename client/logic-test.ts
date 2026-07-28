@@ -13,6 +13,8 @@ import { propertyGroups } from './src/propertyGroups.ts';
 import type { BoardSquare, GameState } from './src/socket.ts';
 import { MOBILE_BREAKPOINT, TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
 import { latestLogAt, missedSince } from './src/awayRecap.ts';
+import { capTickerQueue, TICKER_ENTRY_LIFETIME_MS, TICKER_MAX_VISIBLE, visibleTickerEntries } from './src/eventTicker.ts';
+import type { TickerItem } from './src/eventTicker.ts';
 
 let passed = 0;
 let failed = 0;
@@ -170,6 +172,55 @@ section('3. Riepilogo del registro durante una disconnessione');
     latestLogAt([], 500) === 500);
   check('latestLogAt avanza se il registro porta un punto più recente',
     latestLogAt(registro, 150) === 300);
+}
+
+// ---------------------------------------------------------------------------
+section('4. Striscia degli eventi: quali voci restano in coda e per quanto');
+{
+  const voce = (id: number, shownAt: number): TickerItem => ({ id, message: `voce ${id}`, shownAt });
+
+  // Appena mostrata, resta visibile.
+  check('una voce appena mostrata è ancora visibile',
+    visibleTickerEntries([voce(1, 1000)], 1000).length === 1);
+
+  // Poco prima della scadenza, ancora visibile.
+  const pocoPrima = visibleTickerEntries([voce(1, 1000)], 1000 + TICKER_ENTRY_LIFETIME_MS - 1);
+  check('un istante prima della scadenza è ancora visibile', pocoPrima.length === 1);
+
+  // Esattamente alla scadenza (confine incluso: `now - shownAt` uguale alla
+  // durata) non è più visibile: la finestra è aperta a destra.
+  const allaScadenza = visibleTickerEntries([voce(1, 1000)], 1000 + TICKER_ENTRY_LIFETIME_MS);
+  check('esattamente alla scadenza non è più visibile', allaScadenza.length === 0);
+
+  // Ben oltre la scadenza, sparita.
+  const oltre = visibleTickerEntries([voce(1, 1000)], 1000 + TICKER_ENTRY_LIFETIME_MS + 5000);
+  check('molto dopo la scadenza è sparita', oltre.length === 0);
+
+  // Una coda mista: solo le voci ancora entro la loro finestra sopravvivono,
+  // le altre si tolgono senza toccare quelle rimaste.
+  const coda = [voce(1, 0), voce(2, 3000), voce(3, 6000)];
+  const now = 6500;
+  const rimaste = visibleTickerEntries(coda, now);
+  check('in una coda mista restano solo le voci non scadute',
+    rimaste.length === 2 && rimaste[0].id === 2 && rimaste[1].id === 3,
+    JSON.stringify(rimaste));
+
+  // Coda vuota: nessun errore, nessuna voce.
+  check('una coda vuota resta vuota', visibleTickerEntries([], Date.now()).length === 0);
+
+  // Un turno rumoroso (atterra, paga, passa il turno) non deve far crescere
+  // la striscia senza limite: solo le voci più recenti restano.
+  const raffica = [voce(1, 0), voce(2, 0), voce(3, 0), voce(4, 0), voce(5, 0)];
+  const tenute = capTickerQueue(raffica);
+  check(`non restano più di ${TICKER_MAX_VISIBLE} voci insieme`,
+    tenute.length === TICKER_MAX_VISIBLE, `restate=${tenute.length}`);
+  check('a parità di scadenza, si scartano le più vecchie e restano le ultime',
+    tenute[0].id === 3 && tenute[1].id === 4 && tenute[2].id === 5,
+    JSON.stringify(tenute.map((t) => t.id)));
+
+  // Sotto il tetto, nessun taglio: la coda passa invariata.
+  const poche = [voce(1, 0), voce(2, 0)];
+  check('una coda già corta non viene toccata', capTickerQueue(poche) === poche);
 }
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ import RentModal from './components/RentModal';
 import TaxModal from './components/TaxModal';
 import SquareDetail from './components/SquareDetail';
 import AwayRecapModal from './components/AwayRecapModal';
+import EventTicker from './components/EventTicker';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -238,7 +239,6 @@ export default function App() {
   };
 
   const pending = state.pendingAction;
-  // Un debito o uno scambio hanno la precedenza: congelano la partita.
   const buy = pending?.type === 'awaiting_buy' ? pending : null;
   const debt = pending?.type === 'awaiting_debt' ? pending : null;
   const trade = pending?.type === 'awaiting_trade' ? pending : null;
@@ -247,6 +247,30 @@ export default function App() {
   const tax = pending?.type === 'awaiting_tax' ? pending : null;
   const auction = pending?.type === 'awaiting_auction' ? pending : null;
   const buySquare = buy ? board.find((s) => s.position === buy.position) : null;
+
+  // Un modale a tutto schermo resta giustificato solo quando aspetta proprio
+  // una decisione di chi guarda: acquisto, carta, affitto, tassa e debito
+  // riguardano una sola persona (chi deve premere il bottone), quindi per
+  // chiunque altro non c'è nulla da decidere — solo un fatto da vedere, che
+  // ora arriva dalla striscia degli eventi invece di rubare lo schermo. È
+  // esattamente la causa del difetto "il compositore di scambio si azzera da
+  // solo": prima questi modali comparivano per *tutti* al tavolo, non solo
+  // per chi doveva agire, e smontavano quel che c'era sotto.
+  const buyIsMine = !!buy && buy.playerId === playerId;
+  const cardIsMine = !!card && card.playerId === playerId;
+  const rentIsMine = !!rent && rent.playerId === playerId;
+  const taxIsMine = !!tax && tax.playerId === playerId;
+  const debtIsMine = !!debt && debt.playerId === playerId;
+  // Lo scambio è un'eccezione alla regola sopra: riguarda due persone, non
+  // una sola. Il destinatario (`trade.playerId`, cioè `toId`) deve rispondere,
+  // ma anche chi l'ha proposto (`fromId`) è parte in causa — vuole vedere che
+  // l'altro sta decidendo, non solo saperlo dal registro dopo il fatto. Un
+  // terzo giocatore non coinvolto, invece, non ha nulla da guardare qui.
+  const tradeConcernsMe = !!trade && (trade.playerId === playerId || trade.fromId === playerId);
+  // L'asta è l'altra eccezione, e non riguarda solo due persone ma tutto il
+  // tavolo: gira a turno fra i partecipanti, e chi non deve rilanciare adesso
+  // vuole comunque seguirla in diretta — è un'asta vera, non un affare privato
+  // fra due giocatori. Resta quindi visibile a tutti, senza filtro.
   const winner = state.finished ? state.players.find((p) => p.id === state.winnerId) : null;
   const inspectedSquare = inspected !== null ? board.find((s) => s.position === inspected) : null;
   const hoChiestoRivincita = state.rematchVotes.includes(playerId);
@@ -262,6 +286,12 @@ export default function App() {
           Connessione persa · riconnessione in corso…
         </div>
       )}
+      {/* Non legata a nessun pendingAction: scorre da sola qualunque cosa
+          succeda altrove, ed è per questo che sta fuori da ogni ramo
+          condizionale qui sotto — deve continuare a funzionare anche mentre
+          un modale bloccante copre lo schermo di qualcun altro. */}
+      <EventTicker log={state.log} isMobile={isMobile} />
+
       <div style={styles.boardArea}>
         {board.length > 0 && (
           <Board
@@ -294,26 +324,24 @@ export default function App() {
       {inspectedSquare && (
         <SquareDetail square={inspectedSquare} state={state} onClose={() => setInspected(null)} />
       )}
-      {buy && buySquare && (
-        <BuyModal pending={buy} square={buySquare} isMe={buy.playerId === playerId} />
-      )}
-      {card && <CardModal pending={card} state={state} myId={playerId} />}
-      {rent && (
+      {buy && buySquare && buyIsMine && <BuyModal pending={buy} square={buySquare} />}
+      {card && cardIsMine && <CardModal pending={card} />}
+      {rent && rentIsMine && (
         <RentModal
           pending={rent}
           square={board.find((s) => s.position === rent.position)}
           state={state}
-          myId={playerId}
         />
       )}
-      {tax && (
+      {tax && taxIsMine && (
         <TaxModal
           pending={tax}
           square={board.find((s) => s.position === tax.position)}
           state={state}
-          myId={playerId}
         />
       )}
+      {/* Nessun filtro qui: l'asta si segue in diretta anche da chi non deve
+          rilanciare adesso, vedi il commento sopra su `tradeConcernsMe`. */}
       {auction && (
         <AuctionModal
           pending={auction}
@@ -322,9 +350,16 @@ export default function App() {
           myId={playerId}
         />
       )}
-      {debt && <DebtModal pending={debt} board={board} state={state} myId={playerId} />}
-      {trade && <TradeOfferModal pending={trade} board={board} state={state} myId={playerId} />}
-      {composingTrade && !pending && (
+      {debt && debtIsMine && <DebtModal pending={debt} board={board} state={state} myId={playerId} />}
+      {trade && tradeConcernsMe && (
+        <TradeOfferModal pending={trade} board={board} state={state} myId={playerId} />
+      )}
+      {/* Non più condizionato da `!pending`: uno scambio altrui (o qualunque
+          altra azione in sospeso non mia) non deve più smontare quello che
+          sto componendo. Il server rifiuta comunque l'invio finché c'è un
+          pendingAction aperto — è TradeModal/TradeWizard a disabilitare il
+          bottone e spiegarlo, non questo componente a sparire. */}
+      {composingTrade && (
         isTouch ? (
           <TradeWizard
             board={board}

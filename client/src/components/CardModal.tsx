@@ -1,4 +1,4 @@
-import { AwaitingCard, GameState, socket } from '../socket';
+import { AwaitingCard, socket } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 
 // Imprevisti e Probabilità hanno colori e simboli distinti, come i due mazzi
@@ -12,18 +12,13 @@ const DECKS = {
  * La carta pescata, mostrata prima che il suo effetto si applichi. È il pezzo
  * che mancava: gli effetti scattavano invisibili e la pedina sembrava spostarsi
  * per conto suo.
+ *
+ * Solo chi l'ha pescata deve fare qualcosa (confermare di averla letta):
+ * App.tsx monta questo componente solo per lui. Per tutti gli altri il testo
+ * della carta è già nel registro ("X pesca: ..."), e passa nella striscia
+ * degli eventi invece che in un modale a tutto schermo.
  */
-export default function CardModal({
-  pending,
-  state,
-  myId,
-}: {
-  pending: AwaitingCard;
-  state: GameState;
-  myId: string;
-}) {
-  const drawer = state.players.find((p) => p.id === pending.playerId);
-  const isMine = pending.playerId === myId;
+export default function CardModal({ pending }: { pending: AwaitingCard }) {
   const deck = DECKS[pending.deck] || DECKS.chance;
 
   return (
@@ -36,17 +31,13 @@ export default function CardModal({
         <span style={{ ...styles.symbol, color: deck.accent }}>{deck.symbol}</span>
         <p style={styles.text}>{pending.text}</p>
 
-        {isMine ? (
-          <button
-            className="btn-primary"
-            style={styles.button}
-            onClick={() => socket.emit('acknowledge_card', {})}
-          >
-            Ho capito
-          </button>
-        ) : (
-          <p style={styles.wait}>{drawer?.name} sta leggendo la carta…</p>
-        )}
+        <button
+          className="btn-primary"
+          style={styles.button}
+          onClick={() => socket.emit('acknowledge_card', {})}
+        >
+          Ho capito
+        </button>
       </div>
     </div>
   );
@@ -60,5 +51,4 @@ const styles: Record<string, React.CSSProperties> = {
   symbol: { fontFamily: 'var(--font-display)', fontSize: '2.6rem', lineHeight: 1, display: 'block' },
   text: { fontSize: '1.05rem', lineHeight: 1.5, color: 'var(--paper)', margin: '14px 0 22px' },
   button: { width: '100%', minHeight: TOUCH_TARGET },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
 };
