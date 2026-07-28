@@ -93,7 +93,15 @@ const styles: Record<string, React.CSSProperties> = {
   // Su schermi bassi la finestra deve stare dentro il viewport e scorrere al
   // suo interno: `alignItems: flex-start` evita che il contenuto più alto dello
   // schermo esca da sopra, dove non lo raggiunge nessuno scorrimento.
+  // L'`overflowY` qui sotto sembra ridondante col `maxHeight` della card, e non
+  // lo è: non toglierlo. È la rete di sicurezza per i casi in cui nemmeno
+  // comprimendo l'elenco il contenuto fisso ci sta — viewport bassissimi, nomi
+  // lunghi che vanno a capo — e per i browser mobile dove 100vh non coincide
+  // con l'area davvero visibile.
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 25, padding: 20, overflowY: 'auto' },
+  // `margin: auto` centra la finestra quando c'è spazio e collassa quando non
+  // ce n'è, lasciando che sia `alignItems: flex-start` a tenerla attaccata in
+  // alto invece di farla uscire da sopra.
   card: { padding: 28, width: 480, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 14 },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   title: { fontSize: '1.4rem' },
