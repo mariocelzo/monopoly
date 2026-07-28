@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket, GameState, BoardSquare } from './socket';
 import { useIsMobile, useIsTouchLayout } from './useIsMobile';
+import { useTurnAttention } from './useTurnAttention';
 import {
   clearLogBookmark,
   clearRoom,
@@ -192,6 +193,12 @@ export default function App() {
       window.removeEventListener('focus', ensureConnected);
     };
   }, []);
+
+  // Titolo e favicon lampeggianti quando tocca a questo giocatore (turno o
+  // pendingAction che lo nomina) e la scheda è in secondo piano: vedi
+  // useTurnAttention.ts per il perché. Va chiamato qui, prima di ogni return
+  // condizionale, così l'ordine degli hook resta lo stesso a ogni render.
+  useTurnAttention(state, playerId);
 
   if (!playerId || !state) {
     if (rejoining) {

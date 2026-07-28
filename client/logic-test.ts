@@ -16,6 +16,7 @@ import { latestLogAt, missedSince } from './src/awayRecap.ts';
 import { capTickerQueue, TICKER_ENTRY_LIFETIME_MS, TICKER_MAX_VISIBLE, visibleTickerEntries } from './src/eventTicker.ts';
 import type { TickerItem } from './src/eventTicker.ts';
 import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts';
+import { isGameWaitingFor } from './src/turnAlert.ts';
 
 let passed = 0;
 let failed = 0;
@@ -252,6 +253,72 @@ section('5. Riepilogo di fine partita');
   // statFor: 0 per chi non compare ancora nella mappa, non undefined/NaN.
   check('giocatore assente dalla mappa vale 0', statFor({}, 'chiunque') === 0);
   check('giocatore presente restituisce il suo valore', statFor({ io: 250 }, 'io') === 250);
+}
+
+// ---------------------------------------------------------------------------
+section('6. Avviso di turno: quando il gioco aspetta proprio questo giocatore');
+{
+  // Stato minimo per i test: solo i campi che isGameWaitingFor guarda
+  // davvero contano, il resto è riempito con valori innocui.
+  const statoBase = (overrides: Partial<GameState>): GameState => ({
+    roomCode: 'ABCDE',
+    players: [
+      { id: 'io', name: 'Io', token: 'auto', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: false },
+      { id: 'bot', name: 'Bot', token: 'cane', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: true },
+    ],
+    ownership: {},
+    turnIndex: 0,
+    started: true,
+    log: [],
+    pendingAction: null,
+    finished: false,
+    winnerId: null,
+    endedReason: null,
+    hostId: 'io',
+    rematchVotes: [],
+    lastRoll: null,
+    stats: { startedAt: null, finishedAt: null, rentPaid: {}, rentCollected: {}, bankPaid: {}, purchases: {}, housesBuilt: {}, landings: {}, laps: {}, tradesCompleted: 0 },
+    ...overrides,
+  });
+
+  // Nessun pendingAction: si aspetta solo chi ha il turno.
+  check('è il mio turno, nessuna azione in sospeso: mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 0 }), 'io') === true);
+  check('è il turno del bot: non mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 1 }), 'io') === false);
+
+  // pendingAction che mi nomina: mi aspetta anche se non sono io ad avere
+  // in mano i dadi (es. un'asta che gira, o un affitto innescato dal bot
+  // che è atterrato su una mia proprietà... qui basta il caso base).
+  check('pendingAction con playerId uguale al mio: mi aspetta',
+    isGameWaitingFor(statoBase({
+      turnIndex: 1,
+      pendingAction: { type: 'awaiting_rent', playerId: 'io', position: 5, amount: 20, ownerId: 'bot', doubled: false },
+    }), 'io') === true);
+
+  // pendingAction che nomina qualcun altro: non mi aspetta, anche se il
+  // turno di tirare i dadi sarebbe il mio.
+  check('pendingAction con playerId altrui: non mi aspetta',
+    isGameWaitingFor(statoBase({
+      turnIndex: 0,
+      pendingAction: { type: 'awaiting_auction', playerId: 'bot', position: 5, price: 100, currentBid: 100, currentBidderId: null, queue: ['bot', 'io'], passedIds: [] },
+    }), 'io') === false);
+
+  // Scambio proposto a me: sono il playerId (destinatario) e devo rispondere.
+  check('scambio da valutare, sono il destinatario: mi aspetta',
+    isGameWaitingFor(statoBase({
+      pendingAction: { type: 'awaiting_trade', playerId: 'io', fromId: 'bot', toId: 'io', offerProperties: [], offerMoney: 0, offerJailCards: 0, requestProperties: [], requestMoney: 0, requestJailCards: 0 },
+    }), 'io') === true);
+
+  // Partita non ancora iniziata, o già finita: non aspetta nessuno.
+  check('partita non iniziata: non aspetta nessuno',
+    isGameWaitingFor(statoBase({ started: false, turnIndex: 0 }), 'io') === false);
+  check('partita finita: non aspetta nessuno anche se sarebbe il mio turno',
+    isGameWaitingFor(statoBase({ finished: true, turnIndex: 0 }), 'io') === false);
+
+  // Senza un mio id (non ancora assegnato) non può aspettare me.
+  check('nessun myId: non mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 0 }), null) === false);
 }
 
 // ---------------------------------------------------------------------------
