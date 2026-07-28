@@ -66,10 +66,18 @@ export default function TradeOfferModal({
 
         {isRecipient ? (
           <div style={styles.actions}>
-            <button className="btn-primary" onClick={() => socket.emit('respond_trade', { accept: true })}>
+            <button
+              className="btn-primary"
+              style={styles.actionBtn}
+              onClick={() => socket.emit('respond_trade', { accept: true })}
+            >
               Accetta
             </button>
-            <button className="btn-ghost" onClick={() => socket.emit('respond_trade', { accept: false })}>
+            <button
+              className="btn-ghost"
+              style={styles.actionBtn}
+              onClick={() => socket.emit('respond_trade', { accept: false })}
+            >
               Rifiuta
             </button>
           </div>
@@ -82,11 +90,16 @@ export default function TradeOfferModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 25, padding: 20 },
-  card: { padding: 28, width: 480, maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 14 },
+  // Su schermi bassi la finestra deve stare dentro il viewport e scorrere al
+  // suo interno: `alignItems: flex-start` evita che il contenuto più alto dello
+  // schermo esca da sopra, dove non lo raggiunge nessuno scorrimento.
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 25, padding: 20, overflowY: 'auto' },
+  card: { padding: 28, width: 480, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 14 },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   title: { fontSize: '1.4rem' },
-  columns: { display: 'flex', gap: 16, flexWrap: 'wrap' },
+  // minHeight: 0 è indispensabile: senza, un figlio flex non si restringe sotto
+  // il proprio contenuto e deborda in silenzio, che è la causa del difetto.
+  columns: { display: 'flex', gap: 16, flexWrap: 'wrap', overflowY: 'auto', minHeight: 0 },
   side: { flex: '1 1 190px', display: 'flex', flexDirection: 'column', gap: 6, padding: 12, borderRadius: 10, background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(201,150,44,0.15)' },
   sideTitle: { fontSize: '0.74rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.6)' },
   none: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.4)', fontStyle: 'italic', margin: 0 },
@@ -96,6 +109,9 @@ const styles: Record<string, React.CSSProperties> = {
   mortgaged: { fontSize: '0.62rem', color: '#e18a8a', fontFamily: 'var(--font-mono)' },
   money: { fontSize: '1rem', color: 'var(--brass-2)', marginTop: 4 },
   cards: { fontSize: '0.78rem', color: 'var(--paper)', marginTop: 2 },
-  actions: { display: 'flex', gap: 10 },
+  // flexShrink: 0 tiene i bottoni fuori dall'area che scorre: qualunque cosa ci
+  // sia nel baratto, Accetta e Rifiuta restano raggiungibili.
+  actions: { display: 'flex', gap: 10, flexShrink: 0 },
   wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
+  actionBtn: { flex: 1, minHeight: 46, fontSize: '0.95rem' },
 };
