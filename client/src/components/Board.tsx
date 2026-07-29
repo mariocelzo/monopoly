@@ -333,10 +333,30 @@ export default function Board({
               {owned?.mortgaged &&
                 (compact ? <span style={styles.mortgageDot}>✕</span> : <span style={styles.mortgageTag}>IPOT.</span>)}
 
-              {/* Pedone del proprietario in un angolo: conferma la velatura
-                  anche per chi non distingue bene le tinte vicine. */}
+              {/* Segno del proprietario: un angolo ripiegato sullo spigolo
+                  della casella, non un gettone. Prima era un pallino tondo
+                  con dentro la stessa emoji della pedina — sulla casella,
+                  con la pedina di quel giocatore sopra, erano due tondi
+                  identici e non si capiva più "è sua" da "ci si trova
+                  sopra adesso". Qui la differenza si legge prima di mettere
+                  a fuoco: sagoma a spigolo invece che tonda, piatta contro
+                  il bordo invece che in rilievo sopra la casella, ed è
+                  sempre nello stesso angolo (basso a destra) mentre la
+                  pedina gira intorno al centro — tre segnali diversi, non
+                  solo la dimensione. */}
               {owner && (
-                <span style={{ ...styles.ownerBadge, borderColor: colorOf(owner.id) }}>{owner.token}</span>
+                <div
+                  style={{
+                    ...styles.ownerFold,
+                    // Sfumatura che scurisce verso la piega (l'ipotenusa, in
+                    // alto a sinistra della sagoma) e torna al colore pieno
+                    // verso la punta appoggiata sul bordo: legge come carta
+                    // ripiegata, non come una macchia di colore uniforme.
+                    background: `linear-gradient(135deg, rgba(8,14,11,0.55) 0%, ${hexToRgba(colorOf(owner.id), 0.85)} 62%)`,
+                  }}
+                >
+                  <span style={styles.ownerFoldIcon}>{owner.token}</span>
+                </div>
               )}
             </div>
           );
@@ -505,21 +525,38 @@ const styles: Record<string, React.CSSProperties> = {
     inset: 0,
     pointerEvents: 'none',
   },
-  ownerBadge: {
+  // Attaccato esattamente allo spigolo (bottom:0/right:0, non un margine
+  // percentuale come il vecchio pallino) perché deve leggere come parte del
+  // bordo della casella, non come un oggetto posato sopra — è lo spigolo
+  // ripiegato, non un cerchio vicino allo spigolo. Niente border-radius,
+  // niente border, niente box-shadow: quei tre tratti restano riservati
+  // alla pedina, così le due cose non si assomigliano nemmeno da lontano.
+  ownerFold: {
     position: 'absolute',
-    bottom: '3%',
-    right: '3%',
-    width: scaled(0.022, '10px'),
-    height: scaled(0.022, '10px'),
-    borderRadius: '50%',
+    bottom: 0,
+    right: 0,
+    width: scaled(0.03, '12px'),
+    height: scaled(0.03, '12px'),
+    // Triangolo con l'angolo retto nello spigolo della casella: la sagoma a
+    // spigolo (non tonda) è il primo segnale che distingue questo segno
+    // dalla pedina, prima ancora di leggere colore o icona.
+    clipPath: 'polygon(100% 0%, 100% 100%, 0% 100%)',
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: scaled(0.014, '7px'),
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+    padding: '4% 6%',
+    pointerEvents: 'none',
+  },
+  // L'emoji dentro la piega: più piccola e più tenue di quella sulla pedina
+  // (niente bordo, niente ombra propria, un filo di desaturazione) perché
+  // qui è una conferma di chi possiede — la velatura del colore ha già
+  // detto la cosa principale — non un segno da notare per primo. Quel
+  // ruolo resta alla pedina.
+  ownerFoldIcon: {
+    fontSize: scaled(0.0135, '6px'),
     lineHeight: 1,
-    background: 'rgba(12,20,16,0.72)',
-    border: '1px solid',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.55)',
+    filter: 'grayscale(0.3)',
+    opacity: 0.85,
   },
   // Sagoma di casetta col tetto a punta: il drop-shadow sta in filter perché
   // box-shadow verrebbe tagliato via dal clip-path.
