@@ -31,6 +31,7 @@ import TaxModal from './components/TaxModal';
 import SquareDetail from './components/SquareDetail';
 import AwayRecapModal from './components/AwayRecapModal';
 import GameSummary from './components/GameSummary';
+import LogStrip from './components/LogStrip';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -313,6 +314,16 @@ export default function App() {
         )}
       </div>
 
+      {/* Su telefono, sotto il tabellone, restavano fino a 150px di feltro
+          vuoto: il 37% dello schermo non mostrava niente mentre il registro
+          stava sepolto a due tocchi di distanza, dentro il foglio delle
+          proprietà. Ingrandire il tabellone non era la strada — è quadrato e
+          già largo quanto lo schermo consente — quindi quello spazio si
+          riempie con le ultime righe di registro. A partita non ancora
+          iniziata non si mostra: lì il posto serve al codice del tavolo, al
+          link d'invito e ai comandi dei bot. */}
+      {isMobile && state.started && <LogStrip log={state.log} />}
+
       {isMobile ? (
         <MobileBar
           state={state}
@@ -517,7 +528,11 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
+    // Non più `center`: il centraggio spalmava lo spazio libero metà sopra e
+    // metà sotto il tabellone, lasciando due bande di feltro vuoto (150px
+    // ciascuna su un telefono da 812). Allineando in alto lo spazio si
+    // raccoglie tutto sotto, dove LogStrip lo riempie col registro.
+    justifyContent: 'flex-start',
     padding: '7px 7px 158px',
     minHeight: '100%',
   },
