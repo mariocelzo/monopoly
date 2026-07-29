@@ -46,6 +46,21 @@ export const PLAYER_COLORS = [
 const CORNER_ICONS: Record<number, string> = { 0: '➜', 10: '⛓', 20: '🅿', 30: '👮' };
 const CORNER_LABELS: Record<number, string> = { 0: 'VIA', 10: 'PRIGIONE', 20: 'SOSTA', 30: 'IN GALERA' };
 
+/** Da '#rrggbb' a 'rgba(r,g,b,a)', per velare le caselle possedute senza toccare l'opacità dell'intero elemento. */
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Quanto è forte la velatura del colore del proprietario sulla casella.
+// Tenuta bassa apposta: i colori dei giocatori (l'ottone, il rosa) sono vicini
+// a quelli dei gruppi (giallo, rosa), e con troppa intensità le due fasce di
+// colore si confondono — non si capisce più né il gruppo né il proprietario.
+// La fascia del gruppo resta sempre a piena intensità sopra questa velatura.
+const OWNER_WASH_ALPHA = 0.16;
+
 /**
  * Tutte le misure interne del tabellone derivano dalla sua larghezza (--bw), non
  * da rem fissi: così su telefono i testi rimpiccioliscono insieme alle caselle
@@ -236,7 +251,16 @@ export default function Board({
   // spariscano per un istante al primo disegno su desktop.
   const compact = measured > 0 && measured < NAME_THRESHOLD;
 
+  // Sotto i ~400px di tabellone (un telefono stretto) il centro è troppo
+  // piccolo per il sottotitolo del marchio oltre a dadi e pastiglie: si
+  // toglie quello, che è il pezzo meno utile a chi gioca.
+  const veryCompact = measured > 0 && measured < 400;
+
   const roller = ultimoTiro ? state.players.find((p) => p.id === ultimoTiro.playerId) : null;
+  const somma = ultimoTiro ? ultimoTiro.dice[0] + ultimoTiro.dice[1] : null;
+  // Dimensione dei dadi: protagonisti del centro, ma con margine per non
+  // strabordare quando il tabellone è stretto.
+  const diceSize = compact ? 32 : 50;
 
   return (
     <div style={{ ...styles.frame, padding: isMobile ? 5 : 10 }}>
@@ -274,6 +298,12 @@ export default function Board({
                   : square.name
               }
             >
+              {/* Velatura del colore del proprietario: sta sotto la fascia del
+                  gruppo (che la ricopre a piena intensità) e sopra lo sfondo
+                  della casella, così il tabellone legge come una mappa di
+                  territori senza far sparire il colore del gruppo. */}
+              {owner && <div style={{ ...styles.ownerWash, background: hexToRgba(colorOf(owner.id), OWNER_WASH_ALPHA) }} />}
+
               {square.group && (
                 <div
                   style={{
@@ -302,46 +332,83 @@ export default function Board({
               )}
               {owned?.mortgaged &&
                 (compact ? <span style={styles.mortgageDot}>✕</span> : <span style={styles.mortgageTag}>IPOT.</span>)}
+
+              {/* Pedone del proprietario in un angolo: conferma la velatura
+                  anche per chi non distingue bene le tinte vicine. */}
+              {owner && (
+                <span style={{ ...styles.ownerBadge, borderColor: colorOf(owner.id) }}>{owner.token}</span>
+              )}
             </div>
           );
         })}
 
         <div style={styles.center}>
-          <span className="display" style={styles.centerTitle}>MONOPOLY</span>
-          <span style={styles.centerSub}>edizione Noi Due</span>
+          {/* Il marchio resta, ma solo come filigrana dietro la plancia:
+              qui si guarda soprattutto mentre si gioca, non per leggere
+              "MONOPOLY". Posizionato in assoluto e senza z-index proprio,
+              così l'ordine nel markup basta a tenerlo dietro al contenuto
+              vero (vedi le regole di stacking di un elemento position:
+              relative seguito da un fratello position: relative). */}
+          <div style={styles.watermark}>
+            <span className="display" style={styles.watermarkTitle}>MONOPOLY</span>
+            {!veryCompact && <span style={styles.watermarkSub}>edizione Noi Due</span>}
+          </div>
 
-          {ultimoTiro && (
-            <div style={styles.diceBox}>
-              <Dice
-                dice={ultimoTiro.dice}
-                seq={ultimoTiro.seq}
-                size={compact ? 26 : 38}
-              />
-              <span style={styles.diceCaption}>
-                {roller?.name} · {ultimoTiro.dice[0] + ultimoTiro.dice[1]}
-              </span>
+          <div style={styles.plancia}>
+            {/* I dadi restano al loro posto anche senza un tiro da mostrare:
+                le due varianti (vero tiro / in attesa) hanno la stessa
+                struttura e la stessa altezza, così la plancia non salta
+                quando ultimoTiro torna a null (vedi useUltimoTiro sopra). */}
+            <div style={styles.diceArea}>
+              {ultimoTiro ? (
+                <>
+                  <Dice dice={ultimoTiro.dice} seq={ultimoTiro.seq} size={diceSize} />
+                  <span style={styles.diceCaption}>
+                    <strong style={{ color: roller ? colorOf(roller.id) : undefined }}>
+                      {roller?.name}
+                    </strong>{' '}
+                    ha fatto {somma}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: diceSize * 0.25 }}>
+                    <span style={{ ...styles.diceGhost, width: diceSize, height: diceSize, borderRadius: diceSize * 0.18 }} />
+                    <span style={{ ...styles.diceGhost, width: diceSize, height: diceSize, borderRadius: diceSize * 0.18 }} />
+                  </div>
+                  <span style={{ ...styles.diceCaption, opacity: 0.45 }}>in attesa del tiro…</span>
+                </>
+              )}
             </div>
-          )}
 
-          <div style={styles.legend}>
-            {state.players.map((p) => {
-              const diTurno = !state.finished && state.players[state.turnIndex]?.id === p.id;
-              return (
-                <div
-                  key={p.id}
-                  style={{
-                    ...styles.legendItem,
-                    ...(diTurno ? { ...styles.legendActive, borderColor: colorOf(p.id) } : null),
-                    opacity: p.bankrupt ? 0.35 : 1,
-                  }}
-                >
-                  <span style={{ ...styles.legendDot, background: colorOf(p.id) }} />
-                  <span style={styles.legendToken}>{p.token}</span>
-                  <span style={styles.legendName}>{p.name}</span>
-                  {diTurno && <span style={styles.legendTurn}>sta giocando</span>}
-                </div>
-              );
-            })}
+            <div style={styles.playerRow}>
+              {state.players.map((p) => {
+                const diTurno = !state.finished && state.players[state.turnIndex]?.id === p.id;
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      ...styles.playerPill,
+                      ...(diTurno
+                        ? {
+                            ...styles.playerPillActive,
+                            borderColor: colorOf(p.id),
+                            boxShadow: `0 0 0 1px ${colorOf(p.id)}, 0 0 10px ${colorOf(p.id)}66`,
+                          }
+                        : null),
+                      opacity: p.bankrupt ? 0.35 : 1,
+                    }}
+                  >
+                    {diTurno && <span style={{ ...styles.pillArrow, color: colorOf(p.id) }}>▶</span>}
+                    <span style={styles.pillToken}>{p.token}</span>
+                    <span style={styles.pillName}>{p.name}</span>
+                    <span style={{ ...styles.pillBalance, color: p.balance < 0 ? '#e18a8a' : 'var(--brass-2)' }}>
+                      €{p.balance}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -430,6 +497,30 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     gap: '4%',
   },
+  // Copre tutta la casella; il colore vero arriva inline (dipende dal
+  // proprietario). Sta prima della colorBar nel markup, quindi quella la
+  // ricopre: la fascia del gruppo non si vela mai.
+  ownerWash: {
+    position: 'absolute',
+    inset: 0,
+    pointerEvents: 'none',
+  },
+  ownerBadge: {
+    position: 'absolute',
+    bottom: '3%',
+    right: '3%',
+    width: scaled(0.022, '10px'),
+    height: scaled(0.022, '10px'),
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: scaled(0.014, '7px'),
+    lineHeight: 1,
+    background: 'rgba(12,20,16,0.72)',
+    border: '1px solid',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.55)',
+  },
   // Sagoma di casetta col tetto a punta: il drop-shadow sta in filter perché
   // box-shadow verrebbe tagliato via dal clip-path.
   house: {
@@ -471,62 +562,90 @@ const styles: Record<string, React.CSSProperties> = {
   center: {
     gridRow: '2 / 11',
     gridColumn: '2 / 11',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '1.5%',
-    padding: '4%',
+    position: 'relative',
     // Anello in ottone attorno al centro, come la cornice del tabellone vero.
     margin: '2.5%',
     border: '1.5px solid rgba(201,150,44,0.22)',
     borderRadius: 14,
     boxShadow: 'inset 0 0 34px rgba(0,0,0,0.22)',
   },
-  centerTitle: {
+  // Filigrana del marchio: riempie il centro da dietro, la plancia vera
+  // (position: relative, disegnata dopo nel markup) le sta sopra.
+  // In alto, non al centro: filigrana e plancia erano entrambe centrate
+  // verticalmente e finivano una sopra l'altra — la didascalia dei dadi
+  // cadeva esattamente sulla scritta MONOPOLY e non si leggeva più né l'una
+  // né l'altra. Abbassare l'opacità non bastava: testo su testo resta
+  // illeggibile comunque, serve separarli.
+  watermark: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: '7%',
+    gap: '1.5%',
+    pointerEvents: 'none',
+  },
+  watermarkTitle: {
     fontSize: scaled(0.072),
     color: 'var(--brass)',
     letterSpacing: '0.06em',
-    opacity: 0.45,
+    opacity: 0.22,
     textShadow: '0 2px 10px rgba(0,0,0,0.4)',
   },
-  centerSub: {
+  watermarkSub: {
     fontFamily: 'var(--font-mono)',
     fontSize: scaled(0.017, '9px'),
     color: 'var(--paper)',
-    opacity: 0.3,
+    opacity: 0.16,
   },
-  diceBox: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginTop: '6%' },
+  // La plancia vera: dadi e pastiglie, quello che si guarda mentre si gioca.
+  plancia: {
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4%',
+    padding: '4%',
+    height: '100%',
+  },
+  // Stessa forma sia col tiro vero sia in attesa, così l'altezza non cambia
+  // e la plancia non "salta" quando ultimoTiro torna a null.
+  diceArea: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 },
+  diceGhost: {
+    display: 'block',
+    background: 'rgba(243,234,216,0.06)',
+    border: '1px dashed rgba(243,234,216,0.18)',
+  },
   diceCaption: {
     fontFamily: 'var(--font-mono)',
-    fontSize: scaled(0.016, '9px'),
-    color: 'var(--brass-2)',
-    opacity: 0.8,
-  },
-  legend: { display: 'flex', gap: '6%', marginTop: '6%', flexWrap: 'wrap', justifyContent: 'center' },
-  legendItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 5,
-    fontSize: scaled(0.017, '10px'),
-    color: 'rgba(243,234,216,0.75)',
-  },
-  legendActive: {
-    border: '1px solid',
-    borderRadius: 999,
-    padding: '2px 9px',
-    background: 'rgba(0,0,0,0.25)',
+    fontSize: scaled(0.019, '10px'),
     color: 'var(--paper)',
   },
-  legendTurn: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: scaled(0.013, '8px'),
-    color: 'var(--brass-2)',
-    opacity: 0.9,
+  playerRow: { display: 'flex', gap: '4%', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '100%' },
+  playerPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '3px 8px',
+    borderRadius: 999,
+    border: '1px solid transparent',
+    fontSize: scaled(0.015, '9px'),
+    color: 'rgba(243,234,216,0.75)',
+    background: 'rgba(0,0,0,0.18)',
   },
-  legendDot: { width: scaled(0.013, '7px'), height: scaled(0.013, '7px'), borderRadius: 2 },
-  legendToken: { fontSize: scaled(0.023, '13px') },
-  legendName: { fontFamily: 'var(--font-mono)' },
+  // Chi sta giocando adesso: pastiglia col bordo e il bagliore del suo
+  // colore, così si vede a colpo d'occhio senza dover leggere il testo.
+  playerPillActive: {
+    background: 'rgba(0,0,0,0.32)',
+    color: 'var(--paper)',
+  },
+  pillArrow: { fontSize: scaled(0.011, '7px'), lineHeight: 1 },
+  pillToken: { fontSize: scaled(0.021, '12px'), lineHeight: 1 },
+  pillName: { fontFamily: 'var(--font-mono)' },
+  pillBalance: { fontFamily: 'var(--font-mono)', fontWeight: 700 },
   pawn: {
     position: 'absolute',
     width: scaled(0.037, '17px'),
