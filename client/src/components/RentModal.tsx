@@ -6,21 +6,27 @@ import { TOUCH_TARGET } from '../touchTarget';
  * L'affitto dovuto, mostrato prima che il denaro cambi di mano. Prima veniva
  * addebitato in silenzio: il saldo calava senza spiegazione e sembrava che
  * atterrare su una proprietà altrui non costasse nulla.
+ *
+ * App.tsx monta questo componente solo per chi deve pagare (`pending.playerId
+ * === myId`): il proprietario che incassa e chiunque altro al tavolo non
+ * hanno nulla da decidere, e vedono il fatto passare nella striscia degli
+ * eventi invece che in un modale a tutto schermo. Per questo qui dentro non
+ * c'è più un ramo "non tocca a te" — prima c'era, e diceva "X deve pagarti" a
+ * chiunque lo guardasse, anche a un terzo giocatore che non c'entrava nulla
+ * con quell'affitto: era proprio quel testo il difetto da correggere, e la
+ * radice era mostrare questo modale a chi non doveva agire.
  */
 export default function RentModal({
   pending,
   square,
   state,
-  myId,
 }: {
   pending: AwaitingRent;
   square: BoardSquare | undefined;
   state: GameState;
-  myId: string;
 }) {
   const payer = state.players.find((p) => p.id === pending.playerId);
   const owner = state.players.find((p) => p.id === pending.ownerId);
-  const isPayer = pending.playerId === myId;
   const bandColor = square?.group ? GROUP_COLORS[square.group] : 'var(--brass)';
 
   // Quanto resterebbe dopo aver pagato: se è negativo si aprirà un debito, e
@@ -38,28 +44,20 @@ export default function RentModal({
 
         {pending.doubled && <p style={styles.doubled}>Raddoppiato dalla carta pescata</p>}
 
-        <p style={styles.who}>
-          {isPayer ? `Da versare a ${owner?.name}.` : `${payer?.name} deve pagarti.`}
-        </p>
+        <p style={styles.who}>Da versare a {owner?.name}.</p>
 
-        {isPayer ? (
-          <>
-            {dopo < 0 && (
-              <p style={styles.warning}>
-                Non ti basta: dopo il pagamento dovrai vendere o ipotecare.
-              </p>
-            )}
-            <button
-              className="btn-primary"
-              style={styles.button}
-              onClick={() => socket.emit('pay_rent', {})}
-            >
-              Paga €{pending.amount}
-            </button>
-          </>
-        ) : (
-          <p style={styles.wait}>In attesa che {payer?.name} paghi…</p>
+        {dopo < 0 && (
+          <p style={styles.warning}>
+            Non ti basta: dopo il pagamento dovrai vendere o ipotecare.
+          </p>
         )}
+        <button
+          className="btn-primary"
+          style={styles.button}
+          onClick={() => socket.emit('pay_rent', {})}
+        >
+          Paga €{pending.amount}
+        </button>
       </div>
     </div>
   );
@@ -76,5 +74,4 @@ const styles: Record<string, React.CSSProperties> = {
   who: { fontSize: '0.86rem', color: 'rgba(243,234,216,0.7)', margin: '12px 0 0' },
   warning: { fontSize: '0.78rem', color: '#e18a8a', margin: '14px 0 0', lineHeight: 1.4 },
   button: { width: '100%', minHeight: TOUCH_TARGET, marginTop: 20, fontSize: '1rem' },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: '18px 0 0' },
 };

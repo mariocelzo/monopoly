@@ -4,20 +4,21 @@ import { TOUCH_TARGET } from '../touchTarget';
 /**
  * La tassa dovuta, mostrata prima del pagamento. Stesso trattamento
  * dell'affitto: prima il denaro se ne andava senza che nessuno lo vedesse.
+ *
+ * Come RentModal, App.tsx la monta solo per chi deve pagare: per gli altri al
+ * tavolo non c'è nessuna decisione da prendere qui, solo un fatto ("X paga la
+ * tassa") che passa nella striscia degli eventi.
  */
 export default function TaxModal({
   pending,
   square,
   state,
-  myId,
 }: {
   pending: AwaitingTax;
   square: BoardSquare | undefined;
   state: GameState;
-  myId: string;
 }) {
   const payer = state.players.find((p) => p.id === pending.playerId);
-  const isPayer = pending.playerId === myId;
   const dopo = (payer?.balance ?? 0) - pending.amount;
 
   return (
@@ -28,28 +29,20 @@ export default function TaxModal({
         <span style={styles.eyebrow}>tassa da pagare</span>
         <h2 style={styles.title}>{square?.name || 'Tassa'}</h2>
         <p className="mono" style={styles.amount}>€{pending.amount}</p>
-        <p style={styles.who}>
-          {isPayer ? 'Vanno alla banca.' : `${payer?.name} paga alla banca.`}
-        </p>
+        <p style={styles.who}>Vanno alla banca.</p>
 
-        {isPayer ? (
-          <>
-            {dopo < 0 && (
-              <p style={styles.warning}>
-                Non ti basta: dopo il pagamento dovrai vendere o ipotecare.
-              </p>
-            )}
-            <button
-              className="btn-primary"
-              style={styles.button}
-              onClick={() => socket.emit('pay_tax', {})}
-            >
-              Paga €{pending.amount}
-            </button>
-          </>
-        ) : (
-          <p style={styles.wait}>In attesa che {payer?.name} paghi…</p>
+        {dopo < 0 && (
+          <p style={styles.warning}>
+            Non ti basta: dopo il pagamento dovrai vendere o ipotecare.
+          </p>
         )}
+        <button
+          className="btn-primary"
+          style={styles.button}
+          onClick={() => socket.emit('pay_tax', {})}
+        >
+          Paga €{pending.amount}
+        </button>
       </div>
     </div>
   );
@@ -66,5 +59,4 @@ const styles: Record<string, React.CSSProperties> = {
   who: { fontSize: '0.86rem', color: 'rgba(243,234,216,0.7)', margin: '12px 0 0' },
   warning: { fontSize: '0.78rem', color: '#e18a8a', margin: '14px 0 0', lineHeight: 1.4 },
   button: { width: '100%', minHeight: TOUCH_TARGET, marginTop: 20, fontSize: '1rem' },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: '18px 0 0' },
 };

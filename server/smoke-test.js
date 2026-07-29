@@ -39,6 +39,19 @@ function give(game, playerId, position, extra = {}) {
   game.ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false, ...extra };
 }
 
+/**
+ * Fa passare tutti quelli in coda in un'asta aperta, così la casella resta
+ * libera. Serve ai test più vecchi di questa regola, che rinunciano a una
+ * proprietà per esercitare altro (i doppi, la prigione) e si aspettano che
+ * dopo la rinuncia il tiro riprenda subito, come prima che rinunciare aprisse
+ * un'asta.
+ */
+function passAuction(game) {
+  while (game.pendingAction?.type === 'awaiting_auction') {
+    game.passAuction(game.pendingAction.playerId);
+  }
+}
+
 // Le tre caselle arancioni: monopolio comodo per i test sull'edificazione.
 const ORANGE = board.filter((s) => s.group === 'orange').map((s) => s.position);
 const BROWN = board.filter((s) => s.group === 'brown').map((s) => s.position);
@@ -354,7 +367,10 @@ section('10e. Tre doppi consecutivi mandano in prigione');
   // subito, così il turno prosegue e col doppio il tiro extra spetta comunque.
   const rollAndDecline = () => {
     game.rollDice('a');
-    if (game.pendingAction?.type === 'awaiting_buy') game.declineBuy('a');
+    if (game.pendingAction?.type === 'awaiting_buy') {
+      game.declineBuy('a');
+      passAuction(game); // nessuno offre: la casella resta libera come prima
+    }
     if (game.pendingAction?.type === 'awaiting_tax') game.payTax('a');
     if (game.pendingAction?.type === 'awaiting_rent') game.payRent('a');
   };
@@ -410,7 +426,10 @@ section('10h. Uscire di prigione col doppio non dà il tiro extra');
   const realRandom = Math.random;
   Math.random = () => 0.5; // 4 e 4: doppio
   game.rollDice('a');
-  if (game.pendingAction?.type === 'awaiting_buy') game.declineBuy('a');
+  if (game.pendingAction?.type === 'awaiting_buy') {
+    game.declineBuy('a');
+    passAuction(game);
+  }
   Math.random = realRandom;
 
   check('esce di prigione', mario.inJail === false);
@@ -471,6 +490,23 @@ section('12. Partita simulata, 300 turni');
         const debtor = game.pendingAction.playerId;
         if (Math.random() < 0.8) game.resolveDebtAuto(debtor);
         else game.declareBankruptcy(debtor);
+        continue;
+      }
+
+      // Asta in sospeso: chi tocca rilancia al minimo se se lo può permettere
+      // ed è dell'umore giusto, altrimenti passa. Esercita anche il caso in
+      // cui l'asta gira per più mosse prima di chiudersi da sé.
+      if (game.pendingAction?.type === 'awaiting_auction') {
+        const bidderId = game.pendingAction.playerId;
+        const bidder = game.players.find((p) => p.id === bidderId);
+        // Il minimo non è più fisso: si legge quello esposto dal motore
+        // (game.pendingAction.minBid), calcolato sul listino della casella.
+        const minBid = game.pendingAction.minBid;
+        if (bidder && minBid <= bidder.balance && Math.random() < 0.5) {
+          game.bidAuction(bidderId, minBid);
+        } else {
+          game.passAuction(bidderId);
+        }
         continue;
       }
 
@@ -1040,7 +1076,10 @@ section('27. Bot: decisioni durante il turno');
   check('riconosce che tocca al bot', isBotTurn(game) === true);
   const posPrima = game.players[1].position;
   botMove(game);
-  check('il bot ha tirato i dadi', game.lastRoll !== null);
+  // rollCount e non lastRoll: se il tiro non apre nulla in sospeso (niente da
+  // comprare, niente carta) il turno si chiude subito e lastRoll torna null,
+  // ma il tiro c'è comunque stato.
+  check('il bot ha tirato i dadi', game.rollCount > 0, `rollCount=${game.rollCount}`);
   check('la pedina si è mossa o ha un\'azione aperta',
     game.players[1].position !== posPrima || game.pendingAction !== null);
 
@@ -1117,12 +1156,18 @@ section('27. Bot: decisioni durante il turno');
   // Lo stato "ho appena fatto doppio" si costruisce a mano invece di cercare
   // dadi che ci arrivino per caso: così il test non dipende dal tabellone.
   g6.lastRoll = { playerId: bot6.id, dice: [3, 3], seq: 1 };
+  g6.rollCount = 1;
   g6.lastRollWasDouble = true;
   g6.turnResolved = false;
   bot6.doublesInARow = 1;
   botMove(g6);
-  check('dopo un doppio il bot ritira', g6.lastRoll.seq === 2, `seq=${g6.lastRoll.seq}`);
-  check('il tiro extra è suo', g6.lastRoll.playerId === bot6.id);
+  // Si guarda rollCount e non lastRoll.seq: da quando il tabellone smette di
+  // mostrare il tiro di chi ha già giocato, lastRoll torna null appena il turno
+  // si chiude — e il secondo tiro, se non è a sua volta un doppio e non apre
+  // nulla in sospeso, chiude il turno all'istante. Leggere lì dentro faceva
+  // fallire questo test una volta ogni sette.
+  check('dopo un doppio il bot ritira', g6.rollCount === 2, `rollCount=${g6.rollCount}`);
+  check('il tiro extra è suo', g6.lastRoll === null || g6.lastRoll.playerId === bot6.id);
 
   // Senza doppio invece non deve ritirare: chiude il turno e passa la mano.
   // (Stato costruito a mano: nel gioco vero il motore chiude da sé, qui si
@@ -1134,11 +1179,15 @@ section('27. Bot: decisioni durante il turno');
   g7.turnIndex = 1;
   const bot7 = g7.players[1];
   g7.lastRoll = { playerId: bot7.id, dice: [2, 5], seq: 1 };
+  g7.rollCount = 1;
   g7.lastRollWasDouble = false;
   g7.turnResolved = false;
   botMove(g7);
-  check('senza doppio non ritira', g7.lastRoll.seq === 1, `seq=${g7.lastRoll.seq}`);
+  // rollCount non si tocca a fine turno (a differenza di lastRoll): resta 1
+  // a conferma che il bot non ha ritirato i dadi una seconda volta.
+  check('senza doppio non ritira', g7.rollCount === 1, `rollCount=${g7.rollCount}`);
   check('senza doppio passa la mano', g7.turnIndex === 0, `turnIndex=${g7.turnIndex}`);
+  check('senza doppio la scritta del tiro sparisce', g7.lastRoll === null);
 }
 
 section('28. Bot: risposta agli scambi');
@@ -1246,6 +1295,372 @@ section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
       Math.random = vero;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+section('30. Regola della casa: montepremi della Sosta Gratuita');
+{
+  // Una tassa pagata alla banca deve far crescere il montepremi.
+  const game = newGame();
+  const mario = game.players[0];
+  mario.position = 0;
+  game.movePlayer(mario, 4); // casella 4: Tassa patrimoniale, 200
+  check('la tassa è in sospeso', game.pendingAction?.type === 'awaiting_tax');
+  game.payTax('a');
+  check(
+    'la tassa pagata alla banca gonfia il montepremi',
+    game.freeParkingPot === 200,
+    `pot=${game.freeParkingPot}`
+  );
+
+  // Un affitto pagato a un altro giocatore non deve toccare il montepremi.
+  const primaDelAffitto = game.freeParkingPot;
+  give(game, 'b', ORANGE[0]);
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, ORANGE[0] - 10);
+  check('l\'affitto è in sospeso', game.pendingAction?.type === 'awaiting_rent');
+  game.payRent('a');
+  check(
+    'l\'affitto pagato a un altro giocatore non gonfia il montepremi',
+    game.freeParkingPot === primaDelAffitto,
+    `pot=${game.freeParkingPot}`
+  );
+
+  // La multa di prigione (pagata alla banca) gonfia il montepremi.
+  const primaDellaMulta = game.freeParkingPot;
+  mario.inJail = true;
+  game.payJailFine('a');
+  check(
+    'la multa di prigione gonfia il montepremi',
+    game.freeParkingPot === primaDellaMulta + 50,
+    `pot=${game.freeParkingPot}`
+  );
+
+  // Chi atterra sulla Sosta Gratuita incassa tutto e il montepremi torna a zero.
+  const saldoPrimaDiIncassare = mario.balance;
+  const potPrimaDiIncassare = game.freeParkingPot;
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, 10); // casella 20: Sosta Gratuita
+  check(
+    'chi atterra sulla Sosta incassa il montepremi',
+    mario.balance === saldoPrimaDiIncassare + potPrimaDiIncassare,
+    `saldo=${mario.balance}`
+  );
+  check('il montepremi torna a zero dopo l\'incasso', game.freeParkingPot === 0);
+
+  // Atterrare sulla Sosta col montepremi già vuoto non deve rompere nulla.
+  const saldoConPotVuoto = mario.balance;
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, 10); // di nuovo sulla Sosta Gratuita, montepremi vuoto
+  check(
+    'atterrare sulla Sosta col montepremi vuoto non cambia il saldo',
+    mario.balance === saldoConPotVuoto,
+    `saldo=${mario.balance}`
+  );
+  check('il montepremi resta a zero', game.freeParkingPot === 0);
+
+  // Il montepremi arriva nello stato serializzato per il client.
+  game.freeParkingPot = 42;
+  const state = game.serialize();
+  check(
+    'il montepremi è nello stato serializzato',
+    state.freeParkingPot === 42,
+    `serialized=${state.freeParkingPot}`
+  );
+
+  // La rivincita azzera il montepremi, senza portarselo dietro.
+  game.finished = true;
+  game.requestRematch('a');
+  game.requestRematch('b');
+  check('la rivincita azzera il montepremi', game.freeParkingPot === 0, `pot=${game.freeParkingPot}`);
+}
+
+// ---------------------------------------------------------------------------
+section('31. lastRoll sparisce a fine turno, resta col doppio');
+{
+  // Chiusura normale del turno: senza doppio il tiro non è più quello in
+  // corso, quindi il tabellone non deve più mostrare chi ha tirato.
+  const game = newGame();
+  const mario = game.players[0];
+  mario.position = 0;
+  give(game, mario.id, 3); // già sua: atterrarci non apre un acquisto in sospeso
+  game.turnResolved = false;
+  game.movePlayer(mario, 3); // niente da comprare, niente doppio
+  game.lastRoll = { playerId: mario.id, dice: [1, 2], seq: 7 };
+  game.finishRoll(mario);
+  check('dopo la chiusura del turno il tiro non è più esposto', game.lastRoll === null);
+  check('il turno è passato all\'avversario', game.turnIndex === 1, `turnIndex=${game.turnIndex}`);
+
+  // Col doppio il turno resta suo: la scritta deve restare, perché quel tiro
+  // è ancora quello in corso e sta per ritirare.
+  const game2 = newGame();
+  const mario2 = game2.players[0];
+  game2.turnResolved = false;
+  game2.lastRollWasDouble = true;
+  game2.lastRoll = { playerId: mario2.id, dice: [4, 4], seq: 3 };
+  game2.finishRoll(mario2);
+  check('dopo un doppio il tiro resta esposto', game2.lastRoll !== null);
+  check('è ancora il turno di chi ha fatto doppio', game2.turnIndex === 0, `turnIndex=${game2.turnIndex}`);
+
+  // Tiro in prigione senza doppio: si resta dentro, il turno passa e la
+  // scritta del tiro precedente non deve restare a suggerire che stia ancora
+  // giocando lui. Dadi truccati (2 e 5, non doppio) per non dipendere dalla
+  // sorte: con un doppio si uscirebbe di prigione senza che il turno passi.
+  const game3 = newGame();
+  const mario3 = game3.players[0];
+  mario3.inJail = true;
+  const realRandom = Math.random;
+  Math.random = (() => {
+    const dadi = [2, 5];
+    let i = 0;
+    return () => (dadi[i++ % 2] - 1) / 6 + 0.001;
+  })();
+  game3.rollDice('a');
+  Math.random = realRandom;
+  check('tiro in prigione senza doppio: resta dentro', mario3.inJail === true);
+  check('tiro in prigione senza doppio: il turno passa', game3.turnIndex === 1, `turnIndex=${game3.turnIndex}`);
+  check('tiro in prigione senza doppio: il tiro non è più esposto', game3.lastRoll === null);
+}
+
+// ---------------------------------------------------------------------------
+section('32. Asta sulla proprietà rifiutata');
+{
+  // Partita a tre così da poter distinguere "non tocca a te" (il turno
+  // dell'asta è andato avanti) da "l'asta si è già chiusa": con solo due
+  // giocatori i due casi coincidono sempre, perché chi passa lascia da solo
+  // l'altro, che vince all'istante.
+  const game = new GameEngine('AUCTION');
+  game.addPlayer('a', 'Mario', '🎩');
+  game.addPlayer('b', 'Giulia', '🐕');
+  game.addPlayer('c', 'Luca', '🚗');
+  game.start();
+  const [mario, giulia, luca] = game.players;
+
+  // Vicolo Corto (1), marrone, listino 60: libera, così l'atterraggio apre
+  // la proposta d'acquisto come su qualunque altra casella libera.
+  game.movePlayer(mario, 1);
+  check('atterrando su una libera si apre la proposta d\'acquisto', game.pendingAction?.type === 'awaiting_buy');
+
+  game.declineBuy('a');
+  check('la rinuncia apre l\'asta invece di lasciare la casella libera', game.pendingAction?.type === 'awaiting_auction');
+  check('l\'asta parte da chi ha rinunciato', game.pendingAction.playerId === 'a');
+  check('l\'ordine di turno è quello del tavolo, a partire da chi rinuncia', JSON.stringify(game.pendingAction.queue) === JSON.stringify(['a', 'b', 'c']));
+  check('la casella non è ancora di nessuno', !game.ownership[1]);
+
+  const rilancioValido = game.bidAuction('a', 10);
+  check('un rilancio valido (base d\'asta 10) va a buon fine', !rilancioValido.error, JSON.stringify(rilancioValido));
+  check('l\'offerta corrente sale a 10', game.pendingAction.currentBid === 10 && game.pendingAction.currentBidderId === 'a');
+  check('tocca al prossimo in coda', game.pendingAction.playerId === 'b');
+
+  const rilancioBasso = game.bidAuction('b', 15);
+  check('un rilancio sotto il minimo (offerta corrente + 10) è rifiutato', !!rilancioBasso.error, JSON.stringify(rilancioBasso));
+  check('l\'offerta corrente non cambia', game.pendingAction.currentBid === 10);
+
+  giulia.balance = 15;
+  const offertaTroppoAlta = game.bidAuction('b', 20);
+  check('un\'offerta oltre la propria cassa è rifiutata', !!offertaTroppoAlta.error, JSON.stringify(offertaTroppoAlta));
+  giulia.balance = 1500; // ripristinata per il resto del test
+
+  const passoDiGiulia = game.passAuction('b');
+  check('passare è sempre lecito', !passoDiGiulia.error, JSON.stringify(passoDiGiulia));
+  check('chi passa esce dalla coda', !game.pendingAction.queue.includes('b'));
+  check('tocca al prossimo rimasto in coda', game.pendingAction.playerId === 'c');
+
+  const bidDopoIlPasso = game.bidAuction('b', 100);
+  check('chi ha passato non può più offrire', !!bidDopoIlPasso.error, JSON.stringify(bidDopoIlPasso));
+
+  // Con Luca che passa resta un solo giocatore in coda (Mario, con l'unica
+  // offerta): l'asta si chiude da sé, senza che nessuno debba "confermare".
+  game.passAuction('c');
+  check('con un solo rimasto in coda l\'asta si chiude da sé', game.pendingAction === null, JSON.stringify(game.pendingAction));
+  check('la casella è assegnata a chi aveva l\'offerta più alta', game.ownership[1]?.ownerId === 'a');
+  check('il denaro dell\'offerta è stato scalato', mario.balance === 1490, `balance=${mario.balance}`);
+  check('il turno è passato al prossimo giocatore', game.currentPlayer.id === 'b', `turno di ${game.currentPlayer.name}`);
+}
+
+// ---------------------------------------------------------------------------
+section('32b. Un\'asta senza offerte lascia la casella libera');
+{
+  const game = newGame();
+  const mario = game.players[0];
+
+  game.movePlayer(mario, 3); // Vicolo Stretto, marrone, libera
+  game.declineBuy('a');
+  check('l\'asta è aperta', game.pendingAction?.type === 'awaiting_auction');
+
+  passAuction(game); // nessuno offre, entrambi passano
+  check('senza offerte l\'asta si chiude senza assegnare nulla', game.pendingAction === null);
+  check('la casella resta libera', !game.ownership[3]);
+}
+
+// ---------------------------------------------------------------------------
+section('32c. Il tiro extra del doppio sopravvive all\'asta');
+{
+  const game = newGame();
+  const mario = game.players[0];
+
+  // 3+3: doppio, atterra su Bastioni Gran Sasso (6), libera.
+  const realRandom = Math.random;
+  Math.random = () => 0.4;
+  game.rollDice('a');
+  Math.random = realRandom;
+  check('il doppio è registrato', game.lastRollWasDouble === true);
+  check('atterra su una libera', game.pendingAction?.type === 'awaiting_buy');
+
+  game.declineBuy('a');
+  check('la rinuncia apre l\'asta senza chiudere il turno', game.pendingAction?.type === 'awaiting_auction');
+  check('durante l\'asta il turno resta ancora suo', game.currentPlayer.id === 'a');
+
+  passAuction(game); // nessuno offre
+  check('dopo l\'asta il turno non è passato: il doppio non è andato perso', game.currentPlayer.id === 'a');
+  check('nessuna azione in sospeso', game.pendingAction === null);
+
+  const ritiro = game.rollDice('a');
+  check('può ritirare subito dopo l\'asta, come da diritto del doppio', !ritiro.error, JSON.stringify(ritiro));
+}
+
+// ---------------------------------------------------------------------------
+section('32d. Un bot partecipa all\'asta e la chiude da solo, in una partita di soli bot');
+{
+  const game = new GameEngine('BOTS-AUCTION');
+  game.addBot('Bot Uno', '🐕');
+  game.addBot('Bot Due', '🎩');
+  game.start();
+  const [botA, botB] = game.players;
+  const totalePrima = botA.balance + botB.balance;
+
+  game.movePlayer(botA, 1); // Vicolo Corto, libera
+  check('il bot atterra su una libera e gli si propone l\'acquisto', game.pendingAction?.type === 'awaiting_buy');
+  game.declineBuy(botA.id);
+  check('la rinuncia del bot apre l\'asta', game.pendingAction?.type === 'awaiting_auction');
+
+  let giri = 0;
+  let crashed = null;
+  try {
+    while (game.pendingAction?.type === 'awaiting_auction' && giri < 50) {
+      const mosso = botMove(game);
+      if (!mosso) break; // rete di sicurezza: non dovrebbe mai succedere qui
+      giri += 1;
+    }
+  } catch (err) {
+    crashed = err;
+  }
+
+  check('nessun crash mentre i bot fanno l\'asta', crashed === null, crashed && crashed.stack);
+  check(
+    'l\'asta fra soli bot si chiude da sola, senza restare appesa',
+    game.pendingAction?.type !== 'awaiting_auction',
+    `dopo ${giri} mosse: ${JSON.stringify(game.pendingAction)}`
+  );
+  const totaleDopo = botA.balance + botB.balance;
+  check(
+    'il denaro tornato alla banca coincide con l\'eventuale assegnazione',
+    game.ownership[1] ? totaleDopo < totalePrima : totaleDopo === totalePrima,
+    `prima=${totalePrima} dopo=${totaleDopo} ownership=${JSON.stringify(game.ownership[1])}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('32e. Il rilancio minimo scala col prezzo di listino, non è più fisso a 10');
+{
+  // Vicolo Corto (1), marrone, listino 60: casella economica. Con la formula
+  // (prezzo/80 arrotondato alla decina) l'incremento resta 10, come prima
+  // della modifica: su una casella così a buon mercato non doveva cambiare
+  // nulla.
+  const gameEconomica = newGame();
+  const marioEconomico = gameEconomica.players[0];
+  gameEconomica.movePlayer(marioEconomico, 1);
+  gameEconomica.declineBuy('a');
+  check(
+    'casella economica (60): il minimo d\'asta resta piccolo, sull\'ordine della decina',
+    gameEconomica.pendingAction.minBid === 10,
+    `minBid=${gameEconomica.pendingAction.minBid}`
+  );
+
+  // Parco della Vittoria (39), blu, listino 400: la più cara del tabellone.
+  // Si arriva in posizione 39 muovendo di 39 spazi da 0 (il Via), senza
+  // giro del tabellone: niente Via da incassare, la casella è ancora libera.
+  const gameCara = newGame();
+  const marioCaro = gameCara.players[0];
+  gameCara.movePlayer(marioCaro, 39);
+  gameCara.declineBuy('a');
+  check(
+    'casella cara (400): il minimo d\'asta è consistente ma non spropositato (400/8=50)',
+    gameCara.pendingAction.minBid === 50,
+    `minBid=${gameCara.pendingAction.minBid}`
+  );
+  check(
+    'il minimo su una casella cara resta un numero tondo (multiplo di 10)',
+    gameCara.pendingAction.minBid % 10 === 0
+  );
+  check(
+    'partendo da zero, per chiudere l\'asta intorno al listino bastano 8 rilanci (400/50), non i 40 di un incremento fisso da 10',
+    Math.ceil(400 / gameCara.pendingAction.minIncrement) === 8
+  );
+
+  // Un rilancio sotto il minimo va rifiutato, sia sulla casella economica che
+  // su quella cara: il tetto minimo non è solo esposto, va anche rispettato.
+  const bidBassoEconomico = gameEconomica.bidAuction('a', 5);
+  check(
+    'sotto il minimo su una casella economica il rilancio è rifiutato',
+    !!bidBassoEconomico.error,
+    JSON.stringify(bidBassoEconomico)
+  );
+  const bidBassoCaro = gameCara.bidAuction('a', 40);
+  check(
+    'sotto il minimo su una casella cara il rilancio è rifiutato (40 < 50)',
+    !!bidBassoCaro.error,
+    JSON.stringify(bidBassoCaro)
+  );
+  const bidValidoCaro = gameCara.bidAuction('a', 50);
+  check(
+    'al minimo esatto il rilancio su una casella cara va a buon fine',
+    !bidValidoCaro.error,
+    JSON.stringify(bidValidoCaro)
+  );
+  check(
+    'dopo il rilancio la soglia successiva è offerta + incremento (50+50=100)',
+    gameCara.pendingAction.minBid === 100,
+    `minBid=${gameCara.pendingAction.minBid}`
+  );
+}
+
+section('32f. Un\'asta fra bot si chiude anche su una casella cara');
+{
+  // Il test 32d usa Vicolo Corto, che costa 60: lì il rilancio minimo resta 10
+  // e il difetto non si vedeva. Quando il minimo è diventato proporzionale al
+  // listino, bot.js continuava a offrire 10 di suo: il motore rifiutava, il
+  // rifiuto non cambiava lo stato, e toccava di nuovo allo stesso bot — asta
+  // bloccata per sempre, e con lei la partita. I test restavano verdi e solo la
+  // calibrazione lo mostrava, con le partite concluse crollate dal 99% al 13%.
+  // Quindi qui si usa la casella più cara del tabellone.
+  const CARA = board.reduce((m, s) => (s.price || 0) > (m.price || 0) ? s : m, board[1]);
+
+  const game = new GameEngine('ASTA-CARA');
+  game.addBot('Bot Uno', '🐕');
+  game.addBot('Bot Due', '🎩');
+  game.start();
+  const botA = game.players[0];
+
+  game.movePlayer(botA, CARA.position);
+  game.declineBuy(botA.id);
+  check('l\'asta sulla casella cara è aperta', game.pendingAction?.type === 'awaiting_auction',
+    `casella=${CARA.name} (${CARA.price})`);
+  check('il rilancio minimo è più alto che sulle caselle economiche',
+    game.pendingAction.minBid > 10, `minBid=${game.pendingAction.minBid}`);
+
+  let giri = 0;
+  while (game.pendingAction?.type === 'awaiting_auction' && giri < 60) {
+    if (!botMove(game)) break;
+    giri += 1;
+  }
+  check('l\'asta si chiude invece di girare a vuoto',
+    game.pendingAction?.type !== 'awaiting_auction',
+    `dopo ${giri} mosse è ancora aperta`);
+  check('e ci arriva in poche mosse, non decine', giri < 25, `mosse=${giri}`);
 }
 
 // ---------------------------------------------------------------------------

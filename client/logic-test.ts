@@ -12,6 +12,11 @@ import { board } from '../server/src/data/board.js';
 import { propertyGroups } from './src/propertyGroups.ts';
 import type { BoardSquare, GameState } from './src/socket.ts';
 import { MOBILE_BREAKPOINT, TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
+import { latestLogAt, missedSince } from './src/awayRecap.ts';
+import { capTickerQueue, TICKER_ENTRY_LIFETIME_MS, TICKER_MAX_VISIBLE, visibleTickerEntries } from './src/eventTicker.ts';
+import type { TickerItem } from './src/eventTicker.ts';
+import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts';
+import { isGameWaitingFor } from './src/turnAlert.ts';
 
 let passed = 0;
 let failed = 0;
@@ -106,6 +111,214 @@ section('2. Soglia di assetto touch');
     TOUCH_LAYOUT_QUERY.includes('hover: none'), TOUCH_LAYOUT_QUERY);
   check('la soglia comprende anche gli schermi stretti',
     TOUCH_LAYOUT_QUERY.includes(`max-width: ${MOBILE_BREAKPOINT}px`), TOUCH_LAYOUT_QUERY);
+}
+
+// ---------------------------------------------------------------------------
+section('3. Riepilogo del registro durante una disconnessione');
+{
+  const registro: GameState['log'] = [
+    { message: 'Mario tira 3 e 4', at: 100 },
+    { message: 'Mario paga affitto a Luigi', at: 200 },
+    { message: 'Luigi tira 5 e 1', at: 300 },
+  ];
+
+  // Senza un segnalibro precedente (primo ingresso al tavolo) non c'è nulla
+  // da riepilogare, anche se il registro non è vuoto.
+  check('nessun segnalibro precedente: niente da riepilogare',
+    missedSince(registro, null).length === 0);
+
+  // Il segnalibro coincide con l'ultima riga vista: non è successo nulla di
+  // nuovo, quindi il riquadro non deve comparire.
+  check('nulla di nuovo dopo l\'ultima riga vista',
+    missedSince(registro, 300).length === 0);
+
+  // Solo le righe più recenti del segnalibro sono "successe mentre non c'ero".
+  const perse = missedSince(registro, 100);
+  check('solo le righe successive al segnalibro',
+    perse.length === 2 && perse[0].at === 200 && perse[1].at === 300,
+    JSON.stringify(perse));
+
+  // Un segnalibro più avanzato dell'intero registro (caso limite) non deve
+  // far esplodere nulla: semplicemente non c'è niente da mostrare.
+  check('segnalibro oltre l\'ultima riga: nessun errore, lista vuota',
+    missedSince(registro, 9999).length === 0);
+
+  // Le righe di sola connessione (le logga il motore a ogni caduta di rete e
+  // a ogni rientro) sono rumore per il riepilogo: da sole non devono farlo
+  // comparire, altrimenti scatterebbe a ogni riconnessione anche quando in
+  // partita non cambia nulla.
+  const soloConnessione: GameState['log'] = [
+    { message: 'Mario si è disconnesso.', at: 150 },
+    { message: 'Mario è tornato.', at: 250 },
+  ];
+  check('le sole notifiche di connessione non contano come "successo qualcosa"',
+    missedSince(soloConnessione, 100).length === 0);
+
+  // Ma se nel frattempo è successo anche altro, quello resta nel riepilogo:
+  // si scartano solo le righe di connessione, non l'intera finestra.
+  const misto: GameState['log'] = [
+    { message: 'Mario si è disconnesso.', at: 150 },
+    { message: 'Bot Aurelio compra Corso Magellano per 220.', at: 180 },
+    { message: 'Mario è tornato.', at: 250 },
+  ];
+  const soloReale = missedSince(misto, 100);
+  check('tra rumore e contenuto reale, resta solo il contenuto reale',
+    soloReale.length === 1 && soloReale[0].message.includes('Corso Magellano'),
+    JSON.stringify(soloReale));
+
+  // latestLogAt tiene il punto più avanzato tra quanto già noto e il nuovo
+  // registro: non deve mai regredire.
+  check('latestLogAt prende il massimo del registro',
+    latestLogAt(registro, null) === 300);
+  check('latestLogAt non regredisce rispetto al segnalibro esistente',
+    latestLogAt([], 500) === 500);
+  check('latestLogAt avanza se il registro porta un punto più recente',
+    latestLogAt(registro, 150) === 300);
+}
+
+// ---------------------------------------------------------------------------
+section('4. Striscia degli eventi: quali voci restano in coda e per quanto');
+{
+  const voce = (id: number, shownAt: number): TickerItem => ({ id, message: `voce ${id}`, shownAt });
+
+  // Appena mostrata, resta visibile.
+  check('una voce appena mostrata è ancora visibile',
+    visibleTickerEntries([voce(1, 1000)], 1000).length === 1);
+
+  // Poco prima della scadenza, ancora visibile.
+  const pocoPrima = visibleTickerEntries([voce(1, 1000)], 1000 + TICKER_ENTRY_LIFETIME_MS - 1);
+  check('un istante prima della scadenza è ancora visibile', pocoPrima.length === 1);
+
+  // Esattamente alla scadenza (confine incluso: `now - shownAt` uguale alla
+  // durata) non è più visibile: la finestra è aperta a destra.
+  const allaScadenza = visibleTickerEntries([voce(1, 1000)], 1000 + TICKER_ENTRY_LIFETIME_MS);
+  check('esattamente alla scadenza non è più visibile', allaScadenza.length === 0);
+
+  // Ben oltre la scadenza, sparita.
+  const oltre = visibleTickerEntries([voce(1, 1000)], 1000 + TICKER_ENTRY_LIFETIME_MS + 5000);
+  check('molto dopo la scadenza è sparita', oltre.length === 0);
+
+  // Una coda mista: solo le voci ancora entro la loro finestra sopravvivono,
+  // le altre si tolgono senza toccare quelle rimaste.
+  const coda = [voce(1, 0), voce(2, 3000), voce(3, 6000)];
+  const now = 6500;
+  const rimaste = visibleTickerEntries(coda, now);
+  check('in una coda mista restano solo le voci non scadute',
+    rimaste.length === 2 && rimaste[0].id === 2 && rimaste[1].id === 3,
+    JSON.stringify(rimaste));
+
+  // Coda vuota: nessun errore, nessuna voce.
+  check('una coda vuota resta vuota', visibleTickerEntries([], Date.now()).length === 0);
+
+  // Un turno rumoroso (atterra, paga, passa il turno) non deve far crescere
+  // la striscia senza limite: solo le voci più recenti restano.
+  const raffica = [voce(1, 0), voce(2, 0), voce(3, 0), voce(4, 0), voce(5, 0)];
+  const tenute = capTickerQueue(raffica);
+  check(`non restano più di ${TICKER_MAX_VISIBLE} voci insieme`,
+    tenute.length === TICKER_MAX_VISIBLE, `restate=${tenute.length}`);
+  check('a parità di scadenza, si scartano le più vecchie e restano le ultime',
+    tenute[0].id === 3 && tenute[1].id === 4 && tenute[2].id === 5,
+    JSON.stringify(tenute.map((t) => t.id)));
+
+  // Sotto il tetto, nessun taglio: la coda passa invariata.
+  const poche = [voce(1, 0), voce(2, 0)];
+  check('una coda già corta non viene toccata', capTickerQueue(poche) === poche);
+}
+
+// ---------------------------------------------------------------------------
+section('5. Riepilogo di fine partita');
+{
+  // formatDuration: sotto l'ora si mostrano solo i minuti, arrotondati.
+  check('meno di un minuto arrotonda a 0 min', formatDuration(20_000) === '0 min');
+  check('42 minuti esatti', formatDuration(42 * 60_000) === '42 min');
+  // 41 min 58s arrotonda a 42 min: i secondi non contano nel riepilogo.
+  check('arrotonda al minuto più vicino', formatDuration(41 * 60_000 + 58_000) === '42 min');
+  check('un\'ora esatta', formatDuration(60 * 60_000) === '1h 00min');
+  check('un\'ora e mezza', formatDuration(90 * 60_000) === '1h 30min');
+  check('minuti a due cifre col padding dopo l\'ora', formatDuration(65 * 60_000) === '1h 05min');
+  check('una durata negativa (orologi disallineati) non va sotto zero', formatDuration(-5000) === '0 min');
+
+  // mostVisitedSquare: cerca il massimo tra gli atterraggi registrati.
+  check('nessun atterraggio registrato: nessuna casella', mostVisitedSquare({}, tabellone) === null);
+  const atterraggi = { 1: 3, 5: 7, 10: 2 };
+  const piuVisitata = mostVisitedSquare(atterraggi, tabellone);
+  check('trova la casella col conteggio più alto',
+    piuVisitata?.square.position === 5 && piuVisitata.count === 7,
+    JSON.stringify(piuVisitata));
+  // Una posizione fuori dal tabellone noto (client disallineato dal server)
+  // non deve far esplodere il riepilogo: si ignora e basta.
+  check('posizione sconosciuta al tabellone non esplode',
+    mostVisitedSquare({ 999: 5 }, tabellone) === null);
+
+  // statFor: 0 per chi non compare ancora nella mappa, non undefined/NaN.
+  check('giocatore assente dalla mappa vale 0', statFor({}, 'chiunque') === 0);
+  check('giocatore presente restituisce il suo valore', statFor({ io: 250 }, 'io') === 250);
+}
+
+// ---------------------------------------------------------------------------
+section('6. Avviso di turno: quando il gioco aspetta proprio questo giocatore');
+{
+  // Stato minimo per i test: solo i campi che isGameWaitingFor guarda
+  // davvero contano, il resto è riempito con valori innocui.
+  const statoBase = (overrides: Partial<GameState>): GameState => ({
+    roomCode: 'ABCDE',
+    players: [
+      { id: 'io', name: 'Io', token: 'auto', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: false },
+      { id: 'bot', name: 'Bot', token: 'cane', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: true },
+    ],
+    ownership: {},
+    turnIndex: 0,
+    started: true,
+    log: [],
+    pendingAction: null,
+    finished: false,
+    winnerId: null,
+    endedReason: null,
+    hostId: 'io',
+    rematchVotes: [],
+    lastRoll: null,
+    stats: { startedAt: null, finishedAt: null, rentPaid: {}, rentCollected: {}, bankPaid: {}, purchases: {}, housesBuilt: {}, landings: {}, laps: {}, tradesCompleted: 0 },
+    ...overrides,
+  });
+
+  // Nessun pendingAction: si aspetta solo chi ha il turno.
+  check('è il mio turno, nessuna azione in sospeso: mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 0 }), 'io') === true);
+  check('è il turno del bot: non mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 1 }), 'io') === false);
+
+  // pendingAction che mi nomina: mi aspetta anche se non sono io ad avere
+  // in mano i dadi (es. un'asta che gira, o un affitto innescato dal bot
+  // che è atterrato su una mia proprietà... qui basta il caso base).
+  check('pendingAction con playerId uguale al mio: mi aspetta',
+    isGameWaitingFor(statoBase({
+      turnIndex: 1,
+      pendingAction: { type: 'awaiting_rent', playerId: 'io', position: 5, amount: 20, ownerId: 'bot', doubled: false },
+    }), 'io') === true);
+
+  // pendingAction che nomina qualcun altro: non mi aspetta, anche se il
+  // turno di tirare i dadi sarebbe il mio.
+  check('pendingAction con playerId altrui: non mi aspetta',
+    isGameWaitingFor(statoBase({
+      turnIndex: 0,
+      pendingAction: { type: 'awaiting_auction', playerId: 'bot', position: 5, price: 100, currentBid: 100, currentBidderId: null, queue: ['bot', 'io'], passedIds: [] },
+    }), 'io') === false);
+
+  // Scambio proposto a me: sono il playerId (destinatario) e devo rispondere.
+  check('scambio da valutare, sono il destinatario: mi aspetta',
+    isGameWaitingFor(statoBase({
+      pendingAction: { type: 'awaiting_trade', playerId: 'io', fromId: 'bot', toId: 'io', offerProperties: [], offerMoney: 0, offerJailCards: 0, requestProperties: [], requestMoney: 0, requestJailCards: 0 },
+    }), 'io') === true);
+
+  // Partita non ancora iniziata, o già finita: non aspetta nessuno.
+  check('partita non iniziata: non aspetta nessuno',
+    isGameWaitingFor(statoBase({ started: false, turnIndex: 0 }), 'io') === false);
+  check('partita finita: non aspetta nessuno anche se sarebbe il mio turno',
+    isGameWaitingFor(statoBase({ finished: true, turnIndex: 0 }), 'io') === false);
+
+  // Senza un mio id (non ancora assegnato) non può aspettare me.
+  check('nessun myId: non mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 0 }), null) === false);
 }
 
 // ---------------------------------------------------------------------------

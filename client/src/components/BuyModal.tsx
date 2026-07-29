@@ -1,13 +1,17 @@
 import { AwaitingBuy, BoardSquare, socket } from '../socket';
 
+/**
+ * Proprietà libera su cui comprare o rinunciare. App.tsx la monta solo per
+ * chi è atterrato lì (`pending.playerId === myId`): nessun altro al tavolo
+ * deve decidere nulla, e il fatto ("X è su Y, libera") passa nella striscia
+ * degli eventi invece che in un modale a tutto schermo.
+ */
 export default function BuyModal({
   pending,
   square,
-  isMe,
 }: {
   pending: AwaitingBuy;
   square: BoardSquare;
-  isMe: boolean;
 }) {
   return (
     <div style={styles.overlay}>
@@ -15,20 +19,14 @@ export default function BuyModal({
         <span style={styles.eyebrow}>proprietà libera</span>
         <h2 style={styles.title}>{square.name}</h2>
         <p className="mono" style={styles.price}>€{pending.price}</p>
-        {isMe ? (
-          <div style={styles.actions}>
-            <button className="btn-primary" onClick={() => socket.emit('buy_property', {})}>
-              Compra
-            </button>
-            <button className="btn-ghost" onClick={() => socket.emit('decline_buy', {})}>
-              Rinuncia
-            </button>
-          </div>
-        ) : (
-          <p style={{ color: 'rgba(243,234,216,0.6)', marginTop: 12 }}>
-            In attesa che l'altro giocatore decida...
-          </p>
-        )}
+        <div style={styles.actions}>
+          <button className="btn-primary" onClick={() => socket.emit('buy_property', {})}>
+            Compra
+          </button>
+          <button className="btn-ghost" onClick={() => socket.emit('decline_buy', {})}>
+            Rinuncia
+          </button>
+        </div>
       </div>
     </div>
   );

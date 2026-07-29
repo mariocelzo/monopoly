@@ -98,9 +98,50 @@ function risolvePendingAction(game) {
       game.respondTrade(bot.id, evaluateTrade(game, bot.id, pa));
       return true;
 
+    case 'awaiting_auction': {
+      const square = board[pa.position];
+      // La soglia la dice il motore: qui non si ricalcola. Duplicarla è già
+      // costato caro una volta — quando il rilancio minimo è diventato
+      // proporzionale al listino, questo punto continuava a offrire 10, il
+      // motore rifiutava, il rifiuto non cambiava lo stato e toccava di nuovo
+      // allo stesso bot, all'infinito.
+      const minBid = pa.minBid;
+      const tetto = tettoAsta(game, bot, square);
+      // Non rilancia se supera il proprio tetto, o se non se lo può proprio
+      // permettere: passare è sempre lecito, anche per chi ha appena rinunciato.
+      if (minBid > tetto || minBid > bot.balance) {
+        game.passAuction(bot.id);
+        return true;
+      }
+      // Se per qualunque ragione il rilancio viene rifiutato, si passa invece
+      // di riprovare: un'offerta respinta non muove lo stato, e ritentarla
+      // bloccherebbe la partita per tutti.
+      if (game.bidAuction(bot.id, minBid).error) game.passAuction(bot.id);
+      return true;
+    }
+
     default:
       return false;
   }
+}
+
+/**
+ * Quanto è disposto a spendere un bot per aggiudicarsi una casella all'asta.
+ * Si parte da propertyScore, lo stesso giudizio usato per decidere se
+ * comprare al listino: un punteggio alto (vicino a un monopolio) alza il
+ * tetto anche oltre il prezzo di listino, uno basso lo tiene comunque un po'
+ * sopra zero, perché in un'asta il prezzo può scendere molto sotto il
+ * listino e vale la pena tentare. La casualità (±15%) evita che due bot con
+ * lo stesso punteggio si fermino sempre alla cifra identica.
+ */
+function tettoAsta(game, bot, square) {
+  const punteggio = propertyScore(game, bot.id, square, bot.balance);
+  const interesse = Math.max(0.15, 0.5 + punteggio * 0.5);
+  const casualita = 0.85 + Math.random() * 0.3;
+  const tetto = Math.round(square.price * interesse * casualita);
+  // Non si scende mai sotto la riserva di sicurezza: un'asta persa per una
+  // casella non deve lasciare il bot senza contanti per gli affitti altrui.
+  return Math.max(0, Math.min(tetto, bot.balance - RISERVA));
 }
 
 /** Una mossa del turno del bot: prigione, costruzione, scambio, dadi. */
@@ -153,12 +194,15 @@ const ultimaCostruzione = new WeakMap();
 
 function haGiaCostruito(game, bot) {
   const mappa = ultimaCostruzione.get(game) || {};
-  return mappa[bot.id] === (game.lastRoll?.seq || 0);
+  // Si usa rollCount e non lastRoll?.seq: lastRoll sparisce a fine turno (il
+  // tabellone non deve più mostrare il tiro di chi ha già giocato), ma questo
+  // controllo deve continuare a funzionare anche a lastRoll già azzerato.
+  return mappa[bot.id] === game.rollCount;
 }
 
 function segnaCostruito(game, bot) {
   const mappa = ultimaCostruzione.get(game) || {};
-  mappa[bot.id] = game.lastRoll?.seq || 0;
+  mappa[bot.id] = game.rollCount;
   ultimaCostruzione.set(game, mappa);
 }
 

@@ -3,10 +3,16 @@ import { TOUCH_TARGET } from '../touchTarget';
 import PropertiesPanel from './PropertiesPanel';
 
 /**
- * Modale di risoluzione del debito. Al debitore offre le tre strade previste dal
- * motore: liquidare a mano dal pannello proprietà, lasciar liquidare in
- * automatico, oppure arrendersi. All'avversario mostra solo l'attesa, perché un
- * debito aperto congela la partita per entrambi.
+ * Modale di risoluzione del debito: offre le tre strade previste dal motore
+ * per rientrare (liquidare a mano dal pannello proprietà, lasciar liquidare
+ * in automatico, oppure arrendersi).
+ *
+ * App.tsx la monta solo per il debitore (`pending.playerId === myId`): è lui
+ * solo a dover scegliere. Prima c'era anche un ramo "attesa" per tutti gli
+ * altri al tavolo — ma nessuno di loro ha un comando da premere qui, e il
+ * registro racconta già l'apertura e la chiusura del debito ("X deve coprire
+ * Y", "X ha saldato il debito", ...): per loro basta la striscia degli
+ * eventi, non un modale che copre lo schermo.
  */
 export default function DebtModal({
   pending,
@@ -19,23 +25,6 @@ export default function DebtModal({
   state: GameState;
   myId: string;
 }) {
-  const debtor = state.players.find((p) => p.id === pending.playerId);
-  const isMe = pending.playerId === myId;
-
-  if (!isMe) {
-    return (
-      <div style={styles.overlay}>
-        <div className="panel" style={styles.waitCard}>
-          <span style={styles.eyebrow}>debito in sospeso</span>
-          <h2 style={styles.title}>{debtor?.name} deve €{pending.amount}</h2>
-          <p style={styles.wait}>
-            Sta decidendo cosa vendere o ipotecare. La partita riprende appena ha saldato.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={styles.overlay}>
       <div className="panel" style={styles.card}>
@@ -87,9 +76,6 @@ const styles: Record<string, React.CSSProperties> = {
   // `margin: auto` la centra quando c'è spazio e collassa quando non ce n'è,
   // lasciando che sia `alignItems: flex-start` a tenerla attaccata in alto.
   card: { padding: 28, width: 420, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12, borderColor: 'rgba(179,58,58,0.5)' },
-  // Anche la card d'attesa ha bisogno di `margin: auto`: condivide l'overlay, che
-  // ora allinea in alto, e senza resterebbe incollata al bordo superiore.
-  waitCard: { padding: 32, width: 340, maxWidth: '100%', margin: 'auto', textAlign: 'center' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#e18a8a' },
   title: { fontSize: '1.45rem' },
   hint: { fontSize: '0.82rem', color: 'rgba(243,234,216,0.7)', margin: 0, lineHeight: 1.5 },
@@ -107,5 +93,4 @@ const styles: Record<string, React.CSSProperties> = {
   // I 46px costano spazio proprio dove ce n'è poco, ma sono le due uscite da un
   // turno congelato: a rimetterci è semmai l'elenco proprietà, che scorre.
   actionBtn: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.95rem' },
-  wait: { color: 'rgba(243,234,216,0.6)', marginTop: 12, fontSize: '0.85rem', lineHeight: 1.5 },
 };

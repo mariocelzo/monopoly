@@ -44,11 +44,11 @@ class GameEngine {
     this.chanceDeck = shuffle(CHANCE_CARDS);
     this.communityDeck = shuffle(COMMUNITY_CARDS);
     // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_tax' |
-    //   'awaiting_debt' | 'awaiting_trade',
+    //   'awaiting_debt' | 'awaiting_trade' | 'awaiting_auction',
     //   playerId, ... }
     // Blocca il flusso del turno finché il giocatore indicato da playerId non
     // risolve: compra o rinuncia, legge la carta, paga l'affitto, salda il
-    // debito, risponde allo scambio.
+    // debito, risponde allo scambio, rilancia o passa all'asta.
     this.pendingAction = null;
     this.finished = false;
     this.winnerId = null;
@@ -78,7 +78,57 @@ class GameEngine {
     this.rentMultiplier = 1;
     // Ultimo tiro mostrato al centro del tabellone. `seq` cresce a ogni lancio
     // così il client riconosce un tiro nuovo anche se i dadi ripetono i valori.
+    // Si azzera a fine turno (vedi endTurn) perché è uno stato di *visualizzazione*:
+    // a turno chiuso quel tiro non è più quello in corso e non va più mostrato.
     this.lastRoll = null;
+    // Contatore di lanci che invece non si azzera mai a fine turno (solo alla
+    // rivincita): genera i `seq` di lastRoll e, soprattutto, resta disponibile
+    // anche quando lastRoll è già stato ripulito per il tabellone. Serve al bot
+    // per sapere se ha già costruito dopo il proprio ultimo tiro (vedi bot.js),
+    // un controllo che altrimenti si romperebbe non appena lastRoll torna null.
+    this.rollCount = 0;
+    // Regola della casa (come il Via a 500): il denaro che i giocatori pagano
+    // alla banca - tasse, multe delle carte, multa di prigione - non sparisce
+    // ma si accumula qui, e chi atterra sulla Sosta Gratuita lo incassa tutto.
+    this.freeParkingPot = 0;
+    // Contatori per il riepilogo di fine partita (vedi resetStats). Il
+    // registro (`log`) da solo non basta: è tappato alle ultime 200 righe, e
+    // una partita lunga ne genera molte di più. Questi contatori crescono nei
+    // punti in cui le cose succedono già, così restano sempre esatti anche
+    // dopo migliaia di eventi, senza dover rileggere il registro.
+    this.resetStats();
+  }
+
+  /**
+   * Azzera i contatori statistici. Separato dal costruttore perché va
+   * richiamato anche da rematch(): senza, la rivincita si porterebbe dietro i
+   * numeri della partita precedente (lo stesso errore già capitato con altri
+   * campi di questa classe, vedi il commento in rematch()).
+   */
+  resetStats() {
+    this.stats = {
+      // Timestamp di inizio/fine, per calcolare la durata mostrata a fine
+      // partita. `null` finché non sono impostati (partita non ancora
+      // iniziata, o non ancora finita).
+      startedAt: null,
+      finishedAt: null,
+      // Tutte le mappe sotto sono playerId -> numero (tranne `landings`, che è
+      // posizione -> numero), create al volo dal primo evento: un giocatore
+      // che non compare vale 0 (vedi bumpStat).
+      rentPaid: {}, // affitti pagati, per chi li paga
+      rentCollected: {}, // affitti incassati, per chi li riceve
+      bankPaid: {}, // denaro finito alla banca: tasse, multe di prigione, carte "paga", riparazioni, interessi
+      purchases: {}, // proprietà comprate, sia a prezzo di listino sia all'asta
+      housesBuilt: {}, // case e hotel costruiti (ogni costruzione conta 1, hotel incluso)
+      landings: {}, // atterraggi per casella: la più visitata si legge cercando il massimo
+      laps: {}, // giri di tabellone completati (passaggi dal Via)
+      tradesCompleted: 0, // scambi andati a buon fine, conteggio unico e globale
+    };
+  }
+
+  /** Incrementa un contatore in una mappa chiave -> numero, creandolo se serve. */
+  bumpStat(map, key, amount = 1) {
+    map[key] = (map[key] || 0) + amount;
   }
 
   /**
@@ -178,6 +228,7 @@ class GameEngine {
     if (this.players.length < 1) return;
     this.started = true;
     this.turnIndex = 0;
+    this.stats.startedAt = Date.now();
     this.addLog('La partita è iniziata!');
   }
 
@@ -207,6 +258,8 @@ class GameEngine {
       hostId: this.hostId,
       rematchVotes: this.rematchVotes,
       lastRoll: this.lastRoll,
+      freeParkingPot: this.freeParkingPot,
+      stats: this.stats,
     };
   }
 
@@ -283,12 +336,27 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_tax';
   }
 
+  hasPendingAuction() {
+    return this.pendingAction?.type === 'awaiting_auction';
+  }
+
   /**
    * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
    * cambiare la merce dopo aver fatto l'offerta.
    */
   tradeFreezeBlocker() {
     return this.hasPendingTrade() ? { error: 'Prima rispondi allo scambio proposto' } : null;
+  }
+
+  /**
+   * Con un'asta in corso il denaro di chi ci partecipa deve restare certo:
+   * costruire o riscattare un'ipoteca a metà asta potrebbe rendere
+   * inaffrontabile un'offerta già fatta, e il conto tornerebbe scoperto solo
+   * all'aggiudicazione. Si congela la spesa libera per tutti finché non si
+   * chiude, come già succede per lo scambio.
+   */
+  auctionFreezeBlocker() {
+    return this.hasPendingAuction() ? { error: 'Prima risolvi l\'asta in corso' } : null;
   }
 
   // ---- Turn flow ----
@@ -305,10 +373,11 @@ class GameEngine {
     const isDouble = d1 === d2;
     // Uscire di prigione col doppio non dà il tiro extra: si esce e basta.
     this.lastRollWasDouble = isDouble && !player.inJail;
+    this.rollCount += 1;
     this.lastRoll = {
       playerId: player.id,
       dice: [d1, d2],
-      seq: (this.lastRoll?.seq || 0) + 1,
+      seq: this.rollCount,
     };
 
     if (player.inJail) {
@@ -366,6 +435,8 @@ class GameEngine {
     if (next < prev) {
       player.balance += GO_AMOUNT;
       this.addLog(`${player.name} passa dal Via e incassa ${GO_AMOUNT}.`);
+      // Passare dal Via è, per definizione, chiudere un giro di tabellone.
+      this.bumpStat(this.stats.laps, player.id);
     }
     player.position = next;
     this.resolveLanding(player);
@@ -388,6 +459,10 @@ class GameEngine {
 
   resolveLanding(player) {
     const square = board[player.position];
+    // Unico punto attraverso cui la pedina "atterra" davvero su una casella
+    // (movePlayer, movePlayerTo e la carta "vai indietro" ci passano tutti):
+    // il posto giusto per contare gli atterraggi una volta sola a testa.
+    this.bumpStat(this.stats.landings, player.position);
     switch (square.type) {
       case 'go':
         break;
@@ -406,7 +481,15 @@ class GameEngine {
         this.sendToJail(player);
         break;
       case 'jail':
+        break;
       case 'free_parking':
+        // Se il montepremi è vuoto non c'è nulla da incassare: nessun log, per
+        // non riempire il registro con un evento che di fatto non è successo.
+        if (this.freeParkingPot > 0) {
+          player.balance += this.freeParkingPot;
+          this.addLog(`${player.name} incassa il montepremi della Sosta Gratuita: ${this.freeParkingPot}.`);
+          this.freeParkingPot = 0;
+        }
         break;
       case 'chance':
         this.drawCard(player, 'chance');
@@ -489,6 +572,11 @@ class GameEngine {
     this.pendingAction = null;
     this.addLog(`${player.name} paga ${amount} di affitto a ${owner.name} per ${board[position].name}.`);
     this.chargePlayer(player, amount, owner);
+    // Si conta l'importo nominale dell'affitto, non quanto il proprietario
+    // finisce davvero a incassare se il debitore fallisce subito dopo: è
+    // un'approssimazione accettabile per un riepilogo, non un bilancio contabile.
+    this.bumpStat(this.stats.rentPaid, player.id, amount);
+    this.bumpStat(this.stats.rentCollected, owner.id, amount);
 
     if (!this.pendingAction) this.finishRoll(this.currentPlayer);
     return {};
@@ -532,18 +620,223 @@ class GameEngine {
     player.balance -= price;
     this.ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false };
     this.addLog(`${player.name} compra ${board[position].name} per ${price}.`);
+    this.bumpStat(this.stats.purchases, playerId);
     this.pendingAction = null;
     this.finishRoll(player);
     return {};
   }
 
+  /**
+   * Chi rinuncia non lascia la casella semplicemente libera: come nel Monopoli
+   * vero, va all'asta. Il turno resta congelato (vedi endTurn) finché l'asta
+   * non si chiude: a riprendere la risoluzione del tiro ci pensa closeAuction.
+   */
   declineBuy(playerId) {
     if (!this.pendingAction || this.pendingAction.type !== 'awaiting_buy') return { error: 'Nessun acquisto in sospeso' };
     if (this.pendingAction.playerId !== playerId) return { error: 'Non tocca a te' };
-    this.addLog(`${this.currentPlayer.name} rinuncia all'acquisto di ${board[this.pendingAction.position].name}.`);
+    const { position } = this.pendingAction;
+    const decliner = this.players.find((p) => p.id === playerId);
+    this.addLog(`${decliner.name} rinuncia all'acquisto di ${board[position].name}.`);
     this.pendingAction = null;
-    this.finishRoll(this.currentPlayer);
+    this.openAuction(position, decliner);
     return {};
+  }
+
+  // ---- Asta sulla proprietà rifiutata ----
+
+  /**
+   * Ordine di turno dell'asta: parte da chi ha rinunciato e prosegue in ordine
+   * di tavolo, saltando chi è già fallito. I falliti non partecipano perché
+   * non hanno più cassa con cui offrire.
+   */
+  auctionOrderFrom(startId) {
+    const startIdx = this.players.findIndex((p) => p.id === startId);
+    if (startIdx === -1) return [];
+    const order = [];
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[(startIdx + i) % this.players.length];
+      if (!p.bankrupt) order.push(p.id);
+    }
+    return order;
+  }
+
+  /**
+   * Incremento minimo di un'asta, calcolato sul prezzo di listino invece che
+   * fisso a 10. Un incremento fisso va bene su Vicolo Corto (60: ~6 rilanci
+   * per arrivare al listino) ma su Parco della Vittoria (400) costringe a una
+   * quarantina di rilanci da 10 per arrivare a una cifra sensata, con i bot
+   * che si alternano ogni paio di secondi: un'eternità che nessuno, giocando,
+   * ha voglia di stare a guardare. Si divide il prezzo per 80 e si arrotonda
+   * al multiplo di 10 più vicino: la frazione (1/8 del prezzo, poi arrotondata
+   * a decina) è scelta per tenere il numero di rilanci necessari a coprire il
+   * listino sempre fra le 6 e le 8 volte, poco o tanto costi la casella,
+   * mantenendo comunque un salto ragionevole (mai da zero a una cifra fuori
+   * mercato al primo rilancio: anche sulla casella più cara del tabellone
+   * l'incremento resta 50, un ottavo del listino). Si arrotonda al multiplo di
+   * 10 più vicino perché nel Monopoli si offre a decine e cinquantine, mai a
+   * cifre come 37. Il minimo di 10 è solo una rete di sicurezza per una
+   * casella senza prezzo (stazioni e società ce l'hanno, e nessun'altra
+   * casella finisce mai all'asta, ma meglio non fidarsi e restare comunque
+   * sopra zero).
+   */
+  auctionMinIncrement(square) {
+    const price = square?.price || 0;
+    return Math.max(10, Math.round(price / 80) * 10);
+  }
+
+  /**
+   * Apre l'asta sulla casella appena rifiutata. `decliner` è chi stava
+   * giocando il turno (o rigiocando dopo un doppio): non serve per l'asta in
+   * sé, ma per sapere chi far riprendere quando si chiude (vedi closeAuction).
+   */
+  openAuction(position, decliner) {
+    const square = board[position];
+    const order = this.auctionOrderFrom(decliner.id);
+    // Non dovrebbe succedere in partita (con un solo giocatore in piedi la
+    // partita sarebbe già finita), ma se capitasse la casella resta libera
+    // invece di aprire un'asta senza nessuno che possa offrire.
+    if (order.length === 0) {
+      this.finishRoll(decliner);
+      return;
+    }
+    // Calcolato una volta sola all'apertura, sul prezzo di listino: resta lo
+    // stesso per tutta l'asta, non si ricalcola a ogni rilancio.
+    const minIncrement = this.auctionMinIncrement(square);
+    this.pendingAction = {
+      type: 'awaiting_auction',
+      playerId: order[0],
+      position,
+      price: square.price,
+      currentBid: 0,
+      currentBidderId: null,
+      // Coda di rotazione: chi è in testa deve rilanciare o passare adesso.
+      // Chi rilancia torna in fondo; chi passa esce e non rientra più.
+      queue: order,
+      passedIds: [],
+      originalPlayerId: decliner.id,
+      // Esposti al client così l'interfaccia può mostrare subito quanto vale
+      // il prossimo rilancio, invece di doverlo indovinare o ricalcolare da
+      // sola: minIncrement è il passo fisso di quest'asta, minBid è la soglia
+      // pronta all'uso (si aggiorna a ogni rilancio in bidAuction).
+      minIncrement,
+      minBid: minIncrement,
+    };
+    this.addLog(`${square.name} va all'asta.`);
+  }
+
+  /**
+   * Rilancio: minimo l'incremento base se non c'è ancora un'offerta,
+   * altrimenti almeno un incremento in più dell'offerta corrente. Non si può
+   * offrire più di quanto si ha in cassa: il denaro si scala solo alla
+   * chiusura dell'asta (closeAuction), ma il tetto va rispettato subito per
+   * non promettere ciò che non si ha.
+   */
+  bidAuction(playerId, rawAmount) {
+    if (this.finished) return { error: 'La partita è finita' };
+    if (!this.hasPendingAuction()) return { error: 'Nessuna asta in corso' };
+    const auction = this.pendingAction;
+    if (auction.playerId !== playerId) return { error: 'Non tocca a te' };
+    const player = this.players.find((p) => p.id === playerId);
+    const amount = Math.floor(Number(rawAmount) || 0);
+    const minBid = auction.currentBid === 0 ? auction.minIncrement : auction.currentBid + auction.minIncrement;
+    if (amount < minBid) return { error: `Rilancio minimo ${minBid}` };
+    if (amount > player.balance) return { error: 'Saldo insufficiente' };
+
+    auction.currentBid = amount;
+    auction.currentBidderId = playerId;
+    // La soglia per il prossimo rilancio si aggiorna subito: è quella che il
+    // client legge per sapere cosa proporre di default.
+    auction.minBid = amount + auction.minIncrement;
+    this.addLog(`${player.name} offre ${amount} per ${board[auction.position].name}.`);
+
+    // Chi ha appena rilanciato torna in fondo alla coda: tocca al prossimo.
+    const idx = auction.queue.indexOf(playerId);
+    if (idx !== -1) {
+      auction.queue.splice(idx, 1);
+      auction.queue.push(playerId);
+    }
+    auction.playerId = auction.queue[0];
+    return {};
+  }
+
+  /**
+   * Passa: esce dall'asta e non gli viene più chiesto. Quando resta un solo
+   * giocatore in coda l'asta si chiude da sé, senza bisogno che risponda.
+   */
+  passAuction(playerId) {
+    if (this.finished) return { error: 'La partita è finita' };
+    if (!this.hasPendingAuction()) return { error: 'Nessuna asta in corso' };
+    const auction = this.pendingAction;
+    if (auction.playerId !== playerId) return { error: 'Non tocca a te' };
+    const player = this.players.find((p) => p.id === playerId);
+
+    auction.queue = auction.queue.filter((id) => id !== playerId);
+    auction.passedIds.push(playerId);
+    this.addLog(`${player.name} passa.`);
+
+    if (auction.queue.length <= 1) {
+      this.closeAuction();
+      return {};
+    }
+    auction.playerId = auction.queue[0];
+    return {};
+  }
+
+  /**
+   * Chiude l'asta: se resta un'offerta la casella va a chi l'ha fatta, al
+   * prezzo offerto (anche molto sotto il listino); se nessuno ha mai offerto
+   * resta libera come prima di questa regola. In ogni caso la risoluzione del
+   * tiro riprende da dove l'aveva lasciata declineBuy, tiro extra da doppio
+   * compreso: è lo stesso finishRoll che avrebbe chiuso il turno subito, se
+   * l'asta non l'avesse messo in pausa.
+   */
+  closeAuction() {
+    const auction = this.pendingAction;
+    if (!auction || auction.type !== 'awaiting_auction') return;
+    const square = board[auction.position];
+    const original = this.players.find((p) => p.id === auction.originalPlayerId);
+
+    if (auction.currentBidderId) {
+      const winner = this.players.find((p) => p.id === auction.currentBidderId);
+      winner.balance -= auction.currentBid;
+      this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotel: false, mortgaged: false };
+      this.addLog(`${winner.name} si aggiudica ${square.name} all'asta per ${auction.currentBid}.`);
+      this.bumpStat(this.stats.purchases, winner.id);
+    } else {
+      this.addLog(`Nessuno fa offerte per ${square.name}: resta libera.`);
+    }
+
+    this.pendingAction = null;
+    this.finishRoll(original);
+  }
+
+  /**
+   * Toglie un giocatore fallito da un'asta in corso, se ci stava
+   * partecipando. Senza questo aggancio un'asta potrebbe restare in attesa di
+   * un'offerta da parte di chi non può più farla, bloccando la partita per
+   * tutti — chiamata da bankruptPlayer, l'unico punto in cui si diventa
+   * falliti, qualunque sia la causa (multa di prigione, abbandono, debito).
+   * Se il fallito era il miglior offerente la sua offerta si annulla: non
+   * potrebbe comunque pagarla.
+   */
+  removeFromAuctionIfPresent(playerId) {
+    if (!this.hasPendingAuction()) return;
+    const auction = this.pendingAction;
+    if (auction.currentBidderId === playerId) {
+      auction.currentBid = 0;
+      auction.currentBidderId = null;
+      // L'offerta annullata torna alla base d'asta: il minimo esposto al
+      // client deve tornare a rifletterlo, non restare quello (più alto)
+      // calcolato sull'offerta appena azzerata.
+      auction.minBid = auction.minIncrement;
+    }
+    if (!auction.queue.includes(playerId)) return;
+    auction.queue = auction.queue.filter((id) => id !== playerId);
+    if (auction.queue.length <= 1) {
+      this.closeAuction();
+      return;
+    }
+    if (auction.playerId === playerId) auction.playerId = auction.queue[0];
   }
 
   /**
@@ -654,7 +947,9 @@ class GameEngine {
     const player = this.players.find((p) => p.id === playerId);
     if (!player || !player.inJail) return { error: 'Non sei in prigione' };
     if (player.balance < JAIL_FINE) return { error: 'Saldo insufficiente' };
-    player.balance -= JAIL_FINE;
+    // Passa da chargePlayer (creditore nullo) così la multa finisce anche lei
+    // nel montepremi della Sosta Gratuita, come quella pagata dopo 3 tentativi.
+    this.chargePlayer(player, JAIL_FINE);
     player.inJail = false;
     player.jailTurns = 0;
     this.addLog(`${player.name} paga ${JAIL_FINE} per uscire di prigione.`);
@@ -687,6 +982,7 @@ class GameEngine {
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
     if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     if (!this.ownsFullGroup(playerId, square.group)) return { error: 'Serve il monopolio del colore per costruire' };
     // Regola ufficiale: niente costruzioni su un colore con proprietà ipotecate.
     const groupMortgaged = board.some(
@@ -709,6 +1005,9 @@ class GameEngine {
       owned.houses += 1;
       this.addLog(`${player.name} costruisce una casa su ${square.name} (${owned.houses}/4).`);
     }
+    // Conta la costruzione (casa o hotel indifferentemente): quante volte il
+    // giocatore ha investito in edifici, non quante unità possiede ora.
+    this.bumpStat(this.stats.housesBuilt, playerId);
     return {};
   }
 
@@ -767,6 +1066,7 @@ class GameEngine {
     if (!owned.mortgaged) return { error: 'Non è ipotecata' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
     if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     const cost = this.unmortgageCost(square);
     if (player.balance < cost) return { error: 'Saldo insufficiente' };
     player.balance -= cost;
@@ -785,7 +1085,18 @@ class GameEngine {
   chargePlayer(player, amount, creditor = null) {
     if (amount <= 0) return;
     player.balance -= amount;
-    if (creditor) creditor.balance += amount;
+    if (creditor) {
+      // C'è un creditore preciso (l'affitto, o una carta "paga a ogni
+      // giocatore"): il denaro cambia mano fra giocatori, non tocca la banca,
+      // quindi non deve gonfiare il montepremi della Sosta Gratuita.
+      creditor.balance += amount;
+    } else {
+      // Nessun creditore = il denaro va alla banca (tasse, multe delle carte,
+      // multa di prigione, interessi): è esattamente il denaro che altrimenti
+      // sparirebbe nel nulla, quindi finisce nel montepremi.
+      this.freeParkingPot += amount;
+      this.bumpStat(this.stats.bankPaid, player.id, amount);
+    }
     if (player.balance >= 0) return;
 
     // Si ricorda a chi vanno i soldi: se questo debito finisce in coda dietro a
@@ -955,6 +1266,10 @@ class GameEngine {
     player.balance = 0;
     player.debtTo = null;
     if (this.hasPendingDebt() && this.pendingAction.playerId === player.id) this.pendingAction = null;
+    // Se stava partecipando a un'asta (o doveva rispondere lei) va tolto
+    // subito: altrimenti l'asta resterebbe ad aspettare un'offerta da chi non
+    // può più farla.
+    this.removeFromAuctionIfPresent(player.id);
     this.checkWinner(motivo);
 
     // Il turno si chiude solo se a uscire è stato chi stava giocando. Quando a
@@ -1090,6 +1405,7 @@ class GameEngine {
     to.balance += net;
 
     this.addLog(`${from.name} e ${to.name} concludono lo scambio.`);
+    this.stats.tradesCompleted += 1;
     this.pendingAction = null;
 
     // Chi riceve una proprietà ipotecata paga subito il 10% alla banca. Si fa
@@ -1152,6 +1468,7 @@ class GameEngine {
     this.endedReason = 'closed';
     this.winnerId = null;
     this.pendingAction = null;
+    this.stats.finishedAt = Date.now();
     this.addLog('Il tavolo è stato chiuso da chi lo ha creato.');
     return {};
   }
@@ -1204,6 +1521,15 @@ class GameEngine {
     this.turnResolved = false;
     this.lastRollWasDouble = false;
     this.lastRoll = null;
+    this.rollCount = 0;
+    // Senza questo azzeramento il montepremi si porterebbe dietro nella
+    // rivincita i soldi della partita precedente.
+    this.freeParkingPot = 0;
+    // Stesso discorso per le statistiche del riepilogo: senza resetStats() la
+    // rivincita mostrerebbe alla fine i numeri sommati anche alla partita
+    // precedente, invece di ripartire da zero come fa il resto del tavolo.
+    this.resetStats();
+    this.stats.startedAt = Date.now();
     this.log = [];
     this.started = true;
     this.addLog('Rivincita! Si riparte da zero.');
@@ -1217,6 +1543,7 @@ class GameEngine {
       this.finished = true;
       this.winnerId = alive[0].id;
       this.endedReason = motivo;
+      this.stats.finishedAt = Date.now();
       this.addLog(`${alive[0].name} vince la partita!`);
     }
   }
@@ -1228,11 +1555,21 @@ class GameEngine {
     if (this.hasPendingCard()) return { error: 'Prima leggi la carta pescata' };
     if (this.hasPendingRent()) return { error: 'Prima paga l\'affitto' };
     if (this.hasPendingTax()) return { error: 'Prima paga la tassa' };
+    // Anche l'asta congela il turno: si è aperta a metà della risoluzione del
+    // tiro (vedi declineBuy) e deve chiudersi da sé (closeAuction) prima che
+    // il turno possa avanzare, tiro extra da doppio compreso.
+    if (this.hasPendingAuction()) return { error: 'Prima risolvi l\'asta in corso' };
     // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
     // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
     if (this.turnResolved || this.finished) return {};
     this.turnResolved = true;
     this.pendingAction = null;
+    // Il tiro appena chiuso non è più quello in corso: se restasse in
+    // `lastRoll` il tabellone continuerebbe a mostrare nome e somma di chi ha
+    // già finito, facendo credere che stia ancora giocando lui. Col doppio
+    // invece `finishRoll` non arriva fin qui (vedi sopra), quindi la scritta
+    // resta finché il giocatore che deve rigiocare non tira di nuovo.
+    this.lastRoll = null;
     // I doppi contano solo entro il turno di chi li ha tirati.
     if (this.currentPlayer) this.currentPlayer.doublesInARow = 0;
     if (this.players.every((p) => p.bankrupt)) return {};

@@ -18,6 +18,12 @@ import MoneyStepper from './MoneyStepper';
  *
  * Come sempre il client raccoglie solo l'intento: ogni regola la applica il
  * server, e l'errore che torna dall'ack viene mostrato in fondo.
+ *
+ * App.tsx tiene questo componente montato anche quando nel frattempo si apre
+ * un `pendingAction` altrui (l'affitto di un bot, per esempio): prima si
+ * smontava e i passi già fatti andavano persi. Il server continua comunque a
+ * rifiutare l'invio finché `pendingAction` non si libera — per questo
+ * l'ultimo passo disabilita da solo il bottone finale, invece di sparire.
  */
 export default function TradeWizard({
   board,
@@ -163,6 +169,12 @@ export default function TradeWizard({
   const vuotoDaEntrambiILati =
     offerProperties.length + requestProperties.length === 0 &&
     offerMoney + requestMoney + offerJailCards + requestJailCards === 0;
+  // Un'altra azione in sospeso (l'affitto di un bot, un'asta, un debito...)
+  // fa rifiutare l'invio dal server comunque: si disabilita il bottone finale
+  // e si spiega perché, invece di smontare tutta la procedura come succedeva
+  // prima — perdendo passi già scelti solo perché nel frattempo qualcun altro
+  // ha pagato un affitto.
+  const bloccatoDaAltro = !!state.pendingAction;
 
   return (
     <div style={styles.overlay}>
@@ -251,6 +263,12 @@ export default function TradeWizard({
                   Non hai messo niente da nessuna delle due parti: torna indietro e scegli qualcosa.
                 </p>
               )}
+              {!vuotoDaEntrambiILati && bloccatoDaAltro && (
+                <p style={styles.avviso}>
+                  C'è un'altra azione in sospeso al tavolo: il patto resta qui com'è, ma l'invio
+                  aspetta che si risolva.
+                </p>
+              )}
             </>
           )}
 
@@ -279,7 +297,7 @@ export default function TradeWizard({
               <button
                 className="btn-primary"
                 style={styles.btn}
-                disabled={vuotoDaEntrambiILati}
+                disabled={vuotoDaEntrambiILati || bloccatoDaAltro}
                 onClick={manda}
               >
                 Manda la proposta

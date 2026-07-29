@@ -78,12 +78,41 @@ Perché funzioni, i moduli che finiscono lì dentro non devono avere import che
 solo Vite sa risolvere — alias, CSS, immagini — né toccare `window` al
 caricamento. È il motivo per cui `propertyGroups.ts` importa soltanto tipi.
 
+## Persistenza delle partite
+
+Spenta di default: senza `PERSIST_FILE` impostata lo stato vive solo in
+memoria, esattamente come prima di questa funzionalità, e nessun file viene
+creato.
+
+Impostando `PERSIST_FILE` (vedi `server/.env.example`) il server salva su quel
+file lo stato di ogni stanza e lo ricarica all'avvio, così una partita
+sopravvive a un riavvio del processo: crash, `npm start` rilanciato, un
+riavvio manuale. Il salvataggio è differito e accorpato (non scrive a ogni
+mossa, solo dopo un attimo di quiete) apposta per non rallentare il gioco; i
+dettagli sono commentati in `server/src/persistence.js`, l'unico file che
+saprebbe della sua esistenza — `gameEngine.js` resta puro e sincrono, non fa
+I/O e non sa che la persistenza esiste. Un salvataggio corrotto o di uno
+schema che il server non riconosce più non blocca l'avvio: si scarta quello e
+si riparte come se non ci fosse nulla di salvato, loggando il motivo.
+
+**Limite importante**: in produzione questo progetto gira su Render piano
+gratuito, dove il filesystem è **effimero** e viene ricreato da zero a ogni
+deploy e a ogni riavvio dell'istanza. Questa persistenza su file protegge da
+un crash o un riavvio "sul posto" — in locale, o su un host con un disco vero
+— ma **non** dal caso che càpita più spesso in produzione, cioè un nuovo
+deploy: il file scritto prima del deploy non c'è più al riavvio successivo.
+Risolverlo davvero richiede un archivio esterno al container (Redis, un
+database, un bucket S3...) che sopravviva al deploy. L'interfaccia di
+`persistence.js` (`load` / `save` / `remove`) è pensata apposta perché quel
+giorno sostituirla sia riscrivere quel solo file, non i chiamanti.
+
 ## Variabili d'ambiente
 
 | Variabile | Dove | A cosa serve |
 | --- | --- | --- |
 | `PORT` | server | Porta di ascolto. In cloud la imposta la piattaforma. |
 | `CLIENT_ORIGIN` | server | Origini ammesse dal CORS, separate da virgola. Vuoto = tutte. |
+| `PERSIST_FILE` | server | File su cui salvare lo stato delle partite. Vuoto (default) = persistenza spenta. Vedi "Persistenza delle partite" sopra per il limite su Render. |
 | `VITE_SERVER_URL` | client | URL del server. Vuoto = `http://localhost:3001`. |
 
 I file `.env.example` nelle due cartelle riportano gli stessi valori con degli
@@ -109,8 +138,18 @@ le origini, il browser blocca le chiamate e il tabellone resta vuoto.
 
 Due avvertenze sul piano gratuito di Render: il servizio si addormenta dopo un
 po' di inattività, quindi la prima partita della giornata parte con qualche
-secondo di attesa; e a ogni riavvio le partite in corso si perdono, perché lo
-stato vive in memoria.
+secondo di attesa; e a ogni **deploy** le partite in corso si perdono comunque,
+perché il filesystem di Render free è effimero e viene ricreato da zero — vedi
+"Persistenza delle partite" più sopra. Impostare `PERSIST_FILE` su Render non
+risolve questo caso: serve per un riavvio "sul posto" (crash, riavvio
+manuale), non per un deploy nuovo, che è invece l'evento più comune.
+
+Il workflow `.github/workflows/keep-alive.yml` chiama `/health` ogni 14
+minuti apposta per evitare l'addormentamento per inattività (GitHub Actions
+non garantisce però la puntualità dei cron, quindi il rischio è ridotto ma
+non azzerato). Resta comunque vero che un nuovo deploy azzera le partite in
+corso: quello non è un problema che un ping o un file su disco possano
+risolvere, serve un archivio esterno che sopravviva al container (vedi sopra).
 
 ## Struttura
 
@@ -124,6 +163,7 @@ server/
     botStrategy.js     Quanto vale una proprietà, conviene questo scambio
     bot.js             Sceglie ed esegue una mossa del giocatore artificiale
     rooms.js           Stanze, aggancio dei socket, scadenza
+    persistence.js     Salvataggio/ripristino delle stanze su file (opzionale)
     server.js          Eventi Socket.io
 client/
   logic-test.ts        Asserzioni sulla logica pura del client
@@ -141,7 +181,9 @@ docs/superpowers/specs/  Documenti di design delle funzionalità
 ## Stato
 
 Fatto: motore completo, bancarotta con liquidazione, costruzioni e ipoteche,
-tre doppi, riconnessione, assetto mobile, bot.
+tre doppi, riconnessione, assetto mobile, bot, persistenza su file opzionale
+(sopravvive a un riavvio del processo, non a un deploy su Render free — vedi
+"Persistenza delle partite").
 
 Gli scambi hanno due schermate diverse di proposito: da telefono e da tablet
 una procedura guidata in tre passi — cosa vuoi da lui, cosa gli dai, riepilogo
@@ -153,5 +195,6 @@ Da computer restano le due colonne, raggruppate per gruppo di colore col
 Regole della casa: il Via paga 500.
 
 Da fare: nulla in lista. Le idee successive sono da decidere; la piu' utile
-sarebbe far sopravvivere le partite ai riavvii del server, che oggi le
-azzerano perche' lo stato vive in memoria.
+resta un archivio esterno (Redis, un database) al posto del file su disco, per
+far sopravvivere le partite anche a un deploy su Render — non solo a un
+riavvio del processo, che la persistenza su file copre già.
