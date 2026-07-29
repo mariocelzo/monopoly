@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BoardSquare, GameState } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
 import Dice from './Dice';
+import { LAYER } from '../layers';
 
 /**
  * Riga e colonna (1-based) della casella nella griglia 11x11. Esportata perche'
@@ -502,7 +503,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'radial-gradient(circle at 35% 30%, #1e6b51, #0c3125)',
     border: '2px solid',
     pointerEvents: 'none',
-    zIndex: 5,
+    zIndex: LAYER.tabellone,
     // La transizione sta dentro la durata di un passo (STEP_MS).
     transition: 'left 0.1s linear, top 0.1s linear',
   },

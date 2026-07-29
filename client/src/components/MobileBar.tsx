@@ -6,6 +6,7 @@ import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
+import { LAYER } from '../layers';
 
 type Sheet = 'proprieta' | 'registro' | null;
 
@@ -243,7 +244,7 @@ const styles: Record<string, React.CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 15,
+    zIndex: LAYER.barraMobile,
     display: 'flex',
     flexDirection: 'column',
     gap: 7,
@@ -293,7 +294,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'fixed',
     inset: 0,
     background: 'rgba(0,0,0,0.55)',
-    zIndex: 18,
+    zIndex: LAYER.foglioMobile,
     display: 'flex',
     alignItems: 'flex-end',
   },

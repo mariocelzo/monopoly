@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { LAYER } from './layers';
 import { socket, GameState, BoardSquare } from './socket';
 import { useIsMobile, useIsTouchLayout } from './useIsMobile';
 import { useTurnAttention } from './useTurnAttention';
@@ -29,7 +30,6 @@ import RentModal from './components/RentModal';
 import TaxModal from './components/TaxModal';
 import SquareDetail from './components/SquareDetail';
 import AwayRecapModal from './components/AwayRecapModal';
-import EventTicker from './components/EventTicker';
 import GameSummary from './components/GameSummary';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
@@ -256,29 +256,36 @@ export default function App() {
   const auction = pending?.type === 'awaiting_auction' ? pending : null;
   const buySquare = buy ? board.find((s) => s.position === buy.position) : null;
 
-  // Un modale a tutto schermo resta giustificato solo quando aspetta proprio
-  // una decisione di chi guarda: acquisto, carta, affitto, tassa e debito
-  // riguardano una sola persona (chi deve premere il bottone), quindi per
-  // chiunque altro non c'è nulla da decidere — solo un fatto da vedere, che
-  // ora arriva dalla striscia degli eventi invece di rubare lo schermo. È
-  // esattamente la causa del difetto "il compositore di scambio si azzera da
-  // solo": prima questi modali comparivano per *tutti* al tavolo, non solo
-  // per chi doveva agire, e smontavano quel che c'era sotto.
+  // I giocatori hanno chiesto indietro i banner a tutto schermo per i fatti
+  // altrui (la striscia discreta introdotta in seguito si notava troppo poco):
+  // acquisto, carta, affitto, tassa e debito tornano a montarsi per chiunque
+  // sia al tavolo, non solo per chi deve decidere. `*IsMine` distingue comunque
+  // chi ha davvero il pendingAction assegnato (`pending.playerId`, il solo
+  // "decisore" per ogni tipo, vedi socket.ts) da chi guarda soltanto: serve ai
+  // modali per scegliere il testo giusto, e qui sotto per la soppressione
+  // durante la composizione di uno scambio (vedi `composingTrade` più giù).
   const buyIsMine = !!buy && buy.playerId === playerId;
   const cardIsMine = !!card && card.playerId === playerId;
   const rentIsMine = !!rent && rent.playerId === playerId;
   const taxIsMine = !!tax && tax.playerId === playerId;
   const debtIsMine = !!debt && debt.playerId === playerId;
-  // Lo scambio è un'eccezione alla regola sopra: riguarda due persone, non
-  // una sola. Il destinatario (`trade.playerId`, cioè `toId`) deve rispondere,
-  // ma anche chi l'ha proposto (`fromId`) è parte in causa — vuole vedere che
-  // l'altro sta decidendo, non solo saperlo dal registro dopo il fatto. Un
-  // terzo giocatore non coinvolto, invece, non ha nulla da guardare qui.
+  // Lo scambio riguarda due persone, non una sola. Il destinatario
+  // (`trade.playerId`, cioè `toId`) deve rispondere, ma anche chi l'ha
+  // proposto (`fromId`) è parte in causa — vuole vedere che l'altro sta
+  // decidendo, non solo saperlo dal registro dopo il fatto. Un terzo
+  // giocatore non coinvolto, invece, non ha nulla da guardare qui: per lui
+  // TradeOfferModal resta chiuso, banner o non banner.
   const tradeConcernsMe = !!trade && (trade.playerId === playerId || trade.fromId === playerId);
-  // L'asta è l'altra eccezione, e non riguarda solo due persone ma tutto il
-  // tavolo: gira a turno fra i partecipanti, e chi non deve rilanciare adesso
-  // vuole comunque seguirla in diretta — è un'asta vera, non un affare privato
-  // fra due giocatori. Resta quindi visibile a tutti, senza filtro.
+  // Ma solo il destinatario (`trade.playerId`) ha una decisione da prendere:
+  // per chi ha proposto lo scambio è "sto guardando", esattamente come per un
+  // affitto altrui. Serve più sotto per la soppressione durante la
+  // composizione.
+  const tradeIsMine = !!trade && trade.playerId === playerId;
+  // L'asta gira a turno fra i partecipanti (`pending.playerId` è chi deve
+  // rilanciare o passare adesso): resta visibile a tutto il tavolo sempre,
+  // perché è collettiva, ma solo il turno di chi guarda conta come "aspetta
+  // te" più sotto.
+  const auctionIsMine = !!auction && auction.playerId === playerId;
   const winner = state.finished ? state.players.find((p) => p.id === state.winnerId) : null;
   const inspectedSquare = inspected !== null ? board.find((s) => s.position === inspected) : null;
   const hoChiestoRivincita = state.rematchVotes.includes(playerId);
@@ -294,11 +301,6 @@ export default function App() {
           Connessione persa · riconnessione in corso…
         </div>
       )}
-      {/* Non legata a nessun pendingAction: scorre da sola qualunque cosa
-          succeda altrove, ed è per questo che sta fuori da ogni ramo
-          condizionale qui sotto — deve continuare a funzionare anche mentre
-          un modale bloccante copre lo schermo di qualcun altro. */}
-      <EventTicker log={state.log} isMobile={isMobile} />
 
       <div style={styles.boardArea}>
         {board.length > 0 && (
@@ -332,25 +334,49 @@ export default function App() {
       {inspectedSquare && (
         <SquareDetail square={inspectedSquare} state={state} onClose={() => setInspected(null)} />
       )}
-      {buy && buySquare && buyIsMine && <BuyModal pending={buy} square={buySquare} />}
-      {card && cardIsMine && <CardModal pending={card} />}
-      {rent && rentIsMine && (
+      {/* Mentre si compone uno scambio (`composingTrade`), i banner di eventi
+          ALTRUI non devono comparire: interromperebbero chi sta scegliendo cosa
+          mettere sul piatto. Ma il PROPRIO banner deve comparire sempre, anche
+          a compositore aperto — se lo si sopprimesse e nel frattempo toccasse a
+          questo giocatore pagare un affitto o rilanciare in un'asta, non
+          resterebbe alcun modo di agire: un pendingAction congela il turno di
+          *tutti* finché non si risolve, quindi si pianterebbe la partita per
+          l'intero tavolo, non solo per lui. Da qui il criterio uniforme
+          applicato a ogni ramo qui sotto: si sopprime un banner solo se
+          `composingTrade` è aperto E quel pendingAction non aspetta proprio
+          questo giocatore (`*IsMine`, cioè `pending.playerId === playerId` —
+          vedi socket.ts, è sempre il "decisore" indipendentemente dal tipo).
+          Non semplificare in "nascondi tutto mentre si compone": è la stessa
+          classe di difetto già capitata due volte su questo progetto. */}
+      {buy && buySquare && (!composingTrade || buyIsMine) && (
+        <BuyModal pending={buy} square={buySquare} state={state} myId={playerId} />
+      )}
+      {card && (!composingTrade || cardIsMine) && (
+        <CardModal pending={card} state={state} myId={playerId} />
+      )}
+      {rent && (!composingTrade || rentIsMine) && (
         <RentModal
           pending={rent}
           square={board.find((s) => s.position === rent.position)}
           state={state}
+          myId={playerId}
         />
       )}
-      {tax && taxIsMine && (
+      {tax && (!composingTrade || taxIsMine) && (
         <TaxModal
           pending={tax}
           square={board.find((s) => s.position === tax.position)}
           state={state}
+          myId={playerId}
         />
       )}
-      {/* Nessun filtro qui: l'asta si segue in diretta anche da chi non deve
-          rilanciare adesso, vedi il commento sopra su `tradeConcernsMe`. */}
-      {auction && (
+      {/* L'asta è collettiva (vedi commento su `auctionIsMine` più sopra), ma
+          solo chi deve rilanciare o passare adesso ha davvero una decisione in
+          sospeso: per chiunque altro, mentre si compone uno scambio, è un
+          evento "altrui" come gli altri e si sopprime allo stesso modo. Quando
+          il turno dell'asta arriva a questo giocatore, `auctionIsMine` diventa
+          vero e il banner ricompare da solo — niente di speciale da gestire. */}
+      {auction && (!composingTrade || auctionIsMine) && (
         <AuctionModal
           pending={auction}
           square={board.find((s) => s.position === auction.position)}
@@ -358,13 +384,21 @@ export default function App() {
           myId={playerId}
         />
       )}
-      {debt && debtIsMine && <DebtModal pending={debt} board={board} state={state} myId={playerId} />}
-      {trade && tradeConcernsMe && (
+      {debt && (!composingTrade || debtIsMine) && (
+        <DebtModal pending={debt} board={board} state={state} myId={playerId} />
+      )}
+      {/* TradeOfferModal resta comunque visibile solo a chi propone o riceve
+          (`tradeConcernsMe`): un terzo giocatore non ha nulla da guardare qui,
+          banner o no. Fra i due, solo il destinatario (`tradeIsMine`) ha una
+          decisione in sospeso — per chi ha proposto è "sto guardando", quindi
+          si sopprime allo stesso modo delle altre eccezioni mentre si compone
+          un'ALTRA proposta. */}
+      {trade && tradeConcernsMe && (!composingTrade || tradeIsMine) && (
         <TradeOfferModal pending={trade} board={board} state={state} myId={playerId} />
       )}
-      {/* Non più condizionato da `!pending`: uno scambio altrui (o qualunque
-          altra azione in sospeso non mia) non deve più smontare quello che
-          sto componendo. Il server rifiuta comunque l'invio finché c'è un
+      {/* Non condizionato da `!pending`: uno scambio altrui (o qualunque altra
+          azione in sospeso non mia) non deve smontare quello che sto
+          componendo. Il server rifiuta comunque l'invio finché c'è un
           pendingAction aperto — è TradeModal/TradeWizard a disabilitare il
           bottone e spiegarlo, non questo componente a sparire. */}
       {composingTrade && (
@@ -494,7 +528,7 @@ const styles: Record<string, React.CSSProperties> = {
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 40,
+    zIndex: LAYER.connessionePersa,
     padding: '7px 12px calc(7px + env(safe-area-inset-top))',
     textAlign: 'center',
     fontSize: '0.8rem',
@@ -504,7 +538,7 @@ const styles: Record<string, React.CSSProperties> = {
   // alignItems: flex-start + overflowY: auto sull'overlay stesso, come in
   // TradeOfferModal: rete di sicurezza per i viewport bassissimi dove nemmeno
   // comprimendo il contenuto della card tutto ci starebbe.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 30, padding: 18, overflowY: 'auto' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.finePartita, padding: 18, overflowY: 'auto' },
   // margin: auto centra la card quando c'è spazio e la tiene attaccata in
   // alto (senza uscire da sopra) quando non ce n'è. maxHeight + flex column
   // sono ciò che rende scorrevole solo winScroll qui sotto, coi bottoni

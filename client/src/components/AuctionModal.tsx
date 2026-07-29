@@ -1,5 +1,6 @@
 import { AwaitingAuction, BoardSquare, GameState, socket } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
+import { LAYER } from '../layers';
 
 /**
  * Finestra dell'asta sulla proprietà appena rifiutata. A turni, senza
@@ -99,7 +100,7 @@ const styles: Record<string, React.CSSProperties> = {
   // partecipanti scorre, con i comandi sempre raggiungibili fuori dallo
   // scorrimento. Qui pesa quanto per il debito: un'asta bloccata pianta la
   // partita per tutti, non solo per chi sta offrendo.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 20, padding: 20, overflowY: 'auto' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
   card: { padding: 28, width: 420, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12 },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   title: { fontSize: '1.5rem' },
