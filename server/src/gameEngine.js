@@ -15,6 +15,18 @@ const MAX_JAIL_TURNS = 3;
 // Oltre sei il tabellone diventa illeggibile e i colori finiscono.
 const MAX_PLAYERS = 6;
 
+// Regole della casa: valori ammessi per le opzioni a scelta multipla (vedi
+// setRules). Un solo elenco, letto sia dalla validazione sia da chi genera i
+// default: così un valore "inventato" da un client malevolo o da un bug non
+// può mai finire dentro this.rules, a differenza degli interruttori on/off
+// (freeParkingEnabled, auctionEnabled) che sono booleani e non hanno bisogno
+// di un elenco. 200 è l'importo da regolamento, 500 è quello con cui il
+// tavolo ha sempre giocato finora (vedi GO_AMOUNT in board.js, che resta il
+// default). Il saldo iniziale ufficiale è 1500; 1000 accorcia la partita
+// (si fallisce prima), 2000 la allunga (più margine prima della bancarotta).
+const GO_AMOUNT_OPTIONS = [200, 500];
+const STARTING_BALANCE_OPTIONS = [1000, 1500, 2000];
+
 // Al terzo doppio consecutivo si va in prigione senza muoversi.
 const MAX_DOUBLES = 3;
 // Interesse del 10% che la banca trattiene sulle ipoteche: si paga per
@@ -41,8 +53,23 @@ class GameEngine {
     this.turnIndex = 0;
     this.started = false;
     this.log = [];
-    this.chanceDeck = shuffle(CHANCE_CARDS);
-    this.communityDeck = shuffle(COMMUNITY_CARDS);
+    // Regole della casa: si scelgono al tavolo prima del via (vedi setRules,
+    // solo l'host può cambiarle e solo finché `started` è falso) e restano
+    // quelle per tutta la partita, rivincita compresa — rematch() non le
+    // tocca apposta. I default sono quelli con cui il tavolo ha sempre
+    // giocato finora, così una partita creata senza toccare nulla si
+    // comporta esattamente come prima che queste regole fossero scegliibili.
+    this.rules = {
+      goAmount: GO_AMOUNT, // 500: quanto si incassa passando dal Via
+      freeParkingEnabled: true, // il montepremi della Sosta Gratuita
+      auctionEnabled: true, // l'asta sulla proprietà rifiutata
+      startingBalance: STARTING_BALANCE, // 1500: saldo di partenza
+    };
+    // Il mazzo si costruisce qui, non si importa già pronto da board.js:
+    // alcune carte citano a parole l'importo del Via (vedi buildDeck) e
+    // quel testo deve rispecchiare `this.rules.goAmount` di QUESTA partita.
+    this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
+    this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
     // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_tax' |
     //   'awaiting_debt' | 'awaiting_trade' | 'awaiting_auction',
     //   playerId, ... }
@@ -87,9 +114,12 @@ class GameEngine {
     // per sapere se ha già costruito dopo il proprio ultimo tiro (vedi bot.js),
     // un controllo che altrimenti si romperebbe non appena lastRoll torna null.
     this.rollCount = 0;
-    // Regola della casa (come il Via a 500): il denaro che i giocatori pagano
-    // alla banca - tasse, multe delle carte, multa di prigione - non sparisce
-    // ma si accumula qui, e chi atterra sulla Sosta Gratuita lo incassa tutto.
+    // Regola della casa (rules.freeParkingEnabled): quando è accesa, il
+    // denaro che i giocatori pagano alla banca - tasse, multe delle carte,
+    // multa di prigione - non sparisce ma si accumula qui, e chi atterra
+    // sulla Sosta Gratuita lo incassa tutto. Se la regola è spenta questo
+    // resta sempre a zero (vedi chargePlayer): la Sosta torna una casella
+    // che non fa nulla, come da regolamento.
     this.freeParkingPot = 0;
     // Contatori per il riepilogo di fine partita (vedi resetStats). Il
     // registro (`log`) da solo non basta: è tappato alle ultime 200 righe, e
@@ -129,6 +159,23 @@ class GameEngine {
   /** Incrementa un contatore in una mappa chiave -> numero, creandolo se serve. */
   bumpStat(map, key, amount = 1) {
     map[key] = (map[key] || 0) + amount;
+  }
+
+  /**
+   * Costruisce un mazzo (Probabilità o Imprevisti) a partire dai modelli di
+   * board.js, risolvendo il testo delle carte che citano l'importo del Via.
+   * In board.js quelle carte hanno `text` come funzione di `goAmount` invece
+   * che una stringa già pronta, proprio per poter essere risolte qui, contro
+   * la regola scelta per QUESTA partita — le altre carte hanno già `text`
+   * come stringa e passano invariate. Si richiama sia dal costruttore sia da
+   * rematch(): in entrambi i casi `this.rules.goAmount` è già quello giusto
+   * (le regole non cambiano più una volta iniziata la partita).
+   */
+  buildDeck(templates) {
+    return templates.map((card) => ({
+      ...card,
+      text: typeof card.text === 'function' ? card.text(this.rules.goAmount) : card.text,
+    }));
   }
 
   /**
@@ -180,7 +227,10 @@ class GameEngine {
     if (this.players.length === 0) this.hostId = id;
     this.players.push({
       id, name, token,
-      balance: STARTING_BALANCE,
+      // Il saldo iniziale è una regola della casa (vedi setRules): si legge
+      // sempre da this.rules, mai dalla costante, così chi si unisce dopo che
+      // l'host l'ha cambiata trova già il valore giusto.
+      balance: this.rules.startingBalance,
       position: 0,
       inJail: false,
       jailTurns: 0,
@@ -224,6 +274,67 @@ class GameEngine {
     return {};
   }
 
+  /**
+   * Aggiorna le regole della casa scelte per questo tavolo. `changes` è
+   * parziale: si passano solo i campi che si vogliono cambiare, gli altri
+   * restano quelli di prima. Due controlli, entrambi ripetuti qui dentro
+   * invece di fidarsi solo di chi chiama (server.js fa comunque lo stesso
+   * controllo dell'host prima di arrivare qui, stesso schema di
+   * addBot/removeBot — ma questo metodo deve rifiutare anche se qualcosa lo
+   * chiamasse direttamente, scavalcando quel controllo, esattamente come fa
+   * già endGame più sotto):
+   *  - solo chi ha creato il tavolo può cambiarle;
+   *  - solo prima del via: a partita iniziata le regole sono quelle, per non
+   *    cambiarle sotto ai giocatori già seduti a metà partita.
+   */
+  setRules(playerId, changes = {}) {
+    if (playerId !== this.hostId) {
+      return { error: 'Solo chi ha creato il tavolo può cambiare le regole' };
+    }
+    if (this.started) return { error: 'La partita è già iniziata' };
+
+    const next = { ...this.rules };
+    if (changes.goAmount !== undefined) {
+      const goAmount = Number(changes.goAmount);
+      if (!GO_AMOUNT_OPTIONS.includes(goAmount)) return { error: 'Importo del Via non valido' };
+      next.goAmount = goAmount;
+    }
+    if (changes.freeParkingEnabled !== undefined) {
+      next.freeParkingEnabled = Boolean(changes.freeParkingEnabled);
+    }
+    if (changes.auctionEnabled !== undefined) {
+      next.auctionEnabled = Boolean(changes.auctionEnabled);
+    }
+    if (changes.startingBalance !== undefined) {
+      const startingBalance = Number(changes.startingBalance);
+      if (!STARTING_BALANCE_OPTIONS.includes(startingBalance)) return { error: 'Saldo iniziale non valido' };
+      next.startingBalance = startingBalance;
+    }
+
+    this.rules = next;
+    // Chi è già seduto ha già un saldo assegnato con la regola precedente
+    // (addPlayer lo legge al momento di sedersi): se il saldo iniziale
+    // cambia va aggiornato anche a chi è già al tavolo, non solo a chi si
+    // unirà dopo. Il montepremi e l'asta invece si applicano da soli a
+    // eventi futuri (il prossimo accumulo, la prossima rinuncia): cambiare
+    // `this.rules` basta, senza altro da aggiustare qui.
+    if (changes.startingBalance !== undefined) {
+      this.players.forEach((p) => { p.balance = next.startingBalance; });
+    }
+    // I mazzi sono già pronti dal costruttore, con l'importo del Via di
+    // ALLORA impresso nel testo delle carte che lo citano (vedi buildDeck):
+    // se l'host cambia goAmount dopo essersi seduto, senza questo
+    // ricalcolo quel testo resterebbe quello vecchio finché non si pesca la
+    // carta giusta. Si può rifare tranquillamente qui (nuovo rimescolamento
+    // compreso): siamo ancora prima del via, nessuna carta è stata pescata.
+    if (changes.goAmount !== undefined) {
+      this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
+      this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
+    }
+    this.addLog('Le regole della casa sono state aggiornate.');
+    return {};
+  }
+
   start() {
     if (this.players.length < 1) return;
     this.started = true;
@@ -260,6 +371,10 @@ class GameEngine {
       lastRoll: this.lastRoll,
       freeParkingPot: this.freeParkingPot,
       stats: this.stats,
+      // Le regole della casa scelte per questo tavolo: servono al client sia
+      // per lasciarle scegliere all'host prima del via, sia per mostrarle
+      // (sola lettura) a chi si siede senza poterle cambiare.
+      rules: this.rules,
     };
   }
 
@@ -433,8 +548,10 @@ class GameEngine {
     const prev = player.position;
     let next = (prev + spaces) % 40;
     if (next < prev) {
-      player.balance += GO_AMOUNT;
-      this.addLog(`${player.name} passa dal Via e incassa ${GO_AMOUNT}.`);
+      // L'importo è una regola della casa (rules.goAmount): 200 o 500 a
+      // scelta dell'host, mai più la costante fissa di board.js.
+      player.balance += this.rules.goAmount;
+      this.addLog(`${player.name} passa dal Via e incassa ${this.rules.goAmount}.`);
       // Passare dal Via è, per definizione, chiudere un giro di tabellone.
       this.bumpStat(this.stats.laps, player.id);
     }
@@ -627,9 +744,14 @@ class GameEngine {
   }
 
   /**
-   * Chi rinuncia non lascia la casella semplicemente libera: come nel Monopoli
-   * vero, va all'asta. Il turno resta congelato (vedi endTurn) finché l'asta
-   * non si chiude: a riprendere la risoluzione del tiro ci pensa closeAuction.
+   * Chi rinuncia non lascia sempre la casella semplicemente libera: come nel
+   * Monopoli vero, va all'asta — ma solo se `rules.auctionEnabled` è acceso
+   * (è la regola aggiunta più di recente, quindi l'unica delle quattro che
+   * qualcuno potrebbe voler giocare "alla vecchia", cioè spenta). Con l'asta
+   * accesa il turno resta congelato (vedi endTurn) finché non si chiude: a
+   * riprendere la risoluzione del tiro ci pensa closeAuction. Con l'asta
+   * spenta non c'è nulla da congelare: si riprende subito, esattamente come
+   * prima che l'asta esistesse.
    */
   declineBuy(playerId) {
     if (!this.pendingAction || this.pendingAction.type !== 'awaiting_buy') return { error: 'Nessun acquisto in sospeso' };
@@ -638,7 +760,11 @@ class GameEngine {
     const decliner = this.players.find((p) => p.id === playerId);
     this.addLog(`${decliner.name} rinuncia all'acquisto di ${board[position].name}.`);
     this.pendingAction = null;
-    this.openAuction(position, decliner);
+    if (this.rules.auctionEnabled) {
+      this.openAuction(position, decliner);
+    } else {
+      this.finishRoll(decliner);
+    }
     return {};
   }
 
@@ -1093,8 +1219,14 @@ class GameEngine {
     } else {
       // Nessun creditore = il denaro va alla banca (tasse, multe delle carte,
       // multa di prigione, interessi): è esattamente il denaro che altrimenti
-      // sparirebbe nel nulla, quindi finisce nel montepremi.
-      this.freeParkingPot += amount;
+      // sparirebbe nel nulla, quindi finisce nel montepremi — ma solo se la
+      // regola della casa è accesa. Spenta, il denaro va semplicemente alla
+      // banca e basta, come da regolamento: freeParkingPot resta a zero e la
+      // Sosta Gratuita non paga mai nulla (vedi il case in resolveLanding,
+      // che già non fa nulla quando il montepremi è vuoto). La statistica di
+      // quanto è finito alla banca, invece, non dipende da questa regola: è
+      // un dato del riepilogo, non l'effetto della regola stessa.
+      if (this.rules.freeParkingEnabled) this.freeParkingPot += amount;
       this.bumpStat(this.stats.bankPaid, player.id, amount);
     }
     if (player.balance >= 0) return;
@@ -1495,12 +1627,16 @@ class GameEngine {
   /**
    * Riparte da capo con gli stessi giocatori e lo stesso tavolo: saldi, pedine,
    * proprietà e mazzi tornano come all'inizio. Restano solo l'identità dei
-   * giocatori, chi è il creatore del tavolo e chi è collegato.
+   * giocatori, chi è il creatore del tavolo, chi è collegato — e le regole
+   * della casa (`this.rules`, di proposito non toccato qui sotto): chi
+   * rigioca vuole le stesse regole scelte all'inizio, non i default.
    */
   rematch() {
     this.ownership = {};
     this.players.forEach((p) => {
-      p.balance = STARTING_BALANCE;
+      // Il saldo di partenza è quello scelto con le regole della casa, non
+      // per forza 1500: this.rules non viene azzerato da questo metodo.
+      p.balance = this.rules.startingBalance;
       p.position = 0;
       p.inJail = false;
       p.jailTurns = 0;
@@ -1508,8 +1644,12 @@ class GameEngine {
       p.bankrupt = false;
       p.doublesInARow = 0;
     });
-    this.chanceDeck = shuffle(CHANCE_CARDS);
-    this.communityDeck = shuffle(COMMUNITY_CARDS);
+    // Ricostruiti con buildDeck, non importati grezzi da board.js: la carta
+    // "Avanza fino al Via" deve continuare a citare l'importo di questa
+    // partita (this.rules.goAmount), che qui non cambia mai rispetto a prima
+    // della rivincita.
+    this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
+    this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
     this.pendingAction = null;
     this.pendingCard = null;
     this.rentMultiplier = 1;

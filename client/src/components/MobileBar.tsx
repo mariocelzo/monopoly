@@ -6,6 +6,7 @@ import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
+import HouseRules from './HouseRules';
 import { LAYER } from '../layers';
 
 type Sheet = 'proprieta' | 'registro' | null;
@@ -139,6 +140,12 @@ export default function MobileBar({
                 )}
               </>
             )}
+
+            {/* Visibile a tutti (non solo all'host, come i bot qui sopra):
+                chi si siede deve sapere a che regole gioca, anche se non può
+                cambiarle. Richiudibile perché su telefono lo spazio sopra il
+                tabellone è già conteso da codice, invito e bot. */}
+            <HouseRules state={state} myId={myId} compact />
           </div>
         )}
 

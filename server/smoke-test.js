@@ -1664,5 +1664,189 @@ section('32f. Un\'asta fra bot si chiude anche su una casella cara');
 }
 
 // ---------------------------------------------------------------------------
+section('33. Regole della casa: si scelgono prima del via, solo dall\'host');
+{
+  const game = new GameEngine('RULES');
+  game.addPlayer('a', 'Mario', '🎩');
+  game.addPlayer('b', 'Giulia', '🐕');
+
+  check('di default il Via paga 500', game.rules.goAmount === 500);
+  check('di default il montepremi è acceso', game.rules.freeParkingEnabled === true);
+  check('di default l\'asta è accesa', game.rules.auctionEnabled === true);
+  check('di default il saldo iniziale è 1500', game.rules.startingBalance === 1500);
+
+  const nonHost = game.setRules('b', { goAmount: 200 });
+  check('solo chi ha creato il tavolo cambia le regole', !!nonHost.error, nonHost.error);
+  check('il tentativo di un non-host non cambia nulla', game.rules.goAmount === 500);
+
+  const goNonValido = game.setRules('a', { goAmount: 999 });
+  check('un importo del Via non fra le opzioni ammesse è rifiutato', !!goNonValido.error, goNonValido.error);
+
+  const res = game.setRules('a', {
+    goAmount: 200,
+    freeParkingEnabled: false,
+    auctionEnabled: false,
+    startingBalance: 1000,
+  });
+  check('l\'host può impostare le regole prima del via', !res.error, JSON.stringify(res));
+  check('il Via è cambiato a 200', game.rules.goAmount === 200);
+  check('il montepremi è spento', game.rules.freeParkingEnabled === false);
+  check('l\'asta è spenta', game.rules.auctionEnabled === false);
+  check('il saldo iniziale è 1000', game.rules.startingBalance === 1000);
+  check(
+    'i saldi di chi è già seduto si aggiornano subito',
+    game.players.every((p) => p.balance === 1000),
+    JSON.stringify(game.players.map((p) => p.balance))
+  );
+
+  game.addPlayer('c', 'Luca', '🚗');
+  check('chi si unisce dopo la scelta trova già le nuove regole', game.players[2].balance === 1000);
+
+  game.start();
+  const dopoIlVia = game.setRules('a', { goAmount: 500 });
+  check('a partita iniziata le regole non si cambiano', !!dopoIlVia.error, dopoIlVia.error);
+  check('il Via resta quello scelto prima del via', game.rules.goAmount === 200);
+}
+
+// ---------------------------------------------------------------------------
+section('33b. Via: si incassa l\'importo scelto dalle regole, non il default');
+{
+  const game = new GameEngine('RULES-GO');
+  game.addPlayer('a', 'Mario', '🎩');
+  game.addPlayer('b', 'Giulia', '🐕');
+  game.setRules('a', { goAmount: 200 });
+  game.start();
+  const mario = game.players[0];
+  mario.position = 38;
+  const prima = mario.balance;
+  game.movePlayer(mario, 4); // 38 -> 2, quindi passa dal Via
+  check('il Via paga l\'importo scelto (200), non il default (500)', mario.balance === prima + 200, `+${mario.balance - prima}`);
+
+  // Il punto più delicato nel rendere GO_AMOUNT una regola della casa invece
+  // di una costante fissa: il testo della carta "Avanza fino al Via" deve
+  // citare l'importo di QUESTA partita, non il default cablato in board.js.
+  const advanceToGo = game.chanceDeck.find((c) => c.action === 'advance_to' && c.target === 0);
+  check(
+    'la carta "Avanza fino al Via" cita l\'importo scelto (200)',
+    advanceToGo?.text?.includes('200'),
+    advanceToGo?.text
+  );
+  check('e non cita più il default (500)', !advanceToGo?.text?.includes('500'), advanceToGo?.text);
+}
+
+// ---------------------------------------------------------------------------
+section('33c. Montepremi della Sosta Gratuita: si può spegnere');
+{
+  const game = new GameEngine('RULES-POT');
+  game.addPlayer('a', 'Mario', '🎩');
+  game.addPlayer('b', 'Giulia', '🐕');
+  game.setRules('a', { freeParkingEnabled: false });
+  game.start();
+  const mario = game.players[0];
+
+  mario.position = 0;
+  game.movePlayer(mario, 4); // casella 4: Tassa patrimoniale, 200
+  game.payTax('a');
+  check(
+    'con la regola spenta la tassa alla banca non gonfia il montepremi',
+    game.freeParkingPot === 0,
+    `pot=${game.freeParkingPot}`
+  );
+
+  const saldoDopoLaTassa = mario.balance;
+  mario.position = 10;
+  game.turnResolved = false;
+  game.movePlayer(mario, 10); // casella 20: Sosta Gratuita
+  check(
+    'la Sosta Gratuita non paga nulla con la regola spenta',
+    mario.balance === saldoDopoLaTassa,
+    `saldo=${mario.balance}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('33d. Asta sulla proprietà rifiutata: si può spegnere');
+{
+  const game = new GameEngine('RULES-AUCTION');
+  game.addPlayer('a', 'Mario', '🎩');
+  game.addPlayer('b', 'Giulia', '🐕');
+  game.setRules('a', { auctionEnabled: false });
+  game.start();
+  const mario = game.players[0];
+
+  game.movePlayer(mario, 1); // Vicolo Corto, marrone, libera
+  check('atterrando su una libera si apre comunque la proposta d\'acquisto', game.pendingAction?.type === 'awaiting_buy');
+
+  game.declineBuy('a');
+  check('con l\'asta spenta la rinuncia non apre un\'asta', game.pendingAction === null);
+  check('la casella resta semplicemente libera, come prima che l\'asta esistesse', !game.ownership[1]);
+  check('il turno riprende subito dopo la rinuncia', game.turnIndex === 1, `turnIndex=${game.turnIndex}`);
+}
+
+// ---------------------------------------------------------------------------
+section('33e. Saldo iniziale: si può scegliere fra le opzioni ammesse');
+{
+  const game = new GameEngine('RULES-BALANCE');
+  game.addPlayer('a', 'Mario', '🎩');
+
+  const nonValido = game.setRules('a', { startingBalance: 1234 });
+  check('un saldo iniziale non fra le opzioni ammesse è rifiutato', !!nonValido.error, nonValido.error);
+
+  game.setRules('a', { startingBalance: 2000 });
+  game.addPlayer('b', 'Giulia', '🐕'); // si unisce dopo la scelta
+  game.start();
+  check('chi era già seduto parte con il nuovo saldo', game.players[0].balance === 2000, `balance=${game.players[0].balance}`);
+  check(
+    'chi si unisce dopo la scelta trova lo stesso saldo',
+    game.players[1].balance === 2000,
+    `balance=${game.players[1].balance}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('33f. Le regole della casa sopravvivono alla rivincita');
+{
+  const game = new GameEngine('RULES-REMATCH');
+  game.addPlayer('a', 'Mario', '🎩');
+  game.addPlayer('b', 'Giulia', '🐕');
+  game.setRules('a', {
+    goAmount: 200,
+    freeParkingEnabled: false,
+    auctionEnabled: false,
+    startingBalance: 2000,
+  });
+  game.start();
+
+  game.abandonGame('b');
+  check('la partita è finita', game.finished === true);
+
+  game.requestRematch('a');
+  game.requestRematch('b');
+  check('col secondo voto si riparte', game.finished === false);
+
+  check('il Via resta quello scelto', game.rules.goAmount === 200);
+  check('il montepremi resta spento', game.rules.freeParkingEnabled === false);
+  check('l\'asta resta spenta', game.rules.auctionEnabled === false);
+  check('il saldo iniziale resta quello scelto', game.rules.startingBalance === 2000);
+  check(
+    'i saldi ripartono dal valore scelto, non dal default',
+    game.players.every((p) => p.balance === 2000),
+    JSON.stringify(game.players.map((p) => p.balance))
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('33g. Le regole della casa sono nello stato serializzato per il client');
+{
+  const game = newGame();
+  const state = game.serialize();
+  check('le regole sono esposte al client', !!state.rules);
+  check('il Via di default è 500', state.rules.goAmount === 500);
+  check('il montepremi di default è acceso', state.rules.freeParkingEnabled === true);
+  check('l\'asta di default è accesa', state.rules.auctionEnabled === true);
+  check('il saldo iniziale di default è 1500', state.rules.startingBalance === 1500);
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

@@ -3,6 +3,7 @@ import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
+import HouseRules from './HouseRules';
 
 export default function GamePanel({
   state,
@@ -89,6 +90,11 @@ export default function GamePanel({
           + Aggiungi bot
         </button>
       )}
+
+      {/* Le regole si scelgono solo prima del via: a partita iniziata questo
+          blocco sparisce e le regole restano quelle scelte, mostrate sola
+          lettura dentro il tabellone finché la partita dura. */}
+      {!state.started && <HouseRules state={state} myId={myId} />}
 
       <div style={styles.turnBox}>
         {!state.started ? (

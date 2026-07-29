@@ -148,6 +148,24 @@ export interface GameStats {
   tradesCompleted: number;
 }
 
+/**
+ * Regole della casa scelte per questo tavolo, prima del via (vedi HouseRules.tsx).
+ * Le opzioni ammesse per `goAmount` e `startingBalance` devono restare
+ * allineate a GO_AMOUNT_OPTIONS / STARTING_BALANCE_OPTIONS in
+ * server/src/gameEngine.js: è il server a validarle davvero, questi tipi
+ * servono solo a guidare l'interfaccia.
+ */
+export interface HouseRules {
+  /** Quanto si incassa passando dal Via: 200 (regolamento) o 500 (default). */
+  goAmount: 200 | 500;
+  /** Tasse e multe verso la banca si accumulano e le incassa chi atterra sulla Sosta Gratuita. */
+  freeParkingEnabled: boolean;
+  /** La proprietà rifiutata va all'asta invece di restare semplicemente libera. */
+  auctionEnabled: boolean;
+  /** Saldo di partenza di ogni giocatore. */
+  startingBalance: 1000 | 1500 | 2000;
+}
+
 export interface GameState {
   roomCode: string;
   players: Player[];
@@ -168,6 +186,8 @@ export interface GameState {
   lastRoll: { playerId: string; dice: [number, number]; seq: number } | null;
   /** Statistiche per il riepilogo di fine partita. */
   stats: GameStats;
+  /** Regole della casa di questo tavolo: sola lettura per chi non è l'host. */
+  rules: HouseRules;
 }
 
 export interface BoardSquare {

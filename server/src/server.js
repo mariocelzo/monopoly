@@ -185,6 +185,22 @@ io.on('connection', (socket) => {
     cb?.(res);
   });
 
+  // Le regole della casa (Via, montepremi, asta, saldo iniziale) si scelgono
+  // solo prima del via, e solo da chi ha creato il tavolo: stesso controllo
+  // di add_bot/remove_bot qui sopra. GameEngine.setRules ripete comunque
+  // entrambi i controlli al suo interno (chi ha creato il tavolo, partita non
+  // iniziata): questo qui è solo il primo filtro, non l'unico.
+  socket.on('set_rules', (payload, cb) => {
+    const room = roomManager.getRoom(socket.data.roomCode);
+    if (!room) return cb?.({ error: 'Stanza non trovata' });
+    if (room.game.hostId !== socket.data.playerId) {
+      return cb?.({ error: 'Solo chi ha creato il tavolo può cambiare le regole' });
+    }
+    const res = room.game.setRules(socket.data.playerId, payload || {});
+    broadcastState(socket.data.roomCode);
+    cb?.(res);
+  });
+
   socket.on('start_game', () => {
     const room = roomManager.getRoom(socket.data.roomCode);
     if (!room) return;
