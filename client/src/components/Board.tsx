@@ -61,6 +61,39 @@ const STEP_MS = 110;
 // nome della proprietà diventa illeggibile: meglio toglierlo del tutto.
 const NAME_THRESHOLD = 620;
 
+// Per quanto i dadi restano visibili dopo che il turno si è chiuso.
+const DADI_GRAZIA_MS = 2600;
+
+/**
+ * L'ultimo tiro da mostrare, che non è sempre quello che dice il server.
+ *
+ * Il motore azzera `lastRoll` a fine turno, così il tabellone non attribuisce
+ * a chi sta giocando adesso il tiro di chi ha già finito. Ma quando un tiro
+ * non apre nulla — si atterra su una casella propria, sulla sosta, sul
+ * transito — il turno si chiude nello stesso istante del lancio: il server
+ * manda un solo stato, in cui `lastRoll` è già null, e i dadi **non si vedono
+ * affatto**. È il difetto per cui sembrava che a volte i dadi non uscissero.
+ *
+ * Qui il tiro appena sparito si tiene ancora per qualche secondo, poi si
+ * lascia andare: si vede sempre cosa è uscito, e non resta comunque appeso a
+ * mostrare il tiro di qualcun altro mentre tocca a te.
+ */
+function useUltimoTiro(lastRoll: GameState['lastRoll']) {
+  const [mostrato, setMostrato] = useState(lastRoll);
+
+  useEffect(() => {
+    if (lastRoll) {
+      setMostrato(lastRoll);
+      return;
+    }
+    // Sparito dal server: lo si tiene ancora un momento, non un istante.
+    const t = setTimeout(() => setMostrato(null), DADI_GRAZIA_MS);
+    return () => clearTimeout(t);
+  }, [lastRoll]);
+
+  return mostrato;
+}
+
 /**
  * Larghezza reale del tabellone in pixel. Si misura invece di dedurla dal tipo
  * di dispositivo: un tablet in verticale ha caselle comode quanto un desktop, e
@@ -187,6 +220,9 @@ export default function Board({
   const walking = useWalkingPositions(state);
   const gridRef = useRef<HTMLDivElement>(null);
   const measured = useMeasuredWidth(gridRef);
+  // Non `state.lastRoll` diretto: vedi useUltimoTiro, i dadi devono restare
+  // visibili anche quando il turno si chiude nello stesso istante del lancio.
+  const ultimoTiro = useUltimoTiro(state.lastRoll);
   const colorOf = (playerId: string) =>
     PLAYER_COLORS[state.players.findIndex((p) => p.id === playerId) % PLAYER_COLORS.length];
 
@@ -200,7 +236,7 @@ export default function Board({
   // spariscano per un istante al primo disegno su desktop.
   const compact = measured > 0 && measured < NAME_THRESHOLD;
 
-  const roller = state.lastRoll ? state.players.find((p) => p.id === state.lastRoll!.playerId) : null;
+  const roller = ultimoTiro ? state.players.find((p) => p.id === ultimoTiro.playerId) : null;
 
   return (
     <div style={{ ...styles.frame, padding: isMobile ? 5 : 10 }}>
@@ -274,15 +310,15 @@ export default function Board({
           <span className="display" style={styles.centerTitle}>MONOPOLY</span>
           <span style={styles.centerSub}>edizione Noi Due</span>
 
-          {state.lastRoll && (
+          {ultimoTiro && (
             <div style={styles.diceBox}>
               <Dice
-                dice={state.lastRoll.dice}
-                seq={state.lastRoll.seq}
+                dice={ultimoTiro.dice}
+                seq={ultimoTiro.seq}
                 size={compact ? 26 : 38}
               />
               <span style={styles.diceCaption}>
-                {roller?.name} · {state.lastRoll.dice[0] + state.lastRoll.dice[1]}
+                {roller?.name} · {ultimoTiro.dice[0] + ultimoTiro.dice[1]}
               </span>
             </div>
           )}
