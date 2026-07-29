@@ -275,7 +275,12 @@ export default function Board({
           const isCorner = square.position % 10 === 0;
           // Con caselle da ~28px i nomi verrebbero tagliati: restano colore,
           // prezzo e proprietario, e il nome si legge toccando la casella.
-          const showName = !compact || isCorner;
+          // Il nome si mostra sempre, anche a casella stretta. Prima spariva
+          // sotto i 620px di tabellone — cioè su ogni telefono — e restava
+          // solo il prezzo: bisognava sapere a memoria quale casella fosse
+          // quale. Sette pixel sono pochi, ma una parola piccola si legge; un
+          // numero da solo non dice niente.
+          const showName = true;
 
           return (
             <div
@@ -309,7 +314,10 @@ export default function Board({
                   style={{
                     ...styles.colorBar,
                     background: `linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(0,0,0,0.16) 100%), ${GROUP_COLORS[square.group]}`,
-                    height: compact ? '34%' : '20%',
+                    // Su telefono la fascia scende dal 34 al 26 per cento:
+                    // quello che le si toglie serve al nome, che prima lì non
+                    // c'era.
+                    height: compact ? '26%' : '20%',
                   }}
                 >
                   {/* Case e hotel disegnati sulla fascia, come sul tabellone vero. */}
@@ -575,9 +583,14 @@ const styles: Record<string, React.CSSProperties> = {
     filter: 'drop-shadow(0 1px 1.5px rgba(0,0,0,0.6))',
   },
   squareName: {
-    fontSize: scaled(0.0122, '6px'),
+    // Il minimo sale da 6 a 7px: sotto i sette una parola smette di leggersi
+    // a colpo d'occhio, e su telefono il fattore proporzionale cade sempre
+    // sotto il minimo (0.0122 x 361px fa 4,4), quindi è il minimo a decidere.
+    fontSize: scaled(0.0122, '7px'),
     textAlign: 'center',
-    lineHeight: 1.1,
+    // Righe strette: un nome lungo ne occupa tre e deve stare nei ~32px che
+    // restano sotto la fascia del colore.
+    lineHeight: 1.05,
     color: 'var(--paper)',
     fontWeight: 600,
   },
