@@ -1,4 +1,5 @@
 import { TOUCH_TARGET } from '../touchTarget';
+import { LAYER } from '../layers';
 
 /**
  * Riepilogo di ciò che è successo nel registro mentre il giocatore era
@@ -46,7 +47,7 @@ const styles: Record<string, React.CSSProperties> = {
   // Stesso schema di TradeOfferModal/DebtModal: `alignItems: flex-start` più
   // `overflowY: auto` sull'overlay evitano che, su schermi bassi, la card
   // trabocchi da sopra dove nessuno scorrimento la raggiungerebbe più.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 24, padding: 20, overflowY: 'auto' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.riepilogoRientro, padding: 20, overflowY: 'auto' },
   // `margin: auto` centra quando c'è spazio e collassa quando non ce n'è,
   // lasciando che sia l'overlay a tenere la card attaccata in alto.
   card: { padding: 26, width: 440, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12 },

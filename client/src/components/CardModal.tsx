@@ -1,5 +1,6 @@
-import { AwaitingCard, socket } from '../socket';
+import { AwaitingCard, GameState, socket } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
+import { LAYER } from '../layers';
 
 // Imprevisti e Probabilità hanno colori e simboli distinti, come i due mazzi
 // sul tabellone vero.
@@ -13,12 +14,21 @@ const DECKS = {
  * che mancava: gli effetti scattavano invisibili e la pedina sembrava spostarsi
  * per conto suo.
  *
- * Solo chi l'ha pescata deve fare qualcosa (confermare di averla letta):
- * App.tsx monta questo componente solo per lui. Per tutti gli altri il testo
- * della carta è già nel registro ("X pesca: ..."), e passa nella striscia
- * degli eventi invece che in un modale a tutto schermo.
+ * App.tsx la monta per tutti al tavolo: solo chi l'ha pescata ha un bottone da
+ * premere ("Ho capito"), chi guarda soltanto vede il testo della carta e chi
+ * la sta leggendo, senza un comando che non gli spetta.
  */
-export default function CardModal({ pending }: { pending: AwaitingCard }) {
+export default function CardModal({
+  pending,
+  state,
+  myId,
+}: {
+  pending: AwaitingCard;
+  state: GameState;
+  myId: string;
+}) {
+  const drawer = state.players.find((p) => p.id === pending.playerId);
+  const isMine = pending.playerId === myId;
   const deck = DECKS[pending.deck] || DECKS.chance;
 
   return (
@@ -31,24 +41,29 @@ export default function CardModal({ pending }: { pending: AwaitingCard }) {
         <span style={{ ...styles.symbol, color: deck.accent }}>{deck.symbol}</span>
         <p style={styles.text}>{pending.text}</p>
 
-        <button
-          className="btn-primary"
-          style={styles.button}
-          onClick={() => socket.emit('acknowledge_card', {})}
-        >
-          Ho capito
-        </button>
+        {isMine ? (
+          <button
+            className="btn-primary"
+            style={styles.button}
+            onClick={() => socket.emit('acknowledge_card', {})}
+          >
+            Ho capito
+          </button>
+        ) : (
+          <p style={styles.wait}>{drawer?.name} sta leggendo la carta…</p>
+        )}
       </div>
     </div>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.66)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 27, padding: 20 },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.66)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20 },
   card: { width: 330, maxWidth: '100%', padding: '0 24px 24px', textAlign: 'center', borderWidth: 2, borderStyle: 'solid', overflow: 'hidden' },
   ribbon: { margin: '0 -24px 18px', padding: '8px 0' },
   ribbonText: { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.7)', fontWeight: 700 },
   symbol: { fontFamily: 'var(--font-display)', fontSize: '2.6rem', lineHeight: 1, display: 'block' },
   text: { fontSize: '1.05rem', lineHeight: 1.5, color: 'var(--paper)', margin: '14px 0 22px' },
   button: { width: '100%', minHeight: TOUCH_TARGET },
+  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
 };

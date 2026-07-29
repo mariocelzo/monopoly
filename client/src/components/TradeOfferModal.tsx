@@ -1,6 +1,7 @@
 import { AwaitingTrade, BoardSquare, GameState, socket } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
 import { TOUCH_TARGET } from '../touchTarget';
+import { LAYER } from '../layers';
 
 /**
  * Offerta di scambio ricevuta. Al destinatario mostra i due lati del baratto con
@@ -99,7 +100,7 @@ const styles: Record<string, React.CSSProperties> = {
   // comprimendo l'elenco il contenuto fisso ci sta — viewport bassissimi, nomi
   // lunghi che vanno a capo — e per i browser mobile dove 100vh non coincide
   // con l'area davvero visibile.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 25, padding: 20, overflowY: 'auto' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
   // `margin: auto` centra la finestra quando c'è spazio e collassa quando non
   // ce n'è, lasciando che sia `alignItems: flex-start` a tenerla attaccata in
   // alto invece di farla uscire da sopra.

@@ -4,6 +4,7 @@ import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
 import MoneyStepper from './MoneyStepper';
 import TradeBoard from './TradeBoard';
+import { LAYER } from '../layers';
 
 /**
  * Composizione di una proposta di scambio: si spuntano le proprietà da offrire e
@@ -260,7 +261,7 @@ export default function TradeModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 25, padding: 20 },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.compositoreScambio, padding: 20 },
   card: { padding: 26, width: 900, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12 },
   destinatari: { display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' },
   destLabel: { fontSize: '0.76rem', color: 'rgba(243,234,216,0.6)' },

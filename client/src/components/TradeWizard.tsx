@@ -4,6 +4,7 @@ import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
 import { TOUCH_TARGET } from '../touchTarget';
 import MoneyStepper from './MoneyStepper';
+import { LAYER } from '../layers';
 
 /**
  * Composizione di uno scambio su telefono e tablet, una domanda per schermata:
@@ -315,7 +316,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'fixed',
     inset: 0,
     background: 'rgba(0,0,0,0.62)',
-    zIndex: 25,
+    zIndex: LAYER.compositoreScambio,
     display: 'flex',
     alignItems: 'flex-end',
   },
