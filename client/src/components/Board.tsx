@@ -571,13 +571,19 @@ const styles: Record<string, React.CSSProperties> = {
   },
   // Filigrana del marchio: riempie il centro da dietro, la plancia vera
   // (position: relative, disegnata dopo nel markup) le sta sopra.
+  // In alto, non al centro: filigrana e plancia erano entrambe centrate
+  // verticalmente e finivano una sopra l'altra — la didascalia dei dadi
+  // cadeva esattamente sulla scritta MONOPOLY e non si leggeva più né l'una
+  // né l'altra. Abbassare l'opacità non bastava: testo su testo resta
+  // illeggibile comunque, serve separarli.
   watermark: {
     position: 'absolute',
     inset: 0,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: '7%',
     gap: '1.5%',
     pointerEvents: 'none',
   },
