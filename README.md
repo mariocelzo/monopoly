@@ -67,6 +67,31 @@ Va eseguito prima e dopo ogni modifica sostanziale a `gameEngine.js`. La suite
 include una partita simulata di 300 turni e i bot usano la casualità, quindi
 conviene lanciarla più volte.
 
+### Test a invarianti
+
+`smoke-test.js` verifica i casi a cui abbiamo pensato. Questo verifica quelli a
+cui non abbiamo pensato: gioca migliaia di partite a mosse casuali — comprese
+quelle illegali, che il motore deve rifiutare senza sporcare lo stato — e dopo
+**ogni singola mossa** ricontrolla venti affermazioni che non devono mai poter
+essere false (un hotel non convive con delle case, un saldo negativo esiste solo
+come debito aperto, il patrimonio ricalcolato da fuori coincide con quello del
+motore, la partita non si blocca mai in uno stato da cui nessuno può muovere…).
+
+```bash
+cd server && node invariant-test.js            # 2000 partite
+cd server && node invariant-test.js 1500 777   # 1500 partite, seme 777
+```
+
+Il seme conta: partite diverse esplorano strade diverse, quindi vale la pena
+lanciarlo con qualche seme diverso e non solo col predefinito. Quando trova una
+violazione stampa lo stato, le ultime righe di registro e il comando esatto per
+rigiocare identica quella partita.
+
+Ha già trovato tre modi di congelare una partita che i test tradizionali non
+vedevano, tutti attorno a chi lascia il tavolo; i casi corrispondenti sono ora
+fissati anche in `smoke-test.js`, perché un fuzzer con un altro seme potrebbe
+non ripassare da quelle strade.
+
 Anche il client ha le sue asserzioni, sulla sola logica pura. Girano sotto Node
 senza framework né bundler, perché Node sa eseguire TypeScript togliendo i tipi:
 
@@ -156,6 +181,7 @@ risolvere, serve un archivio esterno che sopravviva al container (vedi sopra).
 ```
 server/
   smoke-test.js        Suite di asserzioni sul motore
+  invariant-test.js    Partite casuali con venti invarianti ricontrollate a ogni mossa
   bot-calibration.js   Partite simulate bot-contro-bot, per tarare le soglie
   src/
     data/board.js      Le 40 caselle (edizione italiana), le carte
