@@ -32,7 +32,14 @@ export interface Player {
 export interface Ownership {
   ownerId: string;
   houses: number;
-  hotel: boolean;
+  /**
+   * Livelli di hotel costruiti: 0 = nessuno, fino a 4 con la modalità
+   * grattacieli accesa (vedi HouseRules.skyscraperEnabled), altrimenti al più
+   * 1. Non più un booleano: con più di un livello possibile serve sapere
+   * quanti, non solo se c'è. Per invariante, quando questo è maggiore di zero
+   * `houses` resta sempre 0 (l'hotel "occupa" il posto delle quattro case).
+   */
+  hotels: number;
   mortgaged: boolean;
 }
 
@@ -171,6 +178,12 @@ export interface HouseRules {
   auctionEnabled: boolean;
   /** Saldo di partenza di ogni giocatore. */
   startingBalance: 1000 | 1500 | 2000;
+  /**
+   * Fino a quattro hotel per proprietà, a prezzi e affitti crescenti, invece
+   * di uno solo. Spenta di default: senza toccarla il gioco resta quello di
+   * sempre (vedi gameEngine.js, buildHouse).
+   */
+  skyscraperEnabled: boolean;
 }
 
 export interface GameState {

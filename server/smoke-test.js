@@ -23,11 +23,17 @@ function section(title) {
   console.log(`\n${title}`);
 }
 
-/** Partita a due pronta al via, con saldi impostati a piacere. */
-function newGame({ balanceA = 1500, balanceB = 1500 } = {}) {
+/**
+ * Partita a due pronta al via, con saldi impostati a piacere. `skyscraper`
+ * accende la modalità grattacieli prima del via (le regole si scelgono solo
+ * lì, vedi setRules): di default resta spenta, così ogni test già scritto
+ * prima di questa regola continua a girare esattamente come prima.
+ */
+function newGame({ balanceA = 1500, balanceB = 1500, skyscraper = false } = {}) {
   const game = new GameEngine('TEST');
   game.addPlayer('a', 'Mario', '🎩');
   game.addPlayer('b', 'Giulia', '🐕');
+  if (skyscraper) game.setRules('a', { skyscraperEnabled: true });
   game.start();
   game.players[0].balance = balanceA;
   game.players[1].balance = balanceB;
@@ -36,7 +42,7 @@ function newGame({ balanceA = 1500, balanceB = 1500 } = {}) {
 
 /** Assegna una casella a un giocatore senza passare dall'acquisto. */
 function give(game, playerId, position, extra = {}) {
-  game.ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false, ...extra };
+  game.ownership[position] = { ownerId: playerId, houses: 0, hotels: 0, mortgaged: false, ...extra };
 }
 
 /**
@@ -55,6 +61,11 @@ function passAuction(game) {
 // Le tre caselle arancioni: monopolio comodo per i test sull'edificazione.
 const ORANGE = board.filter((s) => s.group === 'orange').map((s) => s.position);
 const BROWN = board.filter((s) => s.group === 'brown').map((s) => s.position);
+// Le due blu: BLUE[0] è Viale dei Giardini, BLUE[1] è Parco della Vittoria (39,
+// l'esempio citato nella regola della modalità grattacieli). Un monopolio di
+// due sole caselle è comodo per i test sui quattro livelli di hotel: bastano
+// due costruzioni per pareggiare il gruppo a ogni livello, invece di tre.
+const BLUE = board.filter((s) => s.group === 'blue').map((s) => s.position);
 
 // ---------------------------------------------------------------------------
 section('1. Edificazione uniforme');
@@ -676,7 +687,7 @@ section('17c. Affitto insostenibile: si passa al debito');
 {
   const game = newGame({ balanceA: 5 });
   const mario = game.players[0];
-  give(game, 'b', ORANGE[0], { hotel: true }); // affitto da hotel: 950
+  give(game, 'b', ORANGE[0], { hotels: 1 }); // affitto da hotel: 950
   give(game, 'a', BROWN[0]);
   give(game, 'a', BROWN[1]);
   mario.position = 10;
@@ -1102,7 +1113,7 @@ section('27. Bot: decisioni durante il turno');
   g3.addBot('Bot Aurelio', '🐕');
   g3.start();
   g3.turnIndex = 1;
-  g3.ownership[ORANGE[0]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+  g3.ownership[ORANGE[0]] = { ownerId: 'umano', houses: 0, hotels: 0, mortgaged: false };
   g3.players[1].position = 10;
   g3.movePlayer(g3.players[1], ORANGE[0] - 10);
   check('l\'affitto è in sospeso', g3.pendingAction?.type === 'awaiting_rent');
@@ -1117,8 +1128,8 @@ section('27. Bot: decisioni durante il turno');
   g4.start();
   const bot4 = g4.players[1];
   bot4.balance = 100;
-  g4.ownership[ORANGE[0]] = { ownerId: bot4.id, houses: 0, hotel: false, mortgaged: false };
-  g4.ownership[ORANGE[1]] = { ownerId: bot4.id, houses: 0, hotel: false, mortgaged: false };
+  g4.ownership[ORANGE[0]] = { ownerId: bot4.id, houses: 0, hotels: 0, mortgaged: false };
+  g4.ownership[ORANGE[1]] = { ownerId: bot4.id, houses: 0, hotels: 0, mortgaged: false };
   g4.chargePlayer(bot4, 200);
   check('il debito è aperto sul bot', g4.pendingAction?.type === 'awaiting_debt');
   botMove(g4);
@@ -1135,7 +1146,7 @@ section('27. Bot: decisioni durante il turno');
   const bot5 = g5.players[1];
   bot5.balance = 2000;
   for (const pos of ORANGE) {
-    g5.ownership[pos] = { ownerId: bot5.id, houses: 0, hotel: false, mortgaged: false };
+    g5.ownership[pos] = { ownerId: bot5.id, houses: 0, hotels: 0, mortgaged: false };
   }
   botMove(g5);
   const case5 = ORANGE.reduce((tot, pos) => tot + g5.ownership[pos].houses, 0);
@@ -1199,7 +1210,7 @@ section('28. Bot: risposta agli scambi');
   const botId = game.players[1].id;
 
   // Offerta generosa: l'umano dà una proprietà cara e chiede pochi soldi.
-  game.ownership[ORANGE[0]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+  game.ownership[ORANGE[0]] = { ownerId: 'umano', houses: 0, hotels: 0, mortgaged: false };
   game.proposeTrade('umano', {
     toId: botId, offerProperties: [ORANGE[0]], requestMoney: 50,
   });
@@ -1237,9 +1248,9 @@ section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
     g.turnIndex = 1;
     bot.balance = 1500;
     // Al bot mancano solo gli arancioni: due su tre sono suoi, la terza è dell'umano.
-    g.ownership[ORANGE[0]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
-    g.ownership[ORANGE[1]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
-    g.ownership[ORANGE[2]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+    g.ownership[ORANGE[0]] = { ownerId: bot.id, houses: 0, hotels: 0, mortgaged: false };
+    g.ownership[ORANGE[1]] = { ownerId: bot.id, houses: 0, hotels: 0, mortgaged: false };
+    g.ownership[ORANGE[2]] = { ownerId: 'umano', houses: 0, hotels: 0, mortgaged: false };
     return { g, bot };
   }
 
@@ -1248,7 +1259,7 @@ section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
   {
     const { g, bot } = tavoloDaScambio();
     // Una proprietà di scarto da mettere sul piatto.
-    g.ownership[BROWN[0]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
+    g.ownership[BROWN[0]] = { ownerId: bot.id, houses: 0, hotels: 0, mortgaged: false };
 
     // Math.random fissato a 0: supera il filtro del 30% e toglie ogni casualità.
     const vero = Math.random;
@@ -1277,11 +1288,11 @@ section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
   {
     const { g, bot } = tavoloDaScambio();
     // L'umano ha due azzurre: la terza gli chiuderebbe il gruppo.
-    g.ownership[LIGHTBLUE[0]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
-    g.ownership[LIGHTBLUE[1]] = { ownerId: 'umano', houses: 0, hotel: false, mortgaged: false };
+    g.ownership[LIGHTBLUE[0]] = { ownerId: 'umano', houses: 0, hotels: 0, mortgaged: false };
+    g.ownership[LIGHTBLUE[1]] = { ownerId: 'umano', houses: 0, hotels: 0, mortgaged: false };
     // Il bot possiede sia quella pericolosa sia una marrone innocua.
-    g.ownership[LIGHTBLUE[2]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
-    g.ownership[BROWN[0]] = { ownerId: bot.id, houses: 0, hotel: false, mortgaged: false };
+    g.ownership[LIGHTBLUE[2]] = { ownerId: bot.id, houses: 0, hotels: 0, mortgaged: false };
+    g.ownership[BROWN[0]] = { ownerId: bot.id, houses: 0, hotels: 0, mortgaged: false };
 
     const vero = Math.random;
     Math.random = () => 0;
@@ -1963,6 +1974,316 @@ section('34f. Il patrimonio è nello stato serializzato per il client');
   check(
     'serializzare non sporca gli oggetti giocatore interni del motore',
     !('netWorth' in mario)
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('35. Regola della casa: modalità grattacieli, spenta per default');
+{
+  const game = new GameEngine('SKY-RULE');
+  game.addPlayer('a', 'Mario', '🎩');
+  game.addPlayer('b', 'Giulia', '🐕');
+
+  check('di default la modalità grattacieli è spenta', game.rules.skyscraperEnabled === false);
+
+  const nonHost = game.setRules('b', { skyscraperEnabled: true });
+  check('solo l\'host la accende', !!nonHost.error, nonHost.error);
+  check('il tentativo di un non-host non cambia nulla', game.rules.skyscraperEnabled === false);
+
+  const res = game.setRules('a', { skyscraperEnabled: true });
+  check('l\'host può accenderla prima del via', !res.error, JSON.stringify(res));
+  check('la regola è accesa', game.rules.skyscraperEnabled === true);
+
+  game.start();
+  const dopoIlVia = game.setRules('a', { skyscraperEnabled: false });
+  check('a partita iniziata non si cambia più', !!dopoIlVia.error, dopoIlVia.error);
+  check('resta accesa', game.rules.skyscraperEnabled === true);
+
+  const state = game.serialize();
+  check('la regola è esposta al client', state.rules.skyscraperEnabled === true);
+}
+
+// ---------------------------------------------------------------------------
+section('36. Modalità grattacieli spenta: si ferma al primo hotel, come sempre');
+{
+  const game = newGame({ balanceA: 5000 }); // skyscraper spenta di default
+  ORANGE.forEach((pos) => give(game, 'a', pos, { houses: 4 }));
+  const mario = game.players[0];
+
+  const primoHotel = game.buildHouse('a', ORANGE[0]);
+  check('il primo hotel si costruisce normalmente', !primoHotel.error, primoHotel.error);
+  check('costa come una casa (100), non di più', mario.balance === 5000 - 100, `saldo=${mario.balance}`);
+  check('ownership registra un hotel', game.ownership[ORANGE[0]].hotels === 1);
+  check('le case tornano a zero', game.ownership[ORANGE[0]].houses === 0);
+
+  const secondoHotel = game.buildHouse('a', ORANGE[0]);
+  check('a modalità spenta non si costruisce un secondo hotel', !!secondoHotel.error, secondoHotel.error);
+  check('l\'errore è lo stesso di sempre', secondoHotel.error === "C'è già un hotel", secondoHotel.error);
+  check('resta un hotel solo, non due', game.ownership[ORANGE[0]].hotels === 1);
+  check(
+    'l\'affitto resta quello dell\'hotel singolo (950, rents[5] di Via Verdi), non un livello superiore',
+    game.calculateRent(board[ORANGE[0]], game.ownership[ORANGE[0]]) === 950
+  );
+
+  const rimborso = game.sellHouse('a', ORANGE[0]);
+  check('vendere l\'unico hotel riesce', !rimborso.error, rimborso.error);
+  check('rende la metà di houseCost (50), il rimborso di sempre', mario.balance === 5000 - 100 + 50);
+  check('tornano le quattro case, come sempre', game.ownership[ORANGE[0]].houses === 4 && game.ownership[ORANGE[0]].hotels === 0);
+}
+
+// ---------------------------------------------------------------------------
+section('37. Modalità grattacieli: costi esatti dei quattro livelli di hotel (tabella concordata)');
+{
+  // Arancioni, houseCost 100 (riga "rosa/arancione" della tabella): 2°=1.500,
+  // 3°=2.200, 4°=3.000. Si parte già al 1° hotel su tutte e tre, così ogni
+  // costruzione qui sotto è esattamente il livello che si vuole misurare.
+  const game = newGame({ balanceA: 25000, skyscraper: true });
+  ORANGE.forEach((pos) => give(game, 'a', pos, { hotels: 1 }));
+  const mario = game.players[0];
+  let saldo = mario.balance;
+
+  ORANGE.forEach((pos) => {
+    const res = game.buildHouse('a', pos);
+    check(`il 2° hotel su ${board[pos].name} si costruisce`, !res.error, res.error);
+    check('il 2° hotel costa esattamente 1.500', saldo - mario.balance === 1500, `speso=${saldo - mario.balance}`);
+    saldo = mario.balance;
+  });
+  check('tutte e tre hanno 2 hotel', ORANGE.every((pos) => game.ownership[pos].hotels === 2));
+
+  ORANGE.forEach((pos) => {
+    const res = game.buildHouse('a', pos);
+    check(`il 3° hotel su ${board[pos].name} si costruisce`, !res.error, res.error);
+    check('il 3° hotel costa esattamente 2.200', saldo - mario.balance === 2200, `speso=${saldo - mario.balance}`);
+    saldo = mario.balance;
+  });
+  check('tutte e tre hanno 3 hotel', ORANGE.every((pos) => game.ownership[pos].hotels === 3));
+
+  ORANGE.forEach((pos) => {
+    const res = game.buildHouse('a', pos);
+    check(`il 4° hotel su ${board[pos].name} si costruisce`, !res.error, res.error);
+    check('il 4° hotel costa esattamente 3.000', saldo - mario.balance === 3000, `speso=${saldo - mario.balance}`);
+    saldo = mario.balance;
+  });
+  check('tutte e tre hanno 4 hotel: il massimo', ORANGE.every((pos) => game.ownership[pos].hotels === 4));
+
+  const oltre = game.buildHouse('a', ORANGE[0]);
+  check('oltre il 4° hotel non si costruisce', !!oltre.error, oltre.error);
+  check(
+    'l\'errore dice che è già al massimo, non "c\'è già un hotel" (testo da modalità spenta)',
+    oltre.error === 'Hai già il massimo di hotel su questa proprietà',
+    oltre.error
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('38. Modalità grattacieli: affitti esatti per livello di hotel');
+{
+  const game = newGame({ skyscraper: true });
+  const parco = board[BLUE[1]]; // Parco della Vittoria: rents[5] = 2000
+  const giardini = board[BLUE[0]]; // Viale dei Giardini: rents[5] = 1500
+  check('Parco della Vittoria è quella giusta', parco.name === 'Parco della Vittoria', parco.name);
+
+  const affittoParco = { 1: 2000, 2: 3400, 3: 5000, 4: 7000 };
+  const affittoGiardini = { 1: 1500, 2: 2550, 3: 3750, 4: 5250 };
+
+  [1, 2, 3, 4].forEach((n) => {
+    const owned = { ownerId: 'b', houses: 0, hotels: n, mortgaged: false };
+    check(
+      `Parco della Vittoria con ${n} hotel rende ${affittoParco[n]}`,
+      game.calculateRent(parco, owned) === affittoParco[n],
+      `ottenuto ${game.calculateRent(parco, owned)}`
+    );
+    check(
+      `Viale dei Giardini con ${n} hotel rende ${affittoGiardini[n]}`,
+      game.calculateRent(giardini, owned) === affittoGiardini[n],
+      `ottenuto ${game.calculateRent(giardini, owned)}`
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+section('39. Modalità grattacieli: l\'edificazione uniforme si estende agli hotel oltre il primo');
+{
+  const game = newGame({ balanceA: 10000, skyscraper: true });
+  ORANGE.forEach((pos) => give(game, 'a', pos));
+  // Solo la prima è già al 1° hotel; le altre due sono ancora terreno scoperto.
+  game.ownership[ORANGE[0]].hotels = 1;
+
+  const salto = game.buildHouse('a', ORANGE[0]);
+  check(
+    'non si può costruire il 2° hotel finché le altre del colore sono scoperte',
+    !!salto.error,
+    salto.error
+  );
+  check('resta un hotel solo, il salto è stato rifiutato', game.ownership[ORANGE[0]].hotels === 1);
+
+  // Pareggiando le altre due al 1° hotel, ora il salto al 2° è consentito.
+  game.ownership[ORANGE[1]].hotels = 1;
+  game.ownership[ORANGE[2]].hotels = 1;
+  const ora = game.buildHouse('a', ORANGE[0]);
+  check('col gruppo pareggiato il 2° hotel si costruisce', !ora.error, ora.error);
+  check('ora ha 2 hotel', game.ownership[ORANGE[0]].hotels === 2);
+}
+
+// ---------------------------------------------------------------------------
+section('40. Modalità grattacieli: vendere un hotel oltre il primo non fa comparire case fantasma');
+{
+  const game = newGame({ skyscraper: true });
+  ORANGE.forEach((pos) => give(game, 'a', pos, { hotels: 2 }));
+  const mario = game.players[0];
+  const saldoPrima = mario.balance;
+
+  const res = game.sellHouse('a', ORANGE[0]);
+  check('la vendita del 2° hotel riesce', !res.error, res.error);
+  check('resta un hotel, non sparisce del tutto', game.ownership[ORANGE[0]].hotels === 1);
+  check(
+    'le case NON tornano: non era l\'ultimo hotel rimasto (il difetto delle case fantasma)',
+    game.ownership[ORANGE[0]].houses === 0,
+    `houses=${game.ownership[ORANGE[0]].houses}`
+  );
+  check(
+    'il rimborso è quello del 2° hotel (750), non la metà di houseCost (50)',
+    mario.balance === saldoPrima + 750,
+    `saldo=${mario.balance}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('41. Modalità grattacieli: vendere l\'ultimo hotel rimasto fa tornare quattro case');
+{
+  const game = newGame({ skyscraper: true });
+  give(game, 'a', ORANGE[0], { hotels: 1 });
+  const mario = game.players[0];
+  const saldoPrima = mario.balance;
+
+  const res = game.sellHouse('a', ORANGE[0]);
+  check('la vendita riesce', !res.error, res.error);
+  check('l\'hotel è sparito', game.ownership[ORANGE[0]].hotels === 0);
+  check('tornano le quattro case', game.ownership[ORANGE[0]].houses === 4);
+  check(
+    'il rimborso è la metà di houseCost (50), non di una cifra da grattacielo',
+    mario.balance === saldoPrima + 50,
+    `saldo=${mario.balance}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('42. Modalità grattacieli: liquidationValue somma il rimborso di ogni hotel davvero costruito');
+{
+  const game = newGame({ balanceA: 500, skyscraper: true });
+  give(game, 'a', BLUE[1], { hotels: 4 }); // Parco della Vittoria, houseCost 200, prezzo 400
+  const mario = game.players[0];
+
+  // Rimborso di ogni livello scritto a mano (metà del costo di ciascuno, dalla
+  // tabella): 4°=3.000 (metà di 6.000), 3°=2.200 (metà di 4.400), 2°=1.500
+  // (metà di 3.000), 1°=100 (metà di houseCost, 200). In tutto 6.800.
+  const rimborsoEdifici = 3000 + 2200 + 1500 + 100;
+  check('il rimborso a mano dei quattro hotel è 6.800', rimborsoEdifici === 6800);
+
+  const ipoteca = 200; // metà del prezzo di Parco della Vittoria (400), non ipotecata
+  const atteso = 500 + rimborsoEdifici + ipoteca;
+  check(
+    'liquidationValue somma contanti, il rimborso di ogni livello di hotel e l\'ipoteca',
+    game.liquidationValue(mario) === atteso,
+    `atteso ${atteso}, ottenuto ${game.liquidationValue(mario)}`
+  );
+
+  // La vecchia formula (unità × rimborso fisso) userebbe unitCount=8 (4
+  // "case equivalenti" + 4 livelli di hotel) per un rimborso singolo fisso di
+  // 100 (houseCost/2): 8 × 100 = 800, altro che 6.800 — un giocatore con
+  // settemila euro di alberghi sotto i piedi verrebbe giudicato quasi al verde.
+  check(
+    'non vale più la vecchia formula sbagliata (unità × rimborso fisso = 800)',
+    game.liquidationValue(mario) !== 500 + 8 * 100 + ipoteca,
+    `liquidationValue=${game.liquidationValue(mario)}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('43. Modalità grattacieli: netWorth somma il costo pieno di ogni hotel davvero costruito');
+{
+  const game = newGame({ balanceA: 500, skyscraper: true });
+  give(game, 'a', BLUE[1], { hotels: 4 }); // Parco della Vittoria
+  const mario = game.players[0];
+
+  // Costo pieno di ogni livello scritto a mano (dalla tabella): 1°=200 (houseCost),
+  // 2°=3.000, 3°=4.400, 4°=6.000. In tutto 13.600.
+  const costoEdifici = 200 + 3000 + 4400 + 6000;
+  check('il costo pieno a mano dei quattro hotel è 13.600', costoEdifici === 13600);
+
+  const prezzoTerreno = 400; // Parco della Vittoria, non ipotecata: prezzo pieno
+  const atteso = 500 + costoEdifici + prezzoTerreno;
+  check(
+    'netWorth somma contanti, il costo pieno di ogni livello di hotel e il terreno',
+    game.netWorth(mario) === atteso,
+    `atteso ${atteso}, ottenuto ${game.netWorth(mario)}`
+  );
+
+  // La vecchia formula (unità × houseCost) userebbe 8 unità × 200 = 1.600,
+  // molto meno dei 13.600 veri.
+  check(
+    'non vale più la vecchia formula sbagliata (unità × houseCost = 1.600)',
+    game.netWorth(mario) !== 500 + 8 * 200 + prezzoTerreno,
+    `netWorth=${game.netWorth(mario)}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('44. Il test che conta di più: costruire quattro hotel su un colore intero e smontarli rende esattamente metà della spesa');
+{
+  const game = newGame({ balanceA: 30000, skyscraper: true });
+  BLUE.forEach((pos) => give(game, 'a', pos)); // le due caselle blu, terreno scoperto
+  const mario = game.players[0];
+  const saldoIniziale = mario.balance;
+
+  // Otto livelli (4 case + 4 hotel) su entrambe le blu, alternando le due per
+  // rispettare l'edificazione uniforme: si costruisce solo dove ce n'è di
+  // meno, quindi alternare basta a tenerle sempre pari.
+  for (let livello = 1; livello <= 8; livello++) {
+    for (const pos of BLUE) {
+      const res = game.buildHouse('a', pos);
+      check(`costruzione ${livello}/8 su ${board[pos].name} riesce`, !res.error, res.error);
+    }
+  }
+  check('entrambe le blu hanno 4 hotel', BLUE.every((pos) => game.ownership[pos].hotels === 4));
+  check('nessuna casa residua', BLUE.every((pos) => game.ownership[pos].houses === 0));
+
+  const totaleSpeso = saldoIniziale - mario.balance;
+  // Numeri scritti a mano, NON ricavati da buildingCost: per ciascuna delle
+  // due caselle blu (houseCost 200) — 4 case a 200 l'una (800) + 1° hotel a
+  // 200 (200, come una casa) + 2° a 3.000 + 3° a 4.400 + 4° a 6.000 = 14.400
+  // a casella. Per il colore intero (due caselle): 28.800.
+  check('il totale speso per il colore intero è esattamente 28.800', totaleSpeso === 28800, `speso=${totaleSpeso}`);
+
+  const saldoPreVendita = mario.balance;
+  // Smonta tutto, un edificio alla volta: alternare le due basta anche qui,
+  // sono appaiate e la regola di vendita guarda solo verso il basso.
+  for (let livello = 1; livello <= 8; livello++) {
+    for (const pos of BLUE) {
+      const res = game.sellHouse('a', pos);
+      check(`vendita ${livello}/8 su ${board[pos].name} riesce`, !res.error, res.error);
+    }
+  }
+  check(
+    'nessun hotel né casa resta su nessuna delle due',
+    BLUE.every((pos) => game.ownership[pos].hotels === 0 && game.ownership[pos].houses === 0)
+  );
+
+  const totaleRimborsato = mario.balance - saldoPreVendita;
+  // Di nuovo a mano, metà di ciascun costo sopra: 4 case a 100 (400) + 1°
+  // hotel a 100 + 2° a 1.500 + 3° a 2.200 + 4° a 3.000 = 7.200 a casella,
+  // 14.400 per il colore intero.
+  check('il totale rimborsato per il colore intero è esattamente 14.400', totaleRimborsato === 14400, `rimborsato=${totaleRimborsato}`);
+
+  check(
+    'il denaro tornato è esattamente la metà di quello speso: non un euro in più o in meno',
+    totaleRimborsato === totaleSpeso / 2,
+    `speso=${totaleSpeso}, rimborsato=${totaleRimborsato}`
+  );
+  check(
+    'il saldo finale coincide col saldo iniziale meno esattamente metà della spesa',
+    mario.balance === saldoIniziale - totaleSpeso / 2,
+    `saldoIniziale=${saldoIniziale}, saldoFinale=${mario.balance}`
   );
 }
 

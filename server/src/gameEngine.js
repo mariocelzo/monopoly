@@ -36,6 +36,28 @@ const MAX_DOUBLES = 3;
 const MORTGAGE_INTEREST_NUM = 1;
 const MORTGAGE_INTEREST_DEN = 10;
 
+// Modalità grattacieli (regola della casa, spenta di default, vedi
+// rules.skyscraperEnabled): fino a quattro hotel per proprietà invece di uno
+// solo, a prezzi e affitti crescenti. A regola spenta il tetto resta 1,
+// esattamente come da regolamento classico e come si è sempre giocato finora
+// (vedi buildHouse, l'unico punto che legge questi due tetti).
+const MAX_HOTELS_SKYSCRAPER = 4;
+const MAX_HOTELS_CLASSIC = 1;
+// Moltiplicatore di costo per ciascun livello di hotel, applicato a
+// houseCost della casella (vedi buildingCost). Il 1° hotel sostituisce le
+// quattro case e costa come una singola casa (moltiplicatore 1: è il
+// comportamento di sempre, invariato). Il 2°, 3° e 4° costano rispettivamente
+// 15, 22 e 30 volte una casa: numeri concordati al tavolo, non ricavati da
+// una formula, per tenere ogni livello un salto deciso rispetto al
+// precedente senza dover ricorrere all'asta per finanziarlo.
+const HOTEL_COST_MULTIPLIER = { 1: 1, 2: 15, 3: 22, 4: 30 };
+// Moltiplicatore d'affitto per ciascun livello di hotel, applicato
+// all'affitto dell'hotel singolo (square.rents[5]) e arrotondato ai 25 più
+// vicini (vedi hotelRent). Con un solo hotel il moltiplicatore è 1: dato che
+// in board.js ogni rents[5] è già multiplo di 25, l'arrotondamento non cambia
+// nulla e l'affitto resta letteralmente quello di sempre.
+const HOTEL_RENT_MULTIPLIER = { 1: 1, 2: 1.7, 3: 2.5, 4: 3.5 };
+
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -64,6 +86,10 @@ class GameEngine {
       freeParkingEnabled: true, // il montepremi della Sosta Gratuita
       auctionEnabled: true, // l'asta sulla proprietà rifiutata
       startingBalance: STARTING_BALANCE, // 1500: saldo di partenza
+      // Modalità grattacieli: spenta di default, così una partita creata
+      // senza toccare le regole si comporta esattamente come prima che
+      // questa regola esistesse (un solo hotel per proprietà).
+      skyscraperEnabled: false,
     };
     // Il mazzo si costruisce qui, non si importa già pronto da board.js:
     // alcune carte citano a parole l'importo del Via (vedi buildDeck) e
@@ -310,6 +336,11 @@ class GameEngine {
       if (!STARTING_BALANCE_OPTIONS.includes(startingBalance)) return { error: 'Saldo iniziale non valido' };
       next.startingBalance = startingBalance;
     }
+    // Interruttore booleano come freeParkingEnabled/auctionEnabled qui sopra:
+    // nessun elenco di opzioni da validare, solo vero o falso.
+    if (changes.skyscraperEnabled !== undefined) {
+      next.skyscraperEnabled = Boolean(changes.skyscraperEnabled);
+    }
 
     this.rules = next;
     // Chi è già seduto ha già un saldo assegnato con la regola precedente
@@ -394,17 +425,78 @@ class GameEngine {
   }
 
   /**
-   * Edifici presenti su una casella espressi in "unità casa". L'hotel vale 5
-   * perché costa una casa in più rispetto alle quattro che sostituisce: così il
-   * confronto per la regola dell'edificazione uniforme è un semplice numero.
+   * Edifici presenti su una casella espressi in "unità casa": 1-4 sono le case,
+   * 5-8 sono i livelli di hotel (owned.hotels, 0-4 con la modalità grattacieli;
+   * senza, al più 1). Un hotel vale sempre "4 + il suo livello" perché occupa il
+   * posto delle quattro case: il primo hotel vale quindi 5 come prima di questa
+   * regola, il quarto vale 8. Così il confronto per l'edificazione uniforme (e
+   * per la vendita, che smonta da dove ce n'è di più) resta un semplice numero,
+   * anche con più hotel.
    */
   unitCount(owned) {
-    return owned.hotel ? 5 : owned.houses;
+    return owned.hotels > 0 ? 4 + owned.hotels : owned.houses;
   }
 
-  /** Quanto ricava il giocatore vendendo un edificio: metà del costo di costruzione. */
-  buildingRefund(square) {
-    return Math.floor(square.houseCost / 2);
+  /**
+   * Costo per costruire l'unità numero `n` su una casella: 1-4 sono case, tutte
+   * a houseCost; 5-8 sono i livelli di hotel, a houseCost moltiplicato per
+   * HOTEL_COST_MULTIPLIER (1, 15, 22, 30). Il primo hotel (n=5) costa quindi
+   * come una casa, esattamente come prima che i livelli oltre il primo
+   * esistessero: la modalità grattacieli non cambia nulla lì, aggiunge solo i
+   * livelli successivi.
+   */
+  buildingCost(square, n) {
+    if (n <= 4) return square.houseCost;
+    return square.houseCost * (HOTEL_COST_MULTIPLIER[n - 4] || 0);
+  }
+
+  /** Quanto costerebbe costruire la prossima unità (casa o hotel) su questa casella. */
+  nextBuildingCost(square, owned) {
+    return this.buildingCost(square, this.unitCount(owned) + 1);
+  }
+
+  /**
+   * Quanto ricava il giocatore vendendo l'unità numero `n`: metà di quanto
+   * pagato per costruirla. Serve un numero di unità e non più solo la casella,
+   * perché con più hotel il rimborso dipende da QUALE livello si toglie (vedi
+   * sellHouse, che vende sempre quello in cima alla pila) — prima, con un solo
+   * livello possibile, il rimborso era sempre houseCost/2 e basta.
+   */
+  buildingRefund(square, n) {
+    return Math.floor(this.buildingCost(square, n) / 2);
+  }
+
+  /**
+   * Elenco delle unità (numeri 1-8, stesso significato di unitCount) davvero
+   * costruite su una casella, dalla prima all'ultima. Con un hotel le case sono
+   * a zero per invariante (vedi buildHouse/sellHouse), quindi le due liste non
+   * si sommano mai: o ci sono solo case, o c'è solo il pacchetto di hotel.
+   * Usata da liquidationValue e netWorth per sommare il valore di OGNI livello
+   * davvero presente, invece di moltiplicare il numero di edifici per un
+   * rimborso o un costo unico — quella scorciatoia andava bene quando tutti gli
+   * edifici costavano uguale, non più con gli hotel a prezzi crescenti.
+   */
+  builtUnits(owned) {
+    const units = [];
+    if (owned.hotels > 0) {
+      for (let livello = 1; livello <= owned.hotels; livello++) units.push(4 + livello);
+    } else {
+      for (let casa = 1; casa <= owned.houses; casa++) units.push(casa);
+    }
+    return units;
+  }
+
+  /**
+   * Affitto di una proprietà con almeno un hotel: l'affitto dell'hotel singolo
+   * (rents[5]) moltiplicato per HOTEL_RENT_MULTIPLIER e arrotondato ai 25 più
+   * vicini. Con un solo hotel il moltiplicatore è 1 e l'arrotondamento non
+   * tocca nulla (tutti i rents[5] di board.js sono già multipli di 25): è
+   * esattamente l'affitto di sempre, non una nuova regola per chi gioca senza
+   * la modalità grattacieli.
+   */
+  hotelRent(square, hotels) {
+    const raw = square.rents[5] * (HOTEL_RENT_MULTIPLIER[hotels] || 1);
+    return Math.round(raw / 25) * 25;
   }
 
   /** Valore d'ipoteca di una proprietà: metà del prezzo d'acquisto. */
@@ -429,9 +521,13 @@ class GameEngine {
    */
   liquidationValue(player) {
     return this.propertiesOf(player.id).reduce((total, { square, owned }) => {
-      // Stazioni e società non hanno houseCost: contano solo per l'ipoteca.
-      const units = this.unitCount(owned);
-      let extra = units > 0 ? units * this.buildingRefund(square) : 0;
+      // Si somma il rimborso di OGNI livello davvero costruito (builtUnits),
+      // non "numero di edifici × un rimborso unico": con gli hotel a prezzi
+      // crescenti quella scorciatoia sottostimava di molto il patrimonio (il
+      // 4° hotel di Parco della Vittoria da solo rimborsa 3.000, non gli 800
+      // che darebbe 4 unità × 200/2). Stazioni e società non costruiscono
+      // nulla: builtUnits torna vuoto e questo termine resta zero, come prima.
+      let extra = this.builtUnits(owned).reduce((sum, n) => sum + this.buildingRefund(square, n), 0);
       if (!owned.mortgaged) extra += this.mortgageValue(square);
       return total + extra;
     }, player.balance);
@@ -462,8 +558,13 @@ class GameEngine {
    */
   netWorth(player) {
     return this.propertiesOf(player.id).reduce((total, { square, owned }) => {
-      const units = this.unitCount(owned);
-      let extra = units > 0 ? units * square.houseCost : 0;
+      // Stesso principio di liquidationValue qui sopra, ma a costo pieno
+      // invece che a rimborso: si somma il costo vero di OGNI livello
+      // costruito (builtUnits + buildingCost), non "numero di edifici ×
+      // houseCost" — quella scorciatoia valeva solo finché ogni edificio
+      // costava uguale, e con gli hotel a prezzi crescenti sottostimerebbe il
+      // patrimonio esattamente come faceva la vecchia liquidationValue.
+      let extra = this.builtUnits(owned).reduce((sum, n) => sum + this.buildingCost(square, n), 0);
       extra += owned.mortgaged ? square.price - this.unmortgageCost(square) : square.price;
       return total + extra;
     }, player.balance);
@@ -753,7 +854,7 @@ class GameEngine {
       return roll * mult;
     }
     // regular property
-    if (owned.hotel) return square.rents[5];
+    if (owned.hotels > 0) return this.hotelRent(square, owned.hotels);
     if (owned.houses > 0) return square.rents[owned.houses];
     if (this.ownsFullGroup(owned.ownerId, square.group)) return square.rents[0] * 2;
     return square.rents[0];
@@ -773,7 +874,7 @@ class GameEngine {
     const player = this.players.find((p) => p.id === playerId);
     if (player.balance < price) return { error: 'Saldo insufficiente' };
     player.balance -= price;
-    this.ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false };
+    this.ownership[position] = { ownerId: playerId, houses: 0, hotels: 0, mortgaged: false };
     this.addLog(`${player.name} compra ${board[position].name} per ${price}.`);
     this.bumpStat(this.stats.purchases, playerId);
     this.pendingAction = null;
@@ -963,7 +1064,7 @@ class GameEngine {
     if (auction.currentBidderId) {
       const winner = this.players.find((p) => p.id === auction.currentBidderId);
       winner.balance -= auction.currentBid;
-      this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotel: false, mortgaged: false };
+      this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotels: 0, mortgaged: false };
       this.addLog(`${winner.name} si aggiudica ${square.name} all'asta per ${auction.currentBid}.`);
       this.bumpStat(this.stats.purchases, winner.id);
     } else {
@@ -1089,8 +1190,12 @@ class GameEngine {
         this.sendToJail(player);
         break;
       case 'repairs': {
+        // Ogni hotel conta per intero, non solo il primo: con più livelli
+        // costruiti la riparazione costa di più, coerente con "tot a hotel"
+        // della carta. A un solo livello (modalità spenta) è lo stesso conto
+        // di sempre: owned.hotels vale al più 1.
         const total = this.propertiesOf(player.id).reduce(
-          (sum, { owned }) => sum + owned.houses * card.perHouse + (owned.hotel ? card.perHotel : 0),
+          (sum, { owned }) => sum + owned.houses * card.perHouse + owned.hotels * card.perHotel,
           0
         );
         if (total > 0) this.addLog(`${player.name} paga ${total} di riparazioni.`);
@@ -1153,17 +1258,33 @@ class GameEngine {
       (s) => s.group === square.group && this.ownership[s.position]?.mortgaged
     );
     if (groupMortgaged) return { error: 'Riscatta prima le ipoteche del colore' };
-    if (owned.hotel) return { error: "C'è già un hotel" };
+    // Il tetto di hotel per proprietà: 1 come da regolamento classico, 4 con
+    // la modalità grattacieli accesa (vedi rules.skyscraperEnabled).
+    const maxHotels = this.rules.skyscraperEnabled ? MAX_HOTELS_SKYSCRAPER : MAX_HOTELS_CLASSIC;
+    if (owned.hotels >= maxHotels) {
+      return { error: maxHotels === MAX_HOTELS_CLASSIC ? "C'è già un hotel" : 'Hai già il massimo di hotel su questa proprietà' };
+    }
     // Edificazione uniforme: si costruisce solo dove ce n'è di meno nel gruppo.
     if (this.unitCount(owned) > Math.min(...this.groupUnitCounts(square.group))) {
       return { error: 'Costruisci prima sulle altre proprietà del colore' };
     }
-    if (player.balance < square.houseCost) return { error: 'Saldo insufficiente' };
+    const cost = this.nextBuildingCost(square, owned);
+    if (player.balance < cost) return { error: 'Saldo insufficiente' };
 
-    player.balance -= square.houseCost;
-    if (owned.houses >= 4) {
+    player.balance -= cost;
+    // Tre casi, non due: con più di un livello di hotel possibile non basta
+    // più distinguere solo "quattro case" da "meno di quattro". Un hotel già
+    // presente (owned.hotels > 0) va sempre al livello successivo, prima di
+    // guardare le case — che con un hotel in piedi sono comunque a zero per
+    // invariante (vedi sellHouse). Prima che gli hotel oltre il primo
+    // esistessero questo caso non poteva capitare (owned.hotels era già al
+    // tetto e buildHouse si era fermato più sopra), quindi il ramo mancava.
+    if (owned.hotels > 0) {
+      owned.hotels += 1;
+      this.addLog(`${player.name} costruisce il ${owned.hotels}º hotel su ${square.name} per ${cost}.`);
+    } else if (owned.houses >= 4) {
       owned.houses = 0;
-      owned.hotel = true;
+      owned.hotels = 1;
       this.addLog(`${player.name} costruisce un hotel su ${square.name}.`);
     } else {
       owned.houses += 1;
@@ -1191,12 +1312,25 @@ class GameEngine {
       return { error: 'Vendi prima dalle altre proprietà del colore' };
     }
 
-    const refund = this.buildingRefund(square);
+    // Si vende sempre l'unità più in alto nella pila: con più hotel il
+    // rimborso dipende da QUALE livello si toglie (il 4° di Parco della
+    // Vittoria rende 3.000, l'ultimo rimasto solo 100), non più un rimborso
+    // fisso uguale per tutti (vedi buildingRefund).
+    const soldUnit = this.unitCount(owned);
+    const refund = this.buildingRefund(square, soldUnit);
     player.balance += refund;
-    if (owned.hotel) {
-      owned.hotel = false;
-      owned.houses = 4;
-      this.addLog(`${player.name} vende l'hotel su ${square.name} per ${refund}.`);
+    if (owned.hotels > 0) {
+      owned.hotels -= 1;
+      // Le case fantasma tornano SOLO quando si toglie l'ultimo hotel
+      // rimasto: vendendo il 4°, 3° o 2° hotel restano rispettivamente 3, 2 o
+      // 1 hotel, non quattro case. Prima, con un hotel solo possibile, questo
+      // caso e "l'ultimo rimasto" coincidevano sempre.
+      if (owned.hotels === 0) {
+        owned.houses = 4;
+        this.addLog(`${player.name} vende l'ultimo hotel su ${square.name} per ${refund}: tornano quattro case.`);
+      } else {
+        this.addLog(`${player.name} vende un hotel su ${square.name} per ${refund} (ne restano ${owned.hotels}).`);
+      }
     } else {
       owned.houses -= 1;
       this.addLog(`${player.name} vende una casa su ${square.name} per ${refund}.`);
@@ -1407,7 +1541,7 @@ class GameEngine {
       if (creditor) {
         owned.ownerId = creditor.id;
         owned.houses = 0;
-        owned.hotel = false;
+        owned.hotels = 0;
         if (owned.mortgaged) interestDue += this.mortgageInterest(square);
       } else {
         delete this.ownership[position];
@@ -1452,7 +1586,7 @@ class GameEngine {
 
   /** Vero se esiste anche un solo edificio sul gruppo di colore della casella. */
   groupHasBuildings(group) {
-    return board.some((s) => s.group === group && this.unitCount(this.ownership[s.position] || { houses: 0 }) > 0);
+    return board.some((s) => s.group === group && this.unitCount(this.ownership[s.position] || { houses: 0, hotels: 0 }) > 0);
   }
 
   /**

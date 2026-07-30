@@ -50,7 +50,7 @@ const tabellone = board as BoardSquare[];
 function owning(positions: number[], playerId = 'io'): GameState['ownership'] {
   const ownership: GameState['ownership'] = {};
   for (const position of positions) {
-    ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false };
+    ownership[position] = { ownerId: playerId, houses: 0, hotels: 0, mortgaged: false };
   }
   return ownership;
 }
@@ -105,7 +105,7 @@ section('1. Raggruppamento delle proprietà per gruppo di colore');
 
   // Una casella ipotecata resta di chi la possiede.
   const ipotecata: GameState['ownership'] = {
-    [ARANCIONI[0]]: { ownerId: 'io', houses: 0, hotel: false, mortgaged: true },
+    [ARANCIONI[0]]: { ownerId: 'io', houses: 0, hotels: 0, mortgaged: true },
   };
   const conIpoteca = propertyGroups(tabellone, ipotecata, 'io');
   check('le ipotecate contano comunque', conIpoteca[0].owned === 1);

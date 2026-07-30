@@ -48,7 +48,7 @@ export default function HouseRules({
     });
   };
 
-  const riepilogo = `Via ${rules.goAmount} · Montepremi ${rules.freeParkingEnabled ? 'acceso' : 'spento'} · Asta ${rules.auctionEnabled ? 'accesa' : 'spenta'} · Saldo ${rules.startingBalance}`;
+  const riepilogo = `Via ${rules.goAmount} · Montepremi ${rules.freeParkingEnabled ? 'acceso' : 'spento'} · Asta ${rules.auctionEnabled ? 'accesa' : 'spenta'} · Saldo ${rules.startingBalance} · Grattacieli ${rules.skyscraperEnabled ? 'accesi' : 'spenti'}`;
 
   const corpo = (
     <div style={styles.rows}>
@@ -92,6 +92,19 @@ export default function HouseRules({
           Accesa
         </Pillola>
         <Pillola active={!rules.auctionEnabled} disabled={!isHost} onClick={() => set({ auctionEnabled: false })}>
+          Spenta
+        </Pillola>
+      </RigaRegola>
+
+      {/* Fino a quattro hotel per proprietà invece di uno solo, a prezzi e
+          affitti crescenti (vedi gameEngine.js, buildHouse/calculateRent):
+          serve a dare ancora qualcosa da costruire dopo il primo hotel, che
+          altrimenti chiude ogni decisione a metà partita. */}
+      <RigaRegola label="Modalità grattacieli (fino a 4 hotel)">
+        <Pillola active={rules.skyscraperEnabled} disabled={!isHost} onClick={() => set({ skyscraperEnabled: true })}>
+          Accesa
+        </Pillola>
+        <Pillola active={!rules.skyscraperEnabled} disabled={!isHost} onClick={() => set({ skyscraperEnabled: false })}>
           Spenta
         </Pillola>
       </RigaRegola>

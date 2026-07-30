@@ -35,7 +35,17 @@ export default function PropertiesPanel({
     });
   };
 
-  const unitsOf = (owned: Ownership) => (owned.hotel ? 5 : owned.houses);
+  // Moltiplicatori della modalità grattacieli (vedi gameEngine.js: stessi
+  // numeri, HOTEL_COST_MULTIPLIER e HOTEL_RENT_MULTIPLIER). Duplicati qui
+  // come già succede per mortgageValue/unmortgageCost più sotto: questo
+  // pannello dà solo un riscontro immediato, la validazione vera resta sul
+  // server. Il tetto di hotel per proprietà segue la regola scelta al
+  // tavolo: 1 come da regolamento classico, 4 con la modalità accesa.
+  const HOTEL_COST_MULTIPLIER: Record<number, number> = { 1: 1, 2: 15, 3: 22, 4: 30 };
+  const HOTEL_RENT_MULTIPLIER: Record<number, number> = { 1: 1, 2: 1.7, 3: 2.5, 4: 3.5 };
+  const maxHotels = state.rules.skyscraperEnabled ? 4 : 1;
+
+  const unitsOf = (owned: Ownership) => (owned.hotels > 0 ? 4 + owned.hotels : owned.houses);
 
   /** Unità casa su ogni casella del colore, incluse quelle non possedute (0). */
   const groupUnits = (group?: string) =>
@@ -52,6 +62,23 @@ export default function PropertiesPanel({
   const groupHasMortgage = (group?: string) =>
     board.filter((s) => s.group === group).some((s) => state.ownership[s.position]?.mortgaged);
 
+  /** Costo per costruire la prossima unità (casa o hotel) su questa casella. */
+  const nextBuildCost = (square: BoardSquare, owned: Ownership): number => {
+    const units = unitsOf(owned);
+    if (units < 4) return square.houseCost || 0;
+    const livelloHotel = units - 4 + 1; // 1-4: il livello di hotel che si sta per costruire
+    return (square.houseCost || 0) * (HOTEL_COST_MULTIPLIER[livelloHotel] || 0);
+  };
+
+  /** Rimborso vendendo l'unità in cima alla pila (l'ultima costruita). */
+  const currentSellRefund = (square: BoardSquare, owned: Ownership): number => {
+    const units = unitsOf(owned);
+    if (units === 0) return 0;
+    if (units <= 4) return Math.floor((square.houseCost || 0) / 2);
+    const livelloHotel = units - 4;
+    return Math.floor(((square.houseCost || 0) * (HOTEL_COST_MULTIPLIER[livelloHotel] || 0)) / 2);
+  };
+
   /**
    * Affitto che quella casella incassa adesso. È solo informativo: il conto che
    * conta lo fa il server. Stazioni e società dipendono da quante se ne
@@ -59,7 +86,12 @@ export default function PropertiesPanel({
    */
   const rentNow = (square: BoardSquare, owned: Ownership): number | null => {
     if (square.type !== 'property' || !square.rents) return null;
-    if (owned.hotel) return square.rents[5];
+    if (owned.hotels > 0) {
+      // Affitto dell'hotel singolo moltiplicato per il livello, arrotondato
+      // ai 25 più vicini: identico a gameEngine.js#hotelRent.
+      const base = square.rents[5] * (HOTEL_RENT_MULTIPLIER[owned.hotels] || 1);
+      return Math.round(base / 25) * 25;
+    }
     if (owned.houses > 0) return square.rents[owned.houses];
     return ownsFullGroup(square.group) ? square.rents[0] * 2 : square.rents[0];
   };
@@ -76,9 +108,9 @@ export default function PropertiesPanel({
     if (pendingDebt) return 'Prima risolvi il debito in sospeso';
     if (!ownsFullGroup(square.group)) return 'Serve il monopolio del colore';
     if (groupHasMortgage(square.group)) return 'Riscatta prima le ipoteche del colore';
-    if (owned.hotel) return "C'è già un hotel";
+    if (owned.hotels >= maxHotels) return maxHotels === 1 ? "C'è già un hotel" : 'Hai già il massimo di hotel';
     if (unitsOf(owned) > Math.min(...groupUnits(square.group))) return 'Costruisci prima sulle altre del colore';
-    if ((me?.balance ?? 0) < (square.houseCost || 0)) return 'Saldo insufficiente';
+    if ((me?.balance ?? 0) < nextBuildCost(square, owned)) return 'Saldo insufficiente';
     return null;
   };
 
@@ -140,8 +172,8 @@ export default function PropertiesPanel({
                   <span style={styles.status}>
                     {owned.mortgaged
                       ? 'ipotecata'
-                      : owned.hotel
-                        ? '🏨 hotel'
+                      : owned.hotels > 0
+                        ? (owned.hotels === 1 ? '🏨 hotel' : `🏨×${owned.hotels} hotel`)
                         : owned.houses > 0
                           ? `${'🏠'.repeat(owned.houses)} ${owned.houses}/4`
                           : 'terreno scoperto'}
@@ -158,7 +190,7 @@ export default function PropertiesPanel({
                       <button
                         className="btn-mini"
                         disabled={!!build}
-                        title={build || `Costruisci per €${square.houseCost}`}
+                        title={build || `Costruisci per €${nextBuildCost(square, owned)}`}
                         onClick={() => emit('build_house', square.position)}
                       >
                         Costruisci
@@ -166,7 +198,7 @@ export default function PropertiesPanel({
                       <button
                         className="btn-mini"
                         disabled={!!sell}
-                        title={sell || `Vendi per €${Math.floor((square.houseCost || 0) / 2)}`}
+                        title={sell || `Vendi per €${currentSellRefund(square, owned)}`}
                         onClick={() => emit('sell_house', square.position)}
                       >
                         Vendi
