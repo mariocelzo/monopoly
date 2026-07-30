@@ -130,6 +130,19 @@ export interface AwaitingAuction {
   currentBidderId: string | null;
   queue: string[];
   passedIds: string[];
+  /**
+   * Rilancio minimo ammesso adesso, calcolato dal motore. Va USATO COSÌ COM'È,
+   * mai ricalcolato qui: il minimo non è un valore fisso ma cresce col listino
+   * della casella (vedi auctionMinIncrement in gameEngine.js), quindi qualunque
+   * formula scritta nel client si stacca da quella vera appena l'altra cambia.
+   * È già successo due volte: prima nei bot, che si bloccavano offrendo sempre
+   * 10 su caselle che ne chiedevano di più, e poi qui nel client, dove il
+   * bottone "Rilancia" mandava un'offerta sotto il minimo su 24 caselle su 28 e
+   * il motore la rifiutava in silenzio.
+   */
+  minBid: number;
+  /** Scatto minimo fra un'offerta e la successiva, sempre dal motore. */
+  minIncrement: number;
 }
 
 export type PendingAction =
