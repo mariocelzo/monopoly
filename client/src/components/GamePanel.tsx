@@ -4,6 +4,7 @@ import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
 import HouseRules from './HouseRules';
+import Scoreboard from './Scoreboard';
 import { PLAYER_COLORS } from './Board';
 import { netWorthShares } from '../netWorthBar';
 
@@ -115,6 +116,13 @@ export default function GamePanel({
           </div>
         ))}
       </div>
+
+      {/* Un promemoria di chi è avanti fra una partita e l'altra, qui prima
+          del via perché è il momento in cui torna comodo scegliere se
+          giocare ancora — il riepilogo completo (con record e comando di
+          azzeramento) sta nella schermata di fine partita, dove interessa
+          davvero. */}
+      {!state.started && <Scoreboard board={board} compact />}
 
       {/* Riempire il tavolo di bot è una scelta di chi lo ha creato, e solo
           prima del via: a partita iniziata i posti sono quelli. */}

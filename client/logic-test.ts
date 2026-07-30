@@ -16,6 +16,16 @@ import { latestLogAt, missedSince } from './src/awayRecap.ts';
 import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts';
 import { isGameWaitingFor } from './src/turnAlert.ts';
 import { netWorthShares } from './src/netWorthBar.ts';
+import {
+  addResult,
+  buildResultFromState,
+  emptyScoreboard,
+  mostLandedSquare,
+  normalizeName,
+  parseScoreboard,
+  rankedPlayers,
+  type FinishedGameState,
+} from './src/scoreboard.ts';
 
 let passed = 0;
 let failed = 0;
@@ -307,6 +317,195 @@ section('6. Barra proporzionale del patrimonio');
   const solo = netWorthShares([{ id: 'a', netWorth: 1500 }]);
   check('un giocatore da solo riempie comunque la propria barra',
     solo[0].percent === 100, JSON.stringify(solo));
+}
+
+// ---------------------------------------------------------------------------
+section('7. Tabellino fra una partita e l\'altra');
+{
+  // Giocatore minimo per i fixture qui sotto: solo i campi che la logica del
+  // tabellino guarda davvero (id, name, isBot, netWorth), il resto riempito
+  // con valori innocui — stesso criterio di statoBase più sopra.
+  const giocatore = (overrides: Partial<FinishedGameState['players'][number]>) => ({
+    id: 'x', name: 'X', token: '🐕', balance: 1500, position: 0, inJail: false,
+    jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true,
+    isBot: false, netWorth: 1500,
+    ...overrides,
+  });
+
+  // Una partita finita "normale": due umani, un vincitore, durata e
+  // patrimoni noti. Le singole asserzioni la modificano con `overrides`.
+  const partitaFinita = (overrides: Partial<FinishedGameState> = {}): FinishedGameState => ({
+    roomCode: 'ABCDE',
+    finished: true,
+    winnerId: 'mario',
+    endedReason: 'bankruptcy',
+    players: [
+      giocatore({ id: 'mario', name: 'Mario', netWorth: 3200 }),
+      giocatore({ id: 'luigi', name: 'Luigi', netWorth: 400 }),
+    ],
+    stats: {
+      startedAt: 1000, finishedAt: 1000 + 40 * 60000, // 40 minuti
+      rentPaid: {}, rentCollected: {}, bankPaid: {}, purchases: {}, housesBuilt: {},
+      landings: { 5: 3, 24: 7 }, laps: {}, tradesCompleted: 0,
+    },
+    ...overrides,
+  });
+
+  // --- buildResultFromState: chi va segnato e chi no -----------------------
+
+  check('tavolo chiuso: non è un risultato, buildResultFromState rifiuta',
+    buildResultFromState(partitaFinita({ endedReason: 'closed' })) === null);
+
+  check('partita non finita: niente da segnare',
+    buildResultFromState(partitaFinita({ finished: false })) === null);
+
+  check('nessun vincitore (difesa): niente da segnare',
+    buildResultFromState(partitaFinita({ winnerId: null })) === null);
+
+  // Un bot al tavolo: il tabellino è per la sfida fra le due persone vere,
+  // una vittoria (propria o del bot) in una partita con un bot non conta.
+  check('un bot al tavolo: la partita non entra nel tabellino',
+    buildResultFromState(partitaFinita({
+      players: [
+        giocatore({ id: 'mario', name: 'Mario' }),
+        giocatore({ id: 'bot', name: 'Bot Aurelio', isBot: true }),
+      ],
+    })) === null);
+
+  // Bancarotta e abbandono restano un esito vero (c'è un vincitore), solo
+  // la chiusura del tavolo è esclusa.
+  const abbandono = buildResultFromState(partitaFinita({ endedReason: 'abandoned' }));
+  check('abbandono: è comunque un risultato da segnare', abbandono !== null);
+
+  const risultato = buildResultFromState(partitaFinita());
+  check('partita valida: produce un risultato', risultato !== null);
+  check('il vincitore è quello giusto', risultato?.winnerName === 'Mario');
+  check('la durata viene da finishedAt - startedAt',
+    risultato?.durationMs === 40 * 60000, String(risultato?.durationMs));
+  check('gameId combina tavolo e inizio partita',
+    risultato?.gameId === 'ABCDE:1000', risultato?.gameId);
+
+  // --- addResult su un tabellino vuoto -------------------------------------
+
+  const vuoto = emptyScoreboard();
+  const dopoUnaPartita = addResult(vuoto, risultato!);
+  check('il tabellino vuoto non viene mutato', vuoto.recordedGameIds.length === 0);
+  check('chi vince ha una vittoria e una partita giocata',
+    dopoUnaPartita.players['mario'].wins === 1 && dopoUnaPartita.players['mario'].gamesPlayed === 1);
+  check('chi perde ha zero vittorie ma una partita giocata',
+    dopoUnaPartita.players['luigi'].wins === 0 && dopoUnaPartita.players['luigi'].gamesPlayed === 1);
+  check('il nome mostrato è quello scritto in partita',
+    dopoUnaPartita.players['mario'].displayName === 'Mario');
+  check('il record di patrimonio prende il più alto dei due',
+    dopoUnaPartita.records.highestNetWorth?.amount === 3200 &&
+    dopoUnaPartita.records.highestNetWorth?.name === 'Mario');
+  check('la partita più lunga è questa, non essendocene altre',
+    dopoUnaPartita.records.longestGame?.ms === 40 * 60000);
+
+  // --- lo stesso giocatore vince due volte ---------------------------------
+
+  const secondaVittoriaMario = buildResultFromState(partitaFinita({
+    winnerId: 'mario',
+    stats: { ...partitaFinita().stats, startedAt: 5000, finishedAt: 5000 + 10 * 60000 },
+  }));
+  const dopoDuePartite = addResult(dopoUnaPartita, secondaVittoriaMario!);
+  check('due vittorie dello stesso giocatore si sommano',
+    dopoDuePartite.players['mario'].wins === 2 && dopoDuePartite.players['mario'].gamesPlayed === 2);
+  check('il record di durata resta la prima partita, più lunga della seconda',
+    dopoDuePartite.records.longestGame?.ms === 40 * 60000);
+
+  // --- idempotenza: la stessa partita non si conta due volte ---------------
+
+  const riregistrata = addResult(dopoDuePartite, risultato!); // stesso gameId di prima
+  check('registrare due volte la stessa partita non cambia il tabellino',
+    riregistrata.players['mario'].wins === 2 && riregistrata.players['mario'].gamesPlayed === 2);
+  check('addResult con un gameId già visto restituisce lo stesso oggetto',
+    riregistrata === dopoDuePartite);
+
+  // --- normalizzazione dei nomi ---------------------------------------------
+
+  check('spazi e maiuscole non creano un giocatore diverso',
+    normalizeName('Mario') === normalizeName('  mario ') &&
+    normalizeName('Mario') === normalizeName('MARIO'));
+  check('spazi ripetuti in mezzo al nome si accorpano',
+    normalizeName('Mario  Rossi') === normalizeName('Mario Rossi'));
+
+  const conNomeVariato = buildResultFromState(partitaFinita({
+    winnerId: 'mario',
+    players: [
+      giocatore({ id: 'mario', name: ' mario ', netWorth: 1000 }), // stesso Mario, scritto diverso
+      giocatore({ id: 'luigi', name: 'Luigi', netWorth: 200 }),
+    ],
+    stats: { ...partitaFinita().stats, startedAt: 9000, finishedAt: 9000 + 5 * 60000 },
+  }));
+  const dopoNomeVariato = addResult(dopoDuePartite, conNomeVariato!);
+  check('"mario" scritto diverso finisce sulla stessa voce del tabellino',
+    dopoNomeVariato.players['mario'].wins === 3 && dopoNomeVariato.players['mario'].gamesPlayed === 3);
+  check('la grafia mostrata resta quella vista la prima volta, non l\'ultima',
+    dopoNomeVariato.players['mario'].displayName === 'Mario');
+
+  // --- record che si aggiornano solo se davvero migliori --------------------
+
+  const partitaModesta = buildResultFromState(partitaFinita({
+    winnerId: 'luigi',
+    players: [
+      giocatore({ id: 'mario', name: 'Mario', netWorth: 500 }),
+      giocatore({ id: 'luigi', name: 'Luigi', netWorth: 800 }), // meno del record già segnato (3200)
+    ],
+    stats: { ...partitaFinita().stats, startedAt: 20000, finishedAt: 20000 + 5 * 60000 }, // più corta
+  }));
+  const dopoPartitaModesta = addResult(dopoNomeVariato, partitaModesta!);
+  check('un patrimonio più basso non scalza il record esistente',
+    dopoPartitaModesta.records.highestNetWorth?.amount === 3200);
+  check('una partita più corta non scalza il record di durata esistente',
+    dopoPartitaModesta.records.longestGame?.ms === 40 * 60000);
+
+  // --- ordinamento del tabellino ---------------------------------------------
+
+  const classifica = rankedPlayers(dopoPartitaModesta);
+  check('chi ha più vittorie sta in cima', classifica[0].displayName === 'Mario');
+  check('tutti i giocatori compaiono in classifica', classifica.length === 2);
+
+  // --- casella più gettonata di sempre, sommata su più partite --------------
+
+  const gettonata = mostLandedSquare(dopoPartitaModesta.landingsTotals);
+  // landings di ogni partita sopra: {5: 3, 24: 7}, sommati sulle quattro
+  // partite registrate finora (game1, game2, conNomeVariato, partitaModesta)
+  // -> 24 resta la più gettonata (28 atterraggi) rispetto a 5 (12 atterraggi).
+  check('la casella più gettonata somma i conteggi di tutte le partite',
+    gettonata?.position === 24 && gettonata?.count === 28, JSON.stringify(gettonata));
+
+  // --- un tabellino corrotto o di una vecchia versione non esplode ----------
+
+  check('nessun dato salvato: tabellino vuoto', parseScoreboard(null).players &&
+    Object.keys(parseScoreboard(null).players).length === 0);
+  check('JSON illeggibile: tabellino vuoto, nessun errore lanciato',
+    (() => { try { return Object.keys(parseScoreboard('{questo non è json').players).length === 0; }
+             catch { return false; } })());
+  check('un array al posto di un oggetto: tabellino vuoto',
+    Object.keys(parseScoreboard('[1,2,3]').players).length === 0);
+  check('versione sconosciuta (formato futuro o precedente): tabellino vuoto',
+    Object.keys(parseScoreboard(JSON.stringify({ version: 2, players: { mario: { displayName: 'Mario', wins: 9, gamesPlayed: 9 } } })).players).length === 0);
+  check('campo players mancante: non esplode, resta vuoto',
+    Object.keys(parseScoreboard(JSON.stringify({ version: 1 })).players).length === 0);
+  // Una voce con un campo scritto male (wins come stringa) non deve
+  // propagare NaN: si scarta il valore e si usa 0.
+  const conVoceSporca = parseScoreboard(JSON.stringify({
+    version: 1,
+    players: { mario: { displayName: 'Mario', wins: 'tante', gamesPlayed: 4 } },
+    recordedGameIds: [],
+    landingsTotals: {},
+    records: { longestGame: null, highestNetWorth: null },
+  }));
+  check('un contatore corrotto (stringa invece di numero) diventa 0, non NaN',
+    conVoceSporca.players['mario']?.wins === 0 && !Number.isNaN(conVoceSporca.players['mario']?.wins));
+
+  // Un tabellino valido va e torna identico attraverso stringify/parse.
+  const originale = dopoPartitaModesta;
+  const andataERitorno = parseScoreboard(JSON.stringify(originale));
+  check('un tabellino valido sopravvive al giro completo salva/carica',
+    andataERitorno.players['mario'].wins === originale.players['mario'].wins &&
+    andataERitorno.records.highestNetWorth?.amount === originale.records.highestNetWorth?.amount);
 }
 
 // ---------------------------------------------------------------------------
