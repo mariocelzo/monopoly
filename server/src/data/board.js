@@ -3,8 +3,13 @@
 // stations use rentByOwned = [1,2,3,4 owned]
 // utilities use diceMultiplier = [oneOwned, bothOwned]
 
-// Quanto si incassa passando dal Via. I testi delle carte lo interpolano,
-// così cambiarlo qui aggiorna anche quello che legge il giocatore.
+// Quanto si incassa passando dal Via **di default**, per una partita nuova.
+// È diventato una regola della casa scelta al tavolo (vedi `rules.goAmount`
+// in gameEngine.js): questa costante resta solo come valore iniziale prima
+// che l'host la cambi. I testi delle carte qui sotto che citano l'importo
+// non lo leggono più da qui: sono funzioni di `goAmount`, risolte da
+// GameEngine al momento di costruire il mazzo (vedi `buildDeck`), così
+// citano sempre l'importo scelto per QUESTA partita, non questo default.
 const GO_AMOUNT = 500;
 
 const COLOR_GROUPS = {
@@ -65,9 +70,9 @@ const STATION_RENT = [25, 50, 100, 200]; // rent when 1/2/3/4 stations owned
 const UTILITY_MULTIPLIER = { one: 4, both: 10 };
 
 const CHANCE_CARDS = [
-  { text: `Avanza fino al Via. Incassi ${GO_AMOUNT}.`, action: 'advance_to', target: 0 },
+  { text: (goAmount) => `Avanza fino al Via. Incassi ${goAmount}.`, action: 'advance_to', target: 0 },
   { text: 'Vai a Largo Colombo.', action: 'advance_to', target: 24 },
-  { text: `Vai in Via Accademia. Se passi dal Via, incassi ${GO_AMOUNT}.`, action: 'advance_to', target: 11 },
+  { text: (goAmount) => `Vai in Via Accademia. Se passi dal Via, incassi ${goAmount}.`, action: 'advance_to', target: 11 },
   { text: 'Avanza fino alla Stazione Sud.', action: 'advance_to', target: 5 },
   { text: 'Vai alla stazione più vicina, paga il doppio dell\'affitto se posseduta.', action: 'advance_to_nearest_station', rentMultiplier: 2 },
   { text: 'La banca ti paga un dividendo di 50.', action: 'collect', amount: 50 },
@@ -87,7 +92,7 @@ const COMMUNITY_CARDS = [
   { text: 'Errore della banca a tuo favore. Incassi 200.', action: 'collect', amount: 200 },
   { text: 'Spese mediche: paga 50.', action: 'pay', amount: 50 },
   { text: 'Vendi azioni: incassi 50.', action: 'collect', amount: 50 },
-  { text: `Avanza fino al Via. Incassi ${GO_AMOUNT}.`, action: 'advance_to', target: 0 },
+  { text: (goAmount) => `Avanza fino al Via. Incassi ${goAmount}.`, action: 'advance_to', target: 0 },
   { text: 'Vinci il concorso di bellezza: incassi 10.', action: 'collect', amount: 10 },
   { text: 'Eredità: incassi 100.', action: 'collect', amount: 100 },
   { text: 'Rimborso assicurazione: incassi 100.', action: 'collect', amount: 100 },

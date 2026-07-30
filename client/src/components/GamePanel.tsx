@@ -3,6 +3,10 @@ import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
+import HouseRules from './HouseRules';
+import Scoreboard from './Scoreboard';
+import { PLAYER_COLORS } from './Board';
+import { netWorthShares } from '../netWorthBar';
 
 export default function GamePanel({
   state,
@@ -20,6 +24,15 @@ export default function GamePanel({
   const current = state.players[state.turnIndex];
   const isMyTurn = current?.id === myId;
   const me = state.players.find((p) => p.id === myId);
+
+  // Stesso colore della pedina sul tabellone (vedi PLAYER_COLORS in Board.tsx),
+  // così la barra del patrimonio si riconosce come "di quel giocatore" senza
+  // bisogno di leggere il nome.
+  const colorOf = (playerId: string) =>
+    PLAYER_COLORS[state.players.findIndex((p) => p.id === playerId) % PLAYER_COLORS.length];
+  // Percentuale della barra rispetto al più ricco del tavolo: vedi
+  // netWorthShares per il perché non si usa il totale di tutti i patrimoni.
+  const netWorthPercent = netWorthShares(state.players);
 
   // Il tiro extra da doppio confondeva: sembrava che il gioco facesse tirare
   // due volte a caso. Ora lo si dice.
@@ -39,6 +52,12 @@ export default function GamePanel({
         Codice tavolo: <span className="mono" style={{ color: 'var(--brass-2)' }}>{state.roomCode}</span>
       </div>
       {state.players.length < 6 && <InviteLink roomCode={state.roomCode} />}
+
+      {/* Spiegata una volta sola qui sopra, non ripetuta per ogni giocatore:
+          altrimenti la barra da sola non direbbe cosa rappresenta. */}
+      {state.players.length > 1 && (
+        <div style={styles.netWorthHint}>La barra sotto il saldo è il patrimonio: contanti + proprietà + edifici.</div>
+      )}
 
       <div style={styles.players}>
         {state.players.map((p) => (
@@ -71,12 +90,39 @@ export default function GamePanel({
               >
                 €{p.balance}
               </div>
+              {/* Il contante resta il numero principale: il patrimonio (contanti
+                  + proprietà + edifici, ipoteche scontate) è solo un contorno,
+                  una barra proporzionale al più ricco del tavolo — basta
+                  guardarne la lunghezza per capire chi è avanti, senza dover
+                  sommare nulla a mente. Il valore esatto sta nel title, a
+                  portata di passaggio del mouse per chi lo vuole. */}
+              {!p.bankrupt && (
+                <div
+                  style={styles.netWorthTrack}
+                  title={`Patrimonio: €${p.netWorth} (contanti, proprietà ed edifici)`}
+                >
+                  <div
+                    style={{
+                      ...styles.netWorthFill,
+                      width: `${netWorthPercent.find((s) => s.id === p.id)?.percent ?? 0}%`,
+                      background: colorOf(p.id),
+                    }}
+                  />
+                </div>
+              )}
               {p.inJail && <div style={styles.badge}>In prigione ({p.jailTurns}/3)</div>}
               {!p.connected && !p.bankrupt && <div style={styles.offline}>Disconnesso…</div>}
             </div>
           </div>
         ))}
       </div>
+
+      {/* Un promemoria di chi è avanti fra una partita e l'altra, qui prima
+          del via perché è il momento in cui torna comodo scegliere se
+          giocare ancora — il riepilogo completo (con record e comando di
+          azzeramento) sta nella schermata di fine partita, dove interessa
+          davvero. */}
+      {!state.started && <Scoreboard board={board} compact />}
 
       {/* Riempire il tavolo di bot è una scelta di chi lo ha creato, e solo
           prima del via: a partita iniziata i posti sono quelli. */}
@@ -89,6 +135,11 @@ export default function GamePanel({
           + Aggiungi bot
         </button>
       )}
+
+      {/* Le regole si scelgono solo prima del via: a partita iniziata questo
+          blocco sparisce e le regole restano quelle scelte, mostrate sola
+          lettura dentro il tabellone finché la partita dura. */}
+      {!state.started && <HouseRules state={state} myId={myId} />}
 
       <div style={styles.turnBox}>
         {!state.started ? (
@@ -154,9 +205,21 @@ export default function GamePanel({
 const styles: Record<string, React.CSSProperties> = {
   wrap: { width: 320, padding: 20, display: 'flex', flexDirection: 'column', gap: 16, height: 'fit-content' },
   roomCode: { fontSize: '0.85rem', color: 'rgba(243,234,216,0.6)' },
+  netWorthHint: { fontSize: '0.68rem', color: 'rgba(243,234,216,0.4)', fontStyle: 'italic' },
   players: { display: 'flex', flexDirection: 'column', gap: 8 },
   playerCard: { display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 10, border: '1.5px solid', background: 'rgba(0,0,0,0.15)' },
   badge: { fontSize: '0.7rem', color: '#e18a8a', marginTop: 2 },
+  // Un contorno, non il protagonista: pochi px di altezza, sotto al saldo
+  // che resta il numero grande. La tacca di sfondo si vede sempre, il
+  // riempimento colorato racconta la proporzione rispetto al più ricco.
+  netWorthTrack: {
+    marginTop: 4,
+    height: 4,
+    borderRadius: 2,
+    background: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+  },
+  netWorthFill: { height: '100%', borderRadius: 2, transition: 'width 0.3s ease' },
   // Azzurro, distinto dall'ottone dei giocatori veri: un bot si riconosce a
   // colpo d'occhio senza confonderlo con un umano disconnesso.
   botTag: {

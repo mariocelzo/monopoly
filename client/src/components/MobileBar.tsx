@@ -6,7 +6,9 @@ import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
+import HouseRules from './HouseRules';
 import { LAYER } from '../layers';
+import { netWorthShares } from '../netWorthBar';
 
 type Sheet = 'proprieta' | 'registro' | null;
 
@@ -47,6 +49,10 @@ export default function MobileBar({
 
   const colorOf = (playerId: string) =>
     PLAYER_COLORS[state.players.findIndex((p) => p.id === playerId) % PLAYER_COLORS.length];
+  // Sul telefono non c'è spazio per un numero in più accanto al saldo: la
+  // barra sotto ciascuna pastiglia (vedi netWorthShares) basta da sola a far
+  // vedere chi è avanti, senza aggiungere testo da leggere.
+  const netWorthPercent = netWorthShares(state.players);
 
   return (
     <>
@@ -139,6 +145,12 @@ export default function MobileBar({
                 )}
               </>
             )}
+
+            {/* Visibile a tutti (non solo all'host, come i bot qui sopra):
+                chi si siede deve sapere a che regole gioca, anche se non può
+                cambiarle. Richiudibile perché su telefono lo spazio sopra il
+                tabellone è già conteso da codice, invito e bot. */}
+            <HouseRules state={state} myId={myId} compact />
           </div>
         )}
 
@@ -166,6 +178,22 @@ export default function MobileBar({
               {p.isBot && <span style={styles.botTag}>BOT</span>}
               {!p.connected && !p.bankrupt && !affollato && (
                 <span style={styles.offline}>offline</span>
+              )}
+              {/* Niente testo, niente numero: solo una tacca proporzionale al
+                  patrimonio (contanti + proprietà + edifici), qui non c'è
+                  spazio per altro. Assoluta sul fondo della pastiglia, così
+                  non allarga la riga: il saldo qui sopra resta l'unico numero.
+                  aria-label perché visivamente è solo un colore, senza testo. */}
+              {!p.bankrupt && (
+                <div style={styles.netWorthTrack} aria-label={`Patrimonio: €${p.netWorth}`}>
+                  <div
+                    style={{
+                      ...styles.netWorthFill,
+                      width: `${netWorthPercent.find((s) => s.id === p.id)?.percent ?? 0}%`,
+                      background: colorOf(p.id),
+                    }}
+                  />
+                </div>
               )}
             </div>
           ))}
@@ -262,15 +290,31 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    padding: '3px 10px',
+    padding: '3px 10px 6px',
     borderRadius: 999,
     border: '1.5px solid',
     background: 'rgba(0,0,0,0.22)',
+    // La barra del patrimonio sta assoluta sul fondo (vedi netWorthTrack):
+    // deve ancorarsi a questa pastiglia, non alla barra intera sotto.
+    position: 'relative',
   },
-  playerStretto: { padding: '2px 7px', gap: 4 },
+  playerStretto: { padding: '2px 7px 5px', gap: 4 },
   playerToken: { fontSize: '1rem' },
   playerBalance: { fontSize: '0.85rem' },
   offline: { fontSize: '0.62rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic' },
+  // Sottile per non pesare sulla pastiglia: qui lo spazio è pochissimo,
+  // quindi conta la lunghezza relativa, non lo spessore.
+  netWorthTrack: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 3,
+    height: 2,
+    borderRadius: 1,
+    background: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
+  },
+  netWorthFill: { height: '100%', borderRadius: 1 },
   // Azzurro, distinto dall'ottone dei giocatori veri.
   botTag: {
     fontFamily: 'var(--font-mono)',

@@ -15,6 +15,7 @@ import {
 import { clearInviteFromUrl, getInviteCodeFromUrl } from './invite';
 import { latestLogAt, missedSince } from './awayRecap';
 import { TOUCH_TARGET } from './touchTarget';
+import { recordFinishedGame } from './scoreboardStorage';
 import Lobby from './components/Lobby';
 import Board from './components/Board';
 import GamePanel from './components/GamePanel';
@@ -31,6 +32,7 @@ import TaxModal from './components/TaxModal';
 import SquareDetail from './components/SquareDetail';
 import AwayRecapModal from './components/AwayRecapModal';
 import GameSummary from './components/GameSummary';
+import Scoreboard from './components/Scoreboard';
 import LogStrip from './components/LogStrip';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
@@ -109,6 +111,20 @@ export default function App() {
       // a dove si era arrivati prima di un'eventuale prossima disconnessione.
       lastSeenAtRef.current = latestLogAt(s.log, lastSeenAtRef.current);
       saveLogBookmark(lastSeenAtRef.current);
+
+      // Registrata QUI, prima di setState, e non in un useEffect separato:
+      // il componente Scoreboard legge il tabellino dal proprio stato locale
+      // al montaggio (vedi Scoreboard.tsx), che React inizializza durante il
+      // render che segue questo setState — quindi ancora prima che un
+      // eventuale useEffect di App abbia la possibilità di scattare. Se la
+      // registrazione avvenisse dopo, il riquadro di fine partita
+      // mostrerebbe il tabellino di *prima* di questa partita, un giro in
+      // ritardo. La guardia contro il doppio conteggio (gameId già segnato)
+      // vive dentro recordFinishedGame, quindi chiamarla anche sugli
+      // aggiornamenti di stato successivi alla fine (es. un voto di
+      // rivincita dell'altro giocatore, che il server ribroadcasta a tutti)
+      // non fa danno: la seconda volta in poi non cambia nulla.
+      if (s.finished) recordFinishedGame(s);
       setState(s);
     };
     socket.on('state', onState);
@@ -456,9 +472,14 @@ export default function App() {
 
               {/* Niente riepilogo per un tavolo chiuso a metà: i numeri di una
                   partita interrotta prima di finire non raccontano nulla di
-                  compiuto. */}
+                  compiuto. Stessa esclusione per il tabellino: qui accanto
+                  al riepilogo della partita appena giocata ha senso, da solo
+                  sopra un tavolo chiuso a metà no. */}
               {state.endedReason !== 'closed' && (
-                <GameSummary state={state} board={board} myId={playerId} />
+                <>
+                  <GameSummary state={state} board={board} myId={playerId} />
+                  <Scoreboard board={board} />
+                </>
               )}
 
               {state.endedReason !== 'closed' && (

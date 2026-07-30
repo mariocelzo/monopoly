@@ -233,7 +233,14 @@ function provaACostruire(game, bot) {
       square.type === 'property' &&
       !owned.mortgaged &&
       game.ownsFullGroup(bot.id, square.group) &&
-      bot.balance - square.houseCost >= RISERVA + 100
+      // Il costo vero della prossima unità, non square.houseCost fisso: con
+      // la modalità grattacieli il 2°-4° hotel costano molto più di una
+      // casa (vedi nextBuildingCost in gameEngine.js). Per una casa o il
+      // primo hotel il costo coincide con houseCost, quindi qui il filtro si
+      // comporta esattamente come prima — cambia solo per i livelli di
+      // hotel oltre il primo, che senza questo controllo sarebbero stati
+      // ammessi come candidati anche quando il bot non può permetterseli.
+      bot.balance - game.nextBuildingCost(square, owned) >= RISERVA + 100
     )
     // Prima i gruppi che rendono di più.
     .sort((a, b) => (b.square.rents[1] || 0) - (a.square.rents[1] || 0));
@@ -288,7 +295,7 @@ function provaAProporreScambio(game, bot) {
     // che mancava all'avversario vale molto più di quanto si incassa.
     const scarto = game.propertiesOf(bot.id)
       .filter(({ square: s, owned: o }) =>
-        !o.mortgaged && o.houses === 0 && !o.hotel &&
+        !o.mortgaged && o.houses === 0 && !o.hotels &&
         (!s.group || !game.ownsFullGroup(bot.id, s.group)) &&
         !regalaMonopolio(game, proprietario.id, [s.position])
       )

@@ -20,12 +20,26 @@ export interface Player {
   connected: boolean;
   /** Vero per i giocatori artificiali gestiti dal server. */
   isBot: boolean;
+  /**
+   * Patrimonio pieno calcolato dal server (vedi netWorth in gameEngine.js):
+   * contanti più proprietà ed edifici a valore intero, non di liquidazione.
+   * Diverso da `balance`, che resta solo i contanti: serve a capire chi è
+   * avanti in partita, non chi può permettersi di pagare adesso.
+   */
+  netWorth: number;
 }
 
 export interface Ownership {
   ownerId: string;
   houses: number;
-  hotel: boolean;
+  /**
+   * Livelli di hotel costruiti: 0 = nessuno, fino a 4 con la modalità
+   * grattacieli accesa (vedi HouseRules.skyscraperEnabled), altrimenti al più
+   * 1. Non più un booleano: con più di un livello possibile serve sapere
+   * quanti, non solo se c'è. Per invariante, quando questo è maggiore di zero
+   * `houses` resta sempre 0 (l'hotel "occupa" il posto delle quattro case).
+   */
+  hotels: number;
   mortgaged: boolean;
 }
 
@@ -148,6 +162,30 @@ export interface GameStats {
   tradesCompleted: number;
 }
 
+/**
+ * Regole della casa scelte per questo tavolo, prima del via (vedi HouseRules.tsx).
+ * Le opzioni ammesse per `goAmount` e `startingBalance` devono restare
+ * allineate a GO_AMOUNT_OPTIONS / STARTING_BALANCE_OPTIONS in
+ * server/src/gameEngine.js: è il server a validarle davvero, questi tipi
+ * servono solo a guidare l'interfaccia.
+ */
+export interface HouseRules {
+  /** Quanto si incassa passando dal Via: 200 (regolamento) o 500 (default). */
+  goAmount: 200 | 500;
+  /** Tasse e multe verso la banca si accumulano e le incassa chi atterra sulla Sosta Gratuita. */
+  freeParkingEnabled: boolean;
+  /** La proprietà rifiutata va all'asta invece di restare semplicemente libera. */
+  auctionEnabled: boolean;
+  /** Saldo di partenza di ogni giocatore. */
+  startingBalance: 1000 | 1500 | 2000;
+  /**
+   * Fino a quattro hotel per proprietà, a prezzi e affitti crescenti, invece
+   * di uno solo. Spenta di default: senza toccarla il gioco resta quello di
+   * sempre (vedi gameEngine.js, buildHouse).
+   */
+  skyscraperEnabled: boolean;
+}
+
 export interface GameState {
   roomCode: string;
   players: Player[];
@@ -168,6 +206,8 @@ export interface GameState {
   lastRoll: { playerId: string; dice: [number, number]; seq: number } | null;
   /** Statistiche per il riepilogo di fine partita. */
   stats: GameStats;
+  /** Regole della casa di questo tavolo: sola lettura per chi non è l'host. */
+  rules: HouseRules;
 }
 
 export interface BoardSquare {

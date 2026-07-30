@@ -9,6 +9,10 @@ const { botMove, botHasMove } = require('./src/bot');
 
 const PARTITE = Number(process.argv[2]) || 200;
 const BOT_PER_PARTITA = Number(process.argv[3]) || 2;
+// Quarto argomento facoltativo: "skyscraper" (o "1") accende la modalità
+// grattacieli per l'intera simulazione, per confrontare le due tarature.
+// Di default resta spenta, come una partita creata senza toccare le regole.
+const SKYSCRAPER = process.argv[4] === 'skyscraper' || process.argv[4] === '1';
 // Oltre questo numero di mosse la partita si considera senza fine: succede
 // quando nessuno riesce a mettere insieme un monopolio.
 const MOSSE_MAX = 4000;
@@ -17,6 +21,9 @@ function giocaUnaPartita(numeroBot) {
   const game = new GameEngine('CAL');
   const pedoni = ['🎩', '🐕', '🚗', '🚢', '🐈', '🎸'];
   for (let i = 0; i < numeroBot; i++) game.addBot(`Bot ${i + 1}`, pedoni[i]);
+  // Le regole si scelgono solo prima del via, e solo l'host può farlo: il
+  // primo bot aggiunto è sempre l'host (vedi addPlayer in gameEngine.js).
+  if (SKYSCRAPER) game.setRules(game.hostId, { skyscraperEnabled: true });
   game.start();
 
   let mosse = 0;
@@ -40,7 +47,7 @@ function giocaUnaPartita(numeroBot) {
   };
 }
 
-console.log(`Simulazione di ${PARTITE} partite a ${BOT_PER_PARTITA} bot...\n`);
+console.log(`Simulazione di ${PARTITE} partite a ${BOT_PER_PARTITA} bot (modalità grattacieli: ${SKYSCRAPER ? 'accesa' : 'spenta'})...\n`);
 
 const vittorie = new Array(BOT_PER_PARTITA).fill(0);
 let finite = 0;

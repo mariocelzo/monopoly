@@ -320,9 +320,18 @@ export default function Board({
                     height: compact ? '26%' : '20%',
                   }}
                 >
-                  {/* Case e hotel disegnati sulla fascia, come sul tabellone vero. */}
-                  {owned?.hotel && <span style={styles.hotel} />}
-                  {!owned?.hotel &&
+                  {/* Case e hotel disegnati sulla fascia, come sul tabellone vero.
+                      Con un solo hotel resta la sagoma disegnata di sempre: è
+                      il caso di sempre (anche a modalità grattacieli spenta,
+                      dove non se ne può avere più di uno) e non deve cambiare
+                      aspetto. Da due hotel in su (solo con la modalità
+                      grattacieli accesa) quattro sagome non ci starebbero in
+                      una casella da 43px su telefono: si passa a un'etichetta
+                      compatta "🏨×n", più leggibile di quattro pittogrammi
+                      minuscoli accatastati. */}
+                  {(owned?.hotels || 0) === 1 && <span style={styles.hotel} />}
+                  {(owned?.hotels || 0) > 1 && <span style={styles.hotelCount}>🏨×{owned!.hotels}</span>}
+                  {!owned?.hotels &&
                     Array.from({ length: owned?.houses || 0 }).map((_, i) => (
                       <span key={i} style={styles.house} />
                     ))}
@@ -409,6 +418,13 @@ export default function Board({
               )}
             </div>
 
+            {/* Il patrimonio (Player.netWorth, calcolato dal server) NON compare
+                qui: queste pastiglie sono già al limite, coi font che si
+                restringono da soli sotto i 400px di tabellone (vedi
+                veryCompact/scaled più sopra). La barra proporzionale vive nel
+                pannello laterale su computer e nella barra fissa su telefono,
+                dove c'è spazio per farla leggere bene senza affollare la
+                plancia che qui deve restare leggibile a colpo d'occhio. */}
             <div style={styles.playerRow}>
               {state.players.map((p) => {
                 const diTurno = !state.finished && state.players[state.turnIndex]?.id === p.id;
@@ -581,6 +597,18 @@ const styles: Record<string, React.CSSProperties> = {
     clipPath: 'polygon(50% 0, 100% 30%, 100% 100%, 0 100%, 0 30%)',
     background: 'linear-gradient(180deg, #ff8a7c 0%, #c93225 100%)',
     filter: 'drop-shadow(0 1px 1.5px rgba(0,0,0,0.6))',
+  },
+  // Forma compatta per due o più hotel (modalità grattacieli): un testo
+  // invece di più sagome, che a quella dimensione si accavallerebbero.
+  // Ombra scura per restare leggibile sopra qualunque colore di gruppo,
+  // dal marrone scuro al giallo chiaro.
+  hotelCount: {
+    fontSize: scaled(0.013, '7px'),
+    fontWeight: 800,
+    lineHeight: 1,
+    color: '#fff',
+    textShadow: '0 1px 2px rgba(0,0,0,0.75)',
+    whiteSpace: 'nowrap',
   },
   squareName: {
     // Il minimo sale da 6 a 7px: sotto i sette una parola smette di leggersi

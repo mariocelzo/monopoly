@@ -6,6 +6,17 @@ import { LAYER } from '../layers';
 
 const STATION_RENT = [25, 50, 100, 200];
 
+// Moltiplicatore d'affitto per ciascun livello di hotel, applicato
+// all'affitto dell'hotel singolo e arrotondato ai 25 più vicini: stessi
+// numeri di gameEngine.js (HOTEL_RENT_MULTIPLIER), duplicati qui come le
+// altre formule del pannello — è solo un riferimento, il conto vero lo fa
+// il server.
+const HOTEL_RENT_MULTIPLIER: Record<number, number> = { 1: 1, 2: 1.7, 3: 2.5, 4: 3.5 };
+const hotelRent = (square: BoardSquare, hotels: number): number => {
+  const base = (square.rents?.[5] || 0) * (HOTEL_RENT_MULTIPLIER[hotels] || 1);
+  return Math.round(base / 25) * 25;
+};
+
 /**
  * Il contratto di una casella, come la targhetta del gioco vero. Si apre
  * toccando il tabellone ed è indispensabile su telefono, dove le caselle sono
@@ -30,14 +41,24 @@ export default function SquareDetail({
   /** Righe della tabella affitti, diverse per proprietà, stazioni e società. */
   const rentRows = (): [string, string][] => {
     if (square.type === 'property' && square.rents) {
-      return [
+      const rows: [string, string][] = [
         ['Terreno scoperto', `€${square.rents[0]}`],
         ['Con 1 casa', `€${square.rents[1]}`],
         ['Con 2 case', `€${square.rents[2]}`],
         ['Con 3 case', `€${square.rents[3]}`],
         ['Con 4 case', `€${square.rents[4]}`],
-        ['Con hotel', `€${square.rents[5]}`],
+        ['Con 1 hotel', `€${square.rents[5]}`],
       ];
+      // I livelli oltre il primo esistono solo con la modalità grattacieli:
+      // mostrarli anche a regola spenta confonderebbe chi non può costruirli.
+      if (state.rules.skyscraperEnabled) {
+        rows.push(
+          ['Con 2 hotel', `€${hotelRent(square, 2)}`],
+          ['Con 3 hotel', `€${hotelRent(square, 3)}`],
+          ['Con 4 hotel', `€${hotelRent(square, 4)}`],
+        );
+      }
+      return rows;
     }
     if (square.type === 'station') {
       return STATION_RENT.map((rent, i) => [
@@ -63,7 +84,13 @@ export default function SquareDetail({
    */
   const rigaAttiva = (): number => {
     if (!owned || owned.mortgaged || square.type !== 'property') return -1;
-    return owned.hotel ? 5 : owned.houses;
+    // Indice nella tabella qui sopra: 0 = scoperto, 1-4 = case, 5-8 = livelli
+    // di hotel (5 = un hotel solo, fino a 8 col quarto) — le righe da 6 in su
+    // esistono solo quando la modalità grattacieli è accesa, ma a modalità
+    // spenta owned.hotels non supera comunque 1, quindi l'indice resta al
+    // più 5 e la tabella (sempre a sei righe minimo) lo copre sempre.
+    if (owned.hotels > 0) return 4 + owned.hotels;
+    return owned.houses;
   };
   const attiva = rigaAttiva();
 
@@ -96,7 +123,10 @@ export default function SquareDetail({
         )}
 
         {square.houseCost !== undefined && (
-          <p style={styles.note}>Casa o hotel: €{square.houseCost} l'una</p>
+          <p style={styles.note}>
+            Casa o primo hotel: €{square.houseCost} l'una
+            {state.rules.skyscraperEnabled && ' · dal 2° hotel il prezzo cresce'}
+          </p>
         )}
         {square.price !== undefined && (
           <p style={styles.note}>Valore d'ipoteca: €{Math.floor(square.price / 2)}</p>
@@ -110,8 +140,8 @@ export default function SquareDetail({
                 Di <strong>{owner.name}</strong>
                 {owned?.mortgaged
                   ? ' — ipotecata'
-                  : owned?.hotel
-                    ? ' — con hotel'
+                  : owned?.hotels
+                    ? (owned.hotels === 1 ? ' — con hotel' : ` — con ${owned.hotels} hotel`)
                     : owned?.houses
                       ? ` — ${owned.houses} case`
                       : ''}

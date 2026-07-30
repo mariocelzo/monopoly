@@ -15,6 +15,18 @@ const MAX_JAIL_TURNS = 3;
 // Oltre sei il tabellone diventa illeggibile e i colori finiscono.
 const MAX_PLAYERS = 6;
 
+// Regole della casa: valori ammessi per le opzioni a scelta multipla (vedi
+// setRules). Un solo elenco, letto sia dalla validazione sia da chi genera i
+// default: così un valore "inventato" da un client malevolo o da un bug non
+// può mai finire dentro this.rules, a differenza degli interruttori on/off
+// (freeParkingEnabled, auctionEnabled) che sono booleani e non hanno bisogno
+// di un elenco. 200 è l'importo da regolamento, 500 è quello con cui il
+// tavolo ha sempre giocato finora (vedi GO_AMOUNT in board.js, che resta il
+// default). Il saldo iniziale ufficiale è 1500; 1000 accorcia la partita
+// (si fallisce prima), 2000 la allunga (più margine prima della bancarotta).
+const GO_AMOUNT_OPTIONS = [200, 500];
+const STARTING_BALANCE_OPTIONS = [1000, 1500, 2000];
+
 // Al terzo doppio consecutivo si va in prigione senza muoversi.
 const MAX_DOUBLES = 3;
 // Interesse del 10% che la banca trattiene sulle ipoteche: si paga per
@@ -23,6 +35,28 @@ const MAX_DOUBLES = 3;
 // decimali `100 * 1.1` vale 110.00000000000001 e Math.ceil arrotonda a 111.
 const MORTGAGE_INTEREST_NUM = 1;
 const MORTGAGE_INTEREST_DEN = 10;
+
+// Modalità grattacieli (regola della casa, spenta di default, vedi
+// rules.skyscraperEnabled): fino a quattro hotel per proprietà invece di uno
+// solo, a prezzi e affitti crescenti. A regola spenta il tetto resta 1,
+// esattamente come da regolamento classico e come si è sempre giocato finora
+// (vedi buildHouse, l'unico punto che legge questi due tetti).
+const MAX_HOTELS_SKYSCRAPER = 4;
+const MAX_HOTELS_CLASSIC = 1;
+// Moltiplicatore di costo per ciascun livello di hotel, applicato a
+// houseCost della casella (vedi buildingCost). Il 1° hotel sostituisce le
+// quattro case e costa come una singola casa (moltiplicatore 1: è il
+// comportamento di sempre, invariato). Il 2°, 3° e 4° costano rispettivamente
+// 15, 22 e 30 volte una casa: numeri concordati al tavolo, non ricavati da
+// una formula, per tenere ogni livello un salto deciso rispetto al
+// precedente senza dover ricorrere all'asta per finanziarlo.
+const HOTEL_COST_MULTIPLIER = { 1: 1, 2: 15, 3: 22, 4: 30 };
+// Moltiplicatore d'affitto per ciascun livello di hotel, applicato
+// all'affitto dell'hotel singolo (square.rents[5]) e arrotondato ai 25 più
+// vicini (vedi hotelRent). Con un solo hotel il moltiplicatore è 1: dato che
+// in board.js ogni rents[5] è già multiplo di 25, l'arrotondamento non cambia
+// nulla e l'affitto resta letteralmente quello di sempre.
+const HOTEL_RENT_MULTIPLIER = { 1: 1, 2: 1.7, 3: 2.5, 4: 3.5 };
 
 function shuffle(arr) {
   const a = [...arr];
@@ -41,8 +75,27 @@ class GameEngine {
     this.turnIndex = 0;
     this.started = false;
     this.log = [];
-    this.chanceDeck = shuffle(CHANCE_CARDS);
-    this.communityDeck = shuffle(COMMUNITY_CARDS);
+    // Regole della casa: si scelgono al tavolo prima del via (vedi setRules,
+    // solo l'host può cambiarle e solo finché `started` è falso) e restano
+    // quelle per tutta la partita, rivincita compresa — rematch() non le
+    // tocca apposta. I default sono quelli con cui il tavolo ha sempre
+    // giocato finora, così una partita creata senza toccare nulla si
+    // comporta esattamente come prima che queste regole fossero scegliibili.
+    this.rules = {
+      goAmount: GO_AMOUNT, // 500: quanto si incassa passando dal Via
+      freeParkingEnabled: true, // il montepremi della Sosta Gratuita
+      auctionEnabled: true, // l'asta sulla proprietà rifiutata
+      startingBalance: STARTING_BALANCE, // 1500: saldo di partenza
+      // Modalità grattacieli: spenta di default, così una partita creata
+      // senza toccare le regole si comporta esattamente come prima che
+      // questa regola esistesse (un solo hotel per proprietà).
+      skyscraperEnabled: false,
+    };
+    // Il mazzo si costruisce qui, non si importa già pronto da board.js:
+    // alcune carte citano a parole l'importo del Via (vedi buildDeck) e
+    // quel testo deve rispecchiare `this.rules.goAmount` di QUESTA partita.
+    this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
+    this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
     // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_tax' |
     //   'awaiting_debt' | 'awaiting_trade' | 'awaiting_auction',
     //   playerId, ... }
@@ -87,9 +140,12 @@ class GameEngine {
     // per sapere se ha già costruito dopo il proprio ultimo tiro (vedi bot.js),
     // un controllo che altrimenti si romperebbe non appena lastRoll torna null.
     this.rollCount = 0;
-    // Regola della casa (come il Via a 500): il denaro che i giocatori pagano
-    // alla banca - tasse, multe delle carte, multa di prigione - non sparisce
-    // ma si accumula qui, e chi atterra sulla Sosta Gratuita lo incassa tutto.
+    // Regola della casa (rules.freeParkingEnabled): quando è accesa, il
+    // denaro che i giocatori pagano alla banca - tasse, multe delle carte,
+    // multa di prigione - non sparisce ma si accumula qui, e chi atterra
+    // sulla Sosta Gratuita lo incassa tutto. Se la regola è spenta questo
+    // resta sempre a zero (vedi chargePlayer): la Sosta torna una casella
+    // che non fa nulla, come da regolamento.
     this.freeParkingPot = 0;
     // Contatori per il riepilogo di fine partita (vedi resetStats). Il
     // registro (`log`) da solo non basta: è tappato alle ultime 200 righe, e
@@ -129,6 +185,23 @@ class GameEngine {
   /** Incrementa un contatore in una mappa chiave -> numero, creandolo se serve. */
   bumpStat(map, key, amount = 1) {
     map[key] = (map[key] || 0) + amount;
+  }
+
+  /**
+   * Costruisce un mazzo (Probabilità o Imprevisti) a partire dai modelli di
+   * board.js, risolvendo il testo delle carte che citano l'importo del Via.
+   * In board.js quelle carte hanno `text` come funzione di `goAmount` invece
+   * che una stringa già pronta, proprio per poter essere risolte qui, contro
+   * la regola scelta per QUESTA partita — le altre carte hanno già `text`
+   * come stringa e passano invariate. Si richiama sia dal costruttore sia da
+   * rematch(): in entrambi i casi `this.rules.goAmount` è già quello giusto
+   * (le regole non cambiano più una volta iniziata la partita).
+   */
+  buildDeck(templates) {
+    return templates.map((card) => ({
+      ...card,
+      text: typeof card.text === 'function' ? card.text(this.rules.goAmount) : card.text,
+    }));
   }
 
   /**
@@ -180,7 +253,10 @@ class GameEngine {
     if (this.players.length === 0) this.hostId = id;
     this.players.push({
       id, name, token,
-      balance: STARTING_BALANCE,
+      // Il saldo iniziale è una regola della casa (vedi setRules): si legge
+      // sempre da this.rules, mai dalla costante, così chi si unisce dopo che
+      // l'host l'ha cambiata trova già il valore giusto.
+      balance: this.rules.startingBalance,
       position: 0,
       inJail: false,
       jailTurns: 0,
@@ -224,6 +300,72 @@ class GameEngine {
     return {};
   }
 
+  /**
+   * Aggiorna le regole della casa scelte per questo tavolo. `changes` è
+   * parziale: si passano solo i campi che si vogliono cambiare, gli altri
+   * restano quelli di prima. Due controlli, entrambi ripetuti qui dentro
+   * invece di fidarsi solo di chi chiama (server.js fa comunque lo stesso
+   * controllo dell'host prima di arrivare qui, stesso schema di
+   * addBot/removeBot — ma questo metodo deve rifiutare anche se qualcosa lo
+   * chiamasse direttamente, scavalcando quel controllo, esattamente come fa
+   * già endGame più sotto):
+   *  - solo chi ha creato il tavolo può cambiarle;
+   *  - solo prima del via: a partita iniziata le regole sono quelle, per non
+   *    cambiarle sotto ai giocatori già seduti a metà partita.
+   */
+  setRules(playerId, changes = {}) {
+    if (playerId !== this.hostId) {
+      return { error: 'Solo chi ha creato il tavolo può cambiare le regole' };
+    }
+    if (this.started) return { error: 'La partita è già iniziata' };
+
+    const next = { ...this.rules };
+    if (changes.goAmount !== undefined) {
+      const goAmount = Number(changes.goAmount);
+      if (!GO_AMOUNT_OPTIONS.includes(goAmount)) return { error: 'Importo del Via non valido' };
+      next.goAmount = goAmount;
+    }
+    if (changes.freeParkingEnabled !== undefined) {
+      next.freeParkingEnabled = Boolean(changes.freeParkingEnabled);
+    }
+    if (changes.auctionEnabled !== undefined) {
+      next.auctionEnabled = Boolean(changes.auctionEnabled);
+    }
+    if (changes.startingBalance !== undefined) {
+      const startingBalance = Number(changes.startingBalance);
+      if (!STARTING_BALANCE_OPTIONS.includes(startingBalance)) return { error: 'Saldo iniziale non valido' };
+      next.startingBalance = startingBalance;
+    }
+    // Interruttore booleano come freeParkingEnabled/auctionEnabled qui sopra:
+    // nessun elenco di opzioni da validare, solo vero o falso.
+    if (changes.skyscraperEnabled !== undefined) {
+      next.skyscraperEnabled = Boolean(changes.skyscraperEnabled);
+    }
+
+    this.rules = next;
+    // Chi è già seduto ha già un saldo assegnato con la regola precedente
+    // (addPlayer lo legge al momento di sedersi): se il saldo iniziale
+    // cambia va aggiornato anche a chi è già al tavolo, non solo a chi si
+    // unirà dopo. Il montepremi e l'asta invece si applicano da soli a
+    // eventi futuri (il prossimo accumulo, la prossima rinuncia): cambiare
+    // `this.rules` basta, senza altro da aggiustare qui.
+    if (changes.startingBalance !== undefined) {
+      this.players.forEach((p) => { p.balance = next.startingBalance; });
+    }
+    // I mazzi sono già pronti dal costruttore, con l'importo del Via di
+    // ALLORA impresso nel testo delle carte che lo citano (vedi buildDeck):
+    // se l'host cambia goAmount dopo essersi seduto, senza questo
+    // ricalcolo quel testo resterebbe quello vecchio finché non si pesca la
+    // carta giusta. Si può rifare tranquillamente qui (nuovo rimescolamento
+    // compreso): siamo ancora prima del via, nessuna carta è stata pescata.
+    if (changes.goAmount !== undefined) {
+      this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
+      this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
+    }
+    this.addLog('Le regole della casa sono state aggiornate.');
+    return {};
+  }
+
   start() {
     if (this.players.length < 1) return;
     this.started = true;
@@ -246,7 +388,13 @@ class GameEngine {
     }
     return {
       roomCode: this.roomCode,
-      players: this.players,
+      // Il patrimonio pieno (vedi netWorth qui sopra) si ricalcola a ogni
+      // serializzazione, sullo stesso principio del liquidationValue di
+      // pendingAction: un oggetto giocatore "arricchito" al volo, senza
+      // scrivere il campo dentro this.players. Così il motore resta l'unica
+      // fonte di verità sulle regole di gioco e il client non deve
+      // ricostruirsi da solo un calcolo che già gli arriva pronto.
+      players: this.players.map((p) => ({ ...p, netWorth: this.netWorth(p) })),
       ownership: this.ownership,
       turnIndex: this.turnIndex,
       started: this.started,
@@ -260,6 +408,10 @@ class GameEngine {
       lastRoll: this.lastRoll,
       freeParkingPot: this.freeParkingPot,
       stats: this.stats,
+      // Le regole della casa scelte per questo tavolo: servono al client sia
+      // per lasciarle scegliere all'host prima del via, sia per mostrarle
+      // (sola lettura) a chi si siede senza poterle cambiare.
+      rules: this.rules,
     };
   }
 
@@ -273,17 +425,78 @@ class GameEngine {
   }
 
   /**
-   * Edifici presenti su una casella espressi in "unità casa". L'hotel vale 5
-   * perché costa una casa in più rispetto alle quattro che sostituisce: così il
-   * confronto per la regola dell'edificazione uniforme è un semplice numero.
+   * Edifici presenti su una casella espressi in "unità casa": 1-4 sono le case,
+   * 5-8 sono i livelli di hotel (owned.hotels, 0-4 con la modalità grattacieli;
+   * senza, al più 1). Un hotel vale sempre "4 + il suo livello" perché occupa il
+   * posto delle quattro case: il primo hotel vale quindi 5 come prima di questa
+   * regola, il quarto vale 8. Così il confronto per l'edificazione uniforme (e
+   * per la vendita, che smonta da dove ce n'è di più) resta un semplice numero,
+   * anche con più hotel.
    */
   unitCount(owned) {
-    return owned.hotel ? 5 : owned.houses;
+    return owned.hotels > 0 ? 4 + owned.hotels : owned.houses;
   }
 
-  /** Quanto ricava il giocatore vendendo un edificio: metà del costo di costruzione. */
-  buildingRefund(square) {
-    return Math.floor(square.houseCost / 2);
+  /**
+   * Costo per costruire l'unità numero `n` su una casella: 1-4 sono case, tutte
+   * a houseCost; 5-8 sono i livelli di hotel, a houseCost moltiplicato per
+   * HOTEL_COST_MULTIPLIER (1, 15, 22, 30). Il primo hotel (n=5) costa quindi
+   * come una casa, esattamente come prima che i livelli oltre il primo
+   * esistessero: la modalità grattacieli non cambia nulla lì, aggiunge solo i
+   * livelli successivi.
+   */
+  buildingCost(square, n) {
+    if (n <= 4) return square.houseCost;
+    return square.houseCost * (HOTEL_COST_MULTIPLIER[n - 4] || 0);
+  }
+
+  /** Quanto costerebbe costruire la prossima unità (casa o hotel) su questa casella. */
+  nextBuildingCost(square, owned) {
+    return this.buildingCost(square, this.unitCount(owned) + 1);
+  }
+
+  /**
+   * Quanto ricava il giocatore vendendo l'unità numero `n`: metà di quanto
+   * pagato per costruirla. Serve un numero di unità e non più solo la casella,
+   * perché con più hotel il rimborso dipende da QUALE livello si toglie (vedi
+   * sellHouse, che vende sempre quello in cima alla pila) — prima, con un solo
+   * livello possibile, il rimborso era sempre houseCost/2 e basta.
+   */
+  buildingRefund(square, n) {
+    return Math.floor(this.buildingCost(square, n) / 2);
+  }
+
+  /**
+   * Elenco delle unità (numeri 1-8, stesso significato di unitCount) davvero
+   * costruite su una casella, dalla prima all'ultima. Con un hotel le case sono
+   * a zero per invariante (vedi buildHouse/sellHouse), quindi le due liste non
+   * si sommano mai: o ci sono solo case, o c'è solo il pacchetto di hotel.
+   * Usata da liquidationValue e netWorth per sommare il valore di OGNI livello
+   * davvero presente, invece di moltiplicare il numero di edifici per un
+   * rimborso o un costo unico — quella scorciatoia andava bene quando tutti gli
+   * edifici costavano uguale, non più con gli hotel a prezzi crescenti.
+   */
+  builtUnits(owned) {
+    const units = [];
+    if (owned.hotels > 0) {
+      for (let livello = 1; livello <= owned.hotels; livello++) units.push(4 + livello);
+    } else {
+      for (let casa = 1; casa <= owned.houses; casa++) units.push(casa);
+    }
+    return units;
+  }
+
+  /**
+   * Affitto di una proprietà con almeno un hotel: l'affitto dell'hotel singolo
+   * (rents[5]) moltiplicato per HOTEL_RENT_MULTIPLIER e arrotondato ai 25 più
+   * vicini. Con un solo hotel il moltiplicatore è 1 e l'arrotondamento non
+   * tocca nulla (tutti i rents[5] di board.js sono già multipli di 25): è
+   * esattamente l'affitto di sempre, non una nuova regola per chi gioca senza
+   * la modalità grattacieli.
+   */
+  hotelRent(square, hotels) {
+    const raw = square.rents[5] * (HOTEL_RENT_MULTIPLIER[hotels] || 1);
+    return Math.round(raw / 25) * 25;
   }
 
   /** Valore d'ipoteca di una proprietà: metà del prezzo d'acquisto. */
@@ -308,10 +521,51 @@ class GameEngine {
    */
   liquidationValue(player) {
     return this.propertiesOf(player.id).reduce((total, { square, owned }) => {
-      // Stazioni e società non hanno houseCost: contano solo per l'ipoteca.
-      const units = this.unitCount(owned);
-      let extra = units > 0 ? units * this.buildingRefund(square) : 0;
+      // Si somma il rimborso di OGNI livello davvero costruito (builtUnits),
+      // non "numero di edifici × un rimborso unico": con gli hotel a prezzi
+      // crescenti quella scorciatoia sottostimava di molto il patrimonio (il
+      // 4° hotel di Parco della Vittoria da solo rimborsa 3.000, non gli 800
+      // che darebbe 4 unità × 200/2). Stazioni e società non costruiscono
+      // nulla: builtUnits torna vuoto e questo termine resta zero, come prima.
+      let extra = this.builtUnits(owned).reduce((sum, n) => sum + this.buildingRefund(square, n), 0);
       if (!owned.mortgaged) extra += this.mortgageValue(square);
+      return total + extra;
+    }, player.balance);
+  }
+
+  /**
+   * Il patrimonio pieno del giocatore: contanti, più ogni proprietà al prezzo
+   * intero, più ogni edificio al costo intero di costruzione.
+   *
+   * È deliberatamente diverso da liquidationValue qui sopra, anche se
+   * l'impianto è lo stesso: quella funzione risponde a "quanto racimolerei
+   * svendendo tutto per pagare un debito", e per questo conta tutto a metà
+   * (mortgageValue, buildingRefund) — un giocatore pieno di proprietà ci
+   * risulterebbe povero, il che va benissimo per giudicare un debito ma è
+   * fuorviante per dire chi è avanti in partita. Qui invece serve il valore
+   * vero di quello che si possiede, lo stesso metro con cui si giudicherebbe
+   * un'offerta di scambio: si usa nel client per l'indicatore "chi vince",
+   * non per la solvibilità.
+   *
+   * Le proprietà ipotecate valgono comunque qualcosa, ma meno di una libera:
+   * la banca ha già anticipato mortgageValue in contanti (che infatti è già
+   * dentro player.balance, quindi non va contato due volte) e per riavere la
+   * proprietà sgombra bisogna restituirlo con l'interesse (unmortgageCost).
+   * Si conta perciò prezzo pieno meno quel costo di riscatto — non zero,
+   * perché il giocatore un'equity nella proprietà ce l'ha ancora; non il
+   * prezzo pieno, perché quell'equity è ridotta di quanto costerebbe
+   * liberarla adesso.
+   */
+  netWorth(player) {
+    return this.propertiesOf(player.id).reduce((total, { square, owned }) => {
+      // Stesso principio di liquidationValue qui sopra, ma a costo pieno
+      // invece che a rimborso: si somma il costo vero di OGNI livello
+      // costruito (builtUnits + buildingCost), non "numero di edifici ×
+      // houseCost" — quella scorciatoia valeva solo finché ogni edificio
+      // costava uguale, e con gli hotel a prezzi crescenti sottostimerebbe il
+      // patrimonio esattamente come faceva la vecchia liquidationValue.
+      let extra = this.builtUnits(owned).reduce((sum, n) => sum + this.buildingCost(square, n), 0);
+      extra += owned.mortgaged ? square.price - this.unmortgageCost(square) : square.price;
       return total + extra;
     }, player.balance);
   }
@@ -433,8 +687,10 @@ class GameEngine {
     const prev = player.position;
     let next = (prev + spaces) % 40;
     if (next < prev) {
-      player.balance += GO_AMOUNT;
-      this.addLog(`${player.name} passa dal Via e incassa ${GO_AMOUNT}.`);
+      // L'importo è una regola della casa (rules.goAmount): 200 o 500 a
+      // scelta dell'host, mai più la costante fissa di board.js.
+      player.balance += this.rules.goAmount;
+      this.addLog(`${player.name} passa dal Via e incassa ${this.rules.goAmount}.`);
       // Passare dal Via è, per definizione, chiudere un giro di tabellone.
       this.bumpStat(this.stats.laps, player.id);
     }
@@ -598,7 +854,7 @@ class GameEngine {
       return roll * mult;
     }
     // regular property
-    if (owned.hotel) return square.rents[5];
+    if (owned.hotels > 0) return this.hotelRent(square, owned.hotels);
     if (owned.houses > 0) return square.rents[owned.houses];
     if (this.ownsFullGroup(owned.ownerId, square.group)) return square.rents[0] * 2;
     return square.rents[0];
@@ -618,7 +874,7 @@ class GameEngine {
     const player = this.players.find((p) => p.id === playerId);
     if (player.balance < price) return { error: 'Saldo insufficiente' };
     player.balance -= price;
-    this.ownership[position] = { ownerId: playerId, houses: 0, hotel: false, mortgaged: false };
+    this.ownership[position] = { ownerId: playerId, houses: 0, hotels: 0, mortgaged: false };
     this.addLog(`${player.name} compra ${board[position].name} per ${price}.`);
     this.bumpStat(this.stats.purchases, playerId);
     this.pendingAction = null;
@@ -627,9 +883,14 @@ class GameEngine {
   }
 
   /**
-   * Chi rinuncia non lascia la casella semplicemente libera: come nel Monopoli
-   * vero, va all'asta. Il turno resta congelato (vedi endTurn) finché l'asta
-   * non si chiude: a riprendere la risoluzione del tiro ci pensa closeAuction.
+   * Chi rinuncia non lascia sempre la casella semplicemente libera: come nel
+   * Monopoli vero, va all'asta — ma solo se `rules.auctionEnabled` è acceso
+   * (è la regola aggiunta più di recente, quindi l'unica delle quattro che
+   * qualcuno potrebbe voler giocare "alla vecchia", cioè spenta). Con l'asta
+   * accesa il turno resta congelato (vedi endTurn) finché non si chiude: a
+   * riprendere la risoluzione del tiro ci pensa closeAuction. Con l'asta
+   * spenta non c'è nulla da congelare: si riprende subito, esattamente come
+   * prima che l'asta esistesse.
    */
   declineBuy(playerId) {
     if (!this.pendingAction || this.pendingAction.type !== 'awaiting_buy') return { error: 'Nessun acquisto in sospeso' };
@@ -638,7 +899,11 @@ class GameEngine {
     const decliner = this.players.find((p) => p.id === playerId);
     this.addLog(`${decliner.name} rinuncia all'acquisto di ${board[position].name}.`);
     this.pendingAction = null;
-    this.openAuction(position, decliner);
+    if (this.rules.auctionEnabled) {
+      this.openAuction(position, decliner);
+    } else {
+      this.finishRoll(decliner);
+    }
     return {};
   }
 
@@ -799,7 +1064,7 @@ class GameEngine {
     if (auction.currentBidderId) {
       const winner = this.players.find((p) => p.id === auction.currentBidderId);
       winner.balance -= auction.currentBid;
-      this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotel: false, mortgaged: false };
+      this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotels: 0, mortgaged: false };
       this.addLog(`${winner.name} si aggiudica ${square.name} all'asta per ${auction.currentBid}.`);
       this.bumpStat(this.stats.purchases, winner.id);
     } else {
@@ -925,8 +1190,12 @@ class GameEngine {
         this.sendToJail(player);
         break;
       case 'repairs': {
+        // Ogni hotel conta per intero, non solo il primo: con più livelli
+        // costruiti la riparazione costa di più, coerente con "tot a hotel"
+        // della carta. A un solo livello (modalità spenta) è lo stesso conto
+        // di sempre: owned.hotels vale al più 1.
         const total = this.propertiesOf(player.id).reduce(
-          (sum, { owned }) => sum + owned.houses * card.perHouse + (owned.hotel ? card.perHotel : 0),
+          (sum, { owned }) => sum + owned.houses * card.perHouse + owned.hotels * card.perHotel,
           0
         );
         if (total > 0) this.addLog(`${player.name} paga ${total} di riparazioni.`);
@@ -989,17 +1258,33 @@ class GameEngine {
       (s) => s.group === square.group && this.ownership[s.position]?.mortgaged
     );
     if (groupMortgaged) return { error: 'Riscatta prima le ipoteche del colore' };
-    if (owned.hotel) return { error: "C'è già un hotel" };
+    // Il tetto di hotel per proprietà: 1 come da regolamento classico, 4 con
+    // la modalità grattacieli accesa (vedi rules.skyscraperEnabled).
+    const maxHotels = this.rules.skyscraperEnabled ? MAX_HOTELS_SKYSCRAPER : MAX_HOTELS_CLASSIC;
+    if (owned.hotels >= maxHotels) {
+      return { error: maxHotels === MAX_HOTELS_CLASSIC ? "C'è già un hotel" : 'Hai già il massimo di hotel su questa proprietà' };
+    }
     // Edificazione uniforme: si costruisce solo dove ce n'è di meno nel gruppo.
     if (this.unitCount(owned) > Math.min(...this.groupUnitCounts(square.group))) {
       return { error: 'Costruisci prima sulle altre proprietà del colore' };
     }
-    if (player.balance < square.houseCost) return { error: 'Saldo insufficiente' };
+    const cost = this.nextBuildingCost(square, owned);
+    if (player.balance < cost) return { error: 'Saldo insufficiente' };
 
-    player.balance -= square.houseCost;
-    if (owned.houses >= 4) {
+    player.balance -= cost;
+    // Tre casi, non due: con più di un livello di hotel possibile non basta
+    // più distinguere solo "quattro case" da "meno di quattro". Un hotel già
+    // presente (owned.hotels > 0) va sempre al livello successivo, prima di
+    // guardare le case — che con un hotel in piedi sono comunque a zero per
+    // invariante (vedi sellHouse). Prima che gli hotel oltre il primo
+    // esistessero questo caso non poteva capitare (owned.hotels era già al
+    // tetto e buildHouse si era fermato più sopra), quindi il ramo mancava.
+    if (owned.hotels > 0) {
+      owned.hotels += 1;
+      this.addLog(`${player.name} costruisce il ${owned.hotels}º hotel su ${square.name} per ${cost}.`);
+    } else if (owned.houses >= 4) {
       owned.houses = 0;
-      owned.hotel = true;
+      owned.hotels = 1;
       this.addLog(`${player.name} costruisce un hotel su ${square.name}.`);
     } else {
       owned.houses += 1;
@@ -1027,12 +1312,25 @@ class GameEngine {
       return { error: 'Vendi prima dalle altre proprietà del colore' };
     }
 
-    const refund = this.buildingRefund(square);
+    // Si vende sempre l'unità più in alto nella pila: con più hotel il
+    // rimborso dipende da QUALE livello si toglie (il 4° di Parco della
+    // Vittoria rende 3.000, l'ultimo rimasto solo 100), non più un rimborso
+    // fisso uguale per tutti (vedi buildingRefund).
+    const soldUnit = this.unitCount(owned);
+    const refund = this.buildingRefund(square, soldUnit);
     player.balance += refund;
-    if (owned.hotel) {
-      owned.hotel = false;
-      owned.houses = 4;
-      this.addLog(`${player.name} vende l'hotel su ${square.name} per ${refund}.`);
+    if (owned.hotels > 0) {
+      owned.hotels -= 1;
+      // Le case fantasma tornano SOLO quando si toglie l'ultimo hotel
+      // rimasto: vendendo il 4°, 3° o 2° hotel restano rispettivamente 3, 2 o
+      // 1 hotel, non quattro case. Prima, con un hotel solo possibile, questo
+      // caso e "l'ultimo rimasto" coincidevano sempre.
+      if (owned.hotels === 0) {
+        owned.houses = 4;
+        this.addLog(`${player.name} vende l'ultimo hotel su ${square.name} per ${refund}: tornano quattro case.`);
+      } else {
+        this.addLog(`${player.name} vende un hotel su ${square.name} per ${refund} (ne restano ${owned.hotels}).`);
+      }
     } else {
       owned.houses -= 1;
       this.addLog(`${player.name} vende una casa su ${square.name} per ${refund}.`);
@@ -1093,8 +1391,14 @@ class GameEngine {
     } else {
       // Nessun creditore = il denaro va alla banca (tasse, multe delle carte,
       // multa di prigione, interessi): è esattamente il denaro che altrimenti
-      // sparirebbe nel nulla, quindi finisce nel montepremi.
-      this.freeParkingPot += amount;
+      // sparirebbe nel nulla, quindi finisce nel montepremi — ma solo se la
+      // regola della casa è accesa. Spenta, il denaro va semplicemente alla
+      // banca e basta, come da regolamento: freeParkingPot resta a zero e la
+      // Sosta Gratuita non paga mai nulla (vedi il case in resolveLanding,
+      // che già non fa nulla quando il montepremi è vuoto). La statistica di
+      // quanto è finito alla banca, invece, non dipende da questa regola: è
+      // un dato del riepilogo, non l'effetto della regola stessa.
+      if (this.rules.freeParkingEnabled) this.freeParkingPot += amount;
       this.bumpStat(this.stats.bankPaid, player.id, amount);
     }
     if (player.balance >= 0) return;
@@ -1237,7 +1541,7 @@ class GameEngine {
       if (creditor) {
         owned.ownerId = creditor.id;
         owned.houses = 0;
-        owned.hotel = false;
+        owned.hotels = 0;
         if (owned.mortgaged) interestDue += this.mortgageInterest(square);
       } else {
         delete this.ownership[position];
@@ -1282,7 +1586,7 @@ class GameEngine {
 
   /** Vero se esiste anche un solo edificio sul gruppo di colore della casella. */
   groupHasBuildings(group) {
-    return board.some((s) => s.group === group && this.unitCount(this.ownership[s.position] || { houses: 0 }) > 0);
+    return board.some((s) => s.group === group && this.unitCount(this.ownership[s.position] || { houses: 0, hotels: 0 }) > 0);
   }
 
   /**
@@ -1495,12 +1799,16 @@ class GameEngine {
   /**
    * Riparte da capo con gli stessi giocatori e lo stesso tavolo: saldi, pedine,
    * proprietà e mazzi tornano come all'inizio. Restano solo l'identità dei
-   * giocatori, chi è il creatore del tavolo e chi è collegato.
+   * giocatori, chi è il creatore del tavolo, chi è collegato — e le regole
+   * della casa (`this.rules`, di proposito non toccato qui sotto): chi
+   * rigioca vuole le stesse regole scelte all'inizio, non i default.
    */
   rematch() {
     this.ownership = {};
     this.players.forEach((p) => {
-      p.balance = STARTING_BALANCE;
+      // Il saldo di partenza è quello scelto con le regole della casa, non
+      // per forza 1500: this.rules non viene azzerato da questo metodo.
+      p.balance = this.rules.startingBalance;
       p.position = 0;
       p.inJail = false;
       p.jailTurns = 0;
@@ -1508,8 +1816,12 @@ class GameEngine {
       p.bankrupt = false;
       p.doublesInARow = 0;
     });
-    this.chanceDeck = shuffle(CHANCE_CARDS);
-    this.communityDeck = shuffle(COMMUNITY_CARDS);
+    // Ricostruiti con buildDeck, non importati grezzi da board.js: la carta
+    // "Avanza fino al Via" deve continuare a citare l'importo di questa
+    // partita (this.rules.goAmount), che qui non cambia mai rispetto a prima
+    // della rivincita.
+    this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
+    this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
     this.pendingAction = null;
     this.pendingCard = null;
     this.rentMultiplier = 1;
