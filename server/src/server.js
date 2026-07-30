@@ -12,15 +12,61 @@ const PORT = process.env.PORT || 3001;
 const BOT_NAMES = ['Bot Aurelio', 'Bot Cleopatra', 'Bot Fulvio', 'Bot Ottavia', 'Bot Silvio'];
 const BOT_TOKENS = ['🐕', '🎩', '🚗', '🚢', '🐈', '🎸'];
 
-// Pausa fra una mossa del bot e la successiva. Un secondo fisso era troppo
-// svelto per seguire cosa stesse succedendo, e soprattutto si sentiva il
-// metronomo: una persona non risponde mai due volte alla stessa distanza.
-// L'intervallo casuale toglie quella cadenza meccanica.
-const BOT_PAUSA_MIN_MS = 1700;
-const BOT_PAUSA_MAX_MS = 3000;
+// Pausa fra una mossa del bot e la successiva, decisa in base a COSA il bot ha
+// appena fatto: è il tempo che si lascia a chi guarda per vedere l'ultima cosa
+// successa, non un ritardo uguale per tutto.
+//
+// La versione precedente usava un unico intervallo di 1,7-3,0s per QUALUNQUE
+// mossa. Il guaio è che la pausa è per mossa, non per turno, e un turno di bot
+// sono in media 2,25 mosse: con tre bot al tavolo, fra due turni umani
+// passavano 16 secondi. Troppi — la partita si sentiva trascinare.
+//
+// Il grosso del tempo però non stava dove sembrava. Su partite intere simulate
+// le aste risultano l'1% delle mosse, e le prime versioni di questa tabella,
+// tarate su quel numero, non hanno spostato niente nella partita vera: 16
+// secondi prima, 16 dopo. Cronometrando il server durante una partita vera
+// (DEBUG_RITMO, vedi scheduleBotMove) è saltato fuori il motivo — a INIZIO
+// partita le aste non sono l'1% delle mosse ma la maggioranza: ogni casella è
+// ancora libera, ogni rifiuto ne apre una, e in un'asta ogni giocatore rilancia
+// o passa a turno. Con quattro al tavolo, una singola proprietà rifiutata erano
+// nove mosse di fila e undici secondi. È esattamente l'inizio partita, cioè il
+// momento in cui il rallentamento si è sentito.
+//
+// Da qui la forma della tabella: i passaggi d'asta costano pochissimo (non c'è
+// niente da guardare in un "passo"), i tiri restano generosi (la pedina si
+// muove e c'è una casella nuova da leggere), il resto sta in mezzo. Misurato
+// end-to-end contro il server vero: da 16 a 9-11 secondi per giro.
+//
+// L'intervallo resta casuale perché una persona non risponde mai due volte alla
+// stessa distanza: senza quello si sente il metronomo.
+const PAUSE_BOT = {
+  tiro: [1300, 1900], // la pedina si muove: è il momento che chiede più tempo
+  prigione: [1000, 1500],
+  carta: [1200, 1800], // c'è un testo da leggere
+  affitto: [1100, 1600],
+  acquisto: [1100, 1600],
+  tassa: [1000, 1400],
+  debito: [1100, 1500],
+  scambio: [1100, 1600],
+  'risposta-scambio': [1000, 1500],
+  // Un'asta è uno scambio rapido di battute, non una rivelazione: la pausa
+  // serve a far leggere il rilancio, non a creare suspense. E un "passo" non è
+  // proprio niente da guardare.
+  'asta-rilancio': [400, 700],
+  'asta-passo': [200, 380],
+  rifiuto: [800, 1200],
+  costruzione: [700, 1100], // cambia un numero, si legge in fretta
+  'fine-turno': [250, 500], // non c'è niente da vedere: la mano passa e via
+  rivincita: [250, 500],
+};
+// Per una mossa di cui non si conosce il tipo, e per la primissima mossa di un
+// bot dopo che ha giocato un umano.
+const PAUSA_PREDEFINITA = [700, 1200];
 
-const pausaBot = () =>
-  BOT_PAUSA_MIN_MS + Math.floor(Math.random() * (BOT_PAUSA_MAX_MS - BOT_PAUSA_MIN_MS));
+const pausaBot = (tipoUltimaMossa) => {
+  const [min, max] = PAUSE_BOT[tipoUltimaMossa] || PAUSA_PREDEFINITA;
+  return min + Math.floor(Math.random() * (max - min));
+};
 
 // CLIENT_ORIGIN accetta più origini separate da virgola: in produzione servono
 // almeno il dominio vero e quelli di anteprima. Vuoto = tutte, comodo in locale.
@@ -77,19 +123,37 @@ function broadcastState(roomCode) {
  * Se un bot ha una mossa da fare, la schedula. Una sola alla volta per stanza:
  * finché un timer è in coda non se ne aggiunge un altro, così più broadcast
  * ravvicinati non generano mosse sovrapposte.
+ *
+ * Con `DEBUG_RITMO=1` stampa ogni pausa scelta e la mossa che ne segue. Serve
+ * per le domande sul ritmo, e non è un di più: la taratura di PAUSE_BOT era
+ * stata fatta due volte sulle statistiche di partite simulate, e due volte
+ * aveva mancato il bersaglio perché la composizione delle mosse a inizio
+ * partita non somiglia a quella di una partita intera. È stato questo log a
+ * mostrare dove finivano davvero i secondi.
  */
 function scheduleBotMove(roomCode) {
   const room = roomManager.getRoom(roomCode);
   if (!room || room.botTimer) return;
   if (!botHasMove(room.game)) return;
 
+  const pausaScelta = pausaBot(room.ultimaMossaBot);
+  if (process.env.DEBUG_RITMO) {
+    console.log(`[ritmo] pausa ${pausaScelta}ms dopo "${room.ultimaMossaBot || 'inizio'}"`);
+  }
   room.botTimer = setTimeout(() => {
     room.botTimer = null;
     // La stanza può essere sparita nel frattempo (tavolo chiuso, scaduta).
     const ancora = roomManager.getRoom(roomCode);
     if (!ancora) return;
-    if (botMove(ancora.game)) broadcastState(roomCode);
-  }, pausaBot());
+    // botMove ora torna il TIPO di mossa fatta (o false se non ne aveva
+    // nessuna): serve a dosare la pausa successiva su quanto c'è da guardare.
+    const tipo = botMove(ancora.game);
+    if (process.env.DEBUG_RITMO) console.log(`[ritmo]   -> mossa: ${tipo}`);
+    if (tipo) {
+      ancora.ultimaMossaBot = tipo;
+      broadcastState(roomCode);
+    }
+  }, pausaScelta);
   room.botTimer.unref?.();
 }
 
