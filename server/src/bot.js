@@ -48,7 +48,7 @@ function botMove(game) {
     const daVotare = game.players.find((p) => p.isBot && !game.rematchVotes.includes(p.id));
     if (!daVotare) return false;
     game.requestRematch(daVotare.id);
-    return true;
+    return 'rivincita';
   }
 
   if (botMustAnswer(game)) return risolvePendingAction(game);
@@ -64,21 +64,21 @@ function risolvePendingAction(game) {
   switch (pa.type) {
     case 'awaiting_card':
       game.acknowledgeCard(bot.id);
-      return true;
+      return 'carta';
 
     case 'awaiting_rent':
       game.payRent(bot.id);
-      return true;
+      return 'affitto';
 
     case 'awaiting_tax':
       game.payTax(bot.id);
-      return true;
+      return 'tassa';
 
     case 'awaiting_debt':
       // La liquidazione automatica del motore vende gli edifici e ipoteca
       // sacrificando i monopoli per ultimi: è già la strategia giusta.
       game.resolveDebtAuto(bot.id);
-      return true;
+      return 'debito';
 
     case 'awaiting_buy': {
       const square = board[pa.position];
@@ -88,15 +88,15 @@ function risolvePendingAction(game) {
       const soglia = (Math.random() - 0.5) * 0.2;
       if (punteggio > soglia && bot.balance - square.price >= RISERVA) {
         game.buyProperty(bot.id);
-      } else {
-        game.declineBuy(bot.id);
+        return 'acquisto';
       }
-      return true;
+      game.declineBuy(bot.id);
+      return 'rifiuto';
     }
 
     case 'awaiting_trade':
       game.respondTrade(bot.id, evaluateTrade(game, bot.id, pa));
-      return true;
+      return 'risposta-scambio';
 
     case 'awaiting_auction': {
       const square = board[pa.position];
@@ -111,13 +111,16 @@ function risolvePendingAction(game) {
       // permettere: passare è sempre lecito, anche per chi ha appena rinunciato.
       if (minBid > tetto || minBid > bot.balance) {
         game.passAuction(bot.id);
-        return true;
+        return 'asta-passo';
       }
       // Se per qualunque ragione il rilancio viene rifiutato, si passa invece
       // di riprovare: un'offerta respinta non muove lo stato, e ritentarla
       // bloccherebbe la partita per tutti.
-      if (game.bidAuction(bot.id, minBid).error) game.passAuction(bot.id);
-      return true;
+      if (game.bidAuction(bot.id, minBid).error) {
+        game.passAuction(bot.id);
+        return 'asta-passo';
+      }
+      return 'asta-rilancio';
     }
 
     default:
@@ -156,24 +159,24 @@ function giocaIlTurno(game) {
     // (finishRoll -> endTurn), quindi la finestra "ho tirato, adesso
     // costruisco" non esiste. È anche l'ordine più naturale da guardare:
     // sistemo le mie cose, poi muovo.
-    if (provaACostruire(game, bot)) return true;
-    if (provaAProporreScambio(game, bot)) return true;
+    if (provaACostruire(game, bot)) return 'costruzione';
+    if (provaAProporreScambio(game, bot)) return 'scambio';
     game.rollDice(bot.id);
-    return true;
+    return 'tiro';
   }
 
   // Ha tirato un doppio: il motore ha lasciato il turno aperto apposta e gli
   // spetta un altro tiro.
   if (!game.turnResolved && game.lastRollWasDouble) {
     game.rollDice(bot.id);
-    return true;
+    return 'tiro';
   }
 
   // Rete di sicurezza: se si arriva qui col turno ancora aperto lo si chiude.
   // endTurn del motore non controlla di chi sia il turno (per gli umani lo fa
   // il gestore socket), quindi lo si verifica qui.
   if (game.currentPlayer?.id === bot.id) game.endTurn();
-  return true;
+  return 'fine-turno';
 }
 
 /**
@@ -210,7 +213,7 @@ function segnaCostruito(game, bot) {
 function gestisciPrigione(game, bot) {
   if (bot.jailCards > 0) {
     game.useJailCard(bot.id);
-    return true;
+    return 'prigione';
   }
   // Con case in giro conviene uscire subito e incassare; a inizio partita
   // restare dentro è quasi un vantaggio. Nel 20% dei casi tenta comunque i
@@ -218,10 +221,10 @@ function gestisciPrigione(game, bot) {
   const puoPagare = bot.balance - 50 >= RISERVA;
   if (puoPagare && Math.random() > 0.2) {
     game.payJailFine(bot.id);
-    return true;
+    return 'prigione';
   }
   game.rollDice(bot.id);
-  return true;
+  return 'tiro';
 }
 
 /** Costruisce al massimo una casa per turno, se la cassa lo consente. */

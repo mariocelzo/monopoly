@@ -2479,5 +2479,81 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
 }
 
 // ---------------------------------------------------------------------------
+// Il minimo d'asta pubblicato è quello che il motore accetta davvero
+// ---------------------------------------------------------------------------
+// Il contratto fra motore e interfaccia: `pendingAction.minBid` è l'importo che
+// chi deve rispondere può offrire ADESSO, e offrirlo deve funzionare sempre.
+// Serve un test su OGNI casella e non su una sola perché il minimo non è fisso
+// ma cresce col listino: un controllo su una casella da 60 passa anche con la
+// formula sbagliata, ed è precisamente come il difetto è sopravvissuto due
+// volte — prima nei bot, che si bloccavano, poi nel client, dove il bottone
+// "Rilancia" mandava 10 su 24 caselle su 28 e il motore rifiutava in silenzio.
+{
+  console.log('\n--- Il rilancio minimo pubblicato è sempre valido ---');
+
+  const acquistabili = board.filter((s) => s.price);
+  let primoOk = 0;
+  let secondoOk = 0;
+  let coerenteConIncremento = 0;
+
+  for (const square of acquistabili) {
+    const g = new GameEngine('AST');
+    g.addPlayer('a', 'Anna', '🎩');
+    g.addPlayer('b', 'Bruno', '🐕');
+    g.addPlayer('c', 'Carla', '🚗');
+    g.setRules(g.hostId, { auctionEnabled: true, startingBalance: 2000 });
+    g.start();
+
+    // openAuction vuole l'oggetto giocatore che ha rifiutato, non il suo id.
+    g.openAuction(square.position, g.players.find((p) => p.id === 'a'));
+    const pa = g.pendingAction;
+    if (pa?.type !== 'awaiting_auction') continue;
+
+    // I valori vanno letti PRIMA di offrire: pendingAction è lo stesso oggetto
+    // che bidAuction modifica sul posto, quindi dopo il rilancio minBid è già
+    // quello del giro successivo.
+    const minBidIniziale = pa.minBid;
+    const incrementoIniziale = pa.minIncrement;
+    // Primo rilancio: esattamente il minimo pubblicato.
+    if (!g.bidAuction(pa.playerId, minBidIniziale).error) primoOk += 1;
+    // Secondo rilancio: il minimo si è aggiornato e vale ancora.
+    const dopo = g.pendingAction;
+    if (dopo?.type === 'awaiting_auction' && !g.bidAuction(dopo.playerId, dopo.minBid).error) secondoOk += 1;
+    // E il minimo dev'essere l'offerta corrente più lo scatto, non un fisso.
+    const atteso = g.auctionMinIncrement(square);
+    if (incrementoIniziale === atteso && minBidIniziale === atteso) coerenteConIncremento += 1;
+  }
+
+  check(
+    `offrire il minimo pubblicato riesce su tutte e ${acquistabili.length} le caselle acquistabili`,
+    primoOk === acquistabili.length,
+    `riuscito su ${primoOk}`
+  );
+  check(
+    'e riesce anche al secondo rilancio, quando il minimo si è già alzato',
+    secondoOk === acquistabili.length,
+    `riuscito su ${secondoOk}`
+  );
+  check(
+    'il minimo iniziale è lo scatto proporzionale al listino, non un valore fisso',
+    coerenteConIncremento === acquistabili.length,
+    `coerente su ${coerenteConIncremento}`
+  );
+
+  // La prova che un valore fisso NON basta: è la formula che aveva il client.
+  const conFormulaFissa = acquistabili.filter((s) => g0MinFisso(s) < g0MinVero(s)).length;
+  function g0MinFisso() { return 10; }
+  function g0MinVero(square) {
+    const g = new GameEngine('AST2');
+    return g.auctionMinIncrement(square);
+  }
+  check(
+    `su ${conFormulaFissa} caselle un rilancio fisso da 10 sarebbe sotto il minimo (era il difetto)`,
+    conFormulaFissa === 24,
+    `contate ${conFormulaFissa}`
+  );
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

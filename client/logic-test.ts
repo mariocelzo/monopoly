@@ -8,6 +8,7 @@
 // niente `window`/`document` toccati a livello di modulo. `react` va bene: è
 // un pacchetto vero in node_modules e non fa nulla all'import; è l'uso di
 // `window` dentro `useIsMobile.ts` a essere circondato da un controllo lazy.
+import { readFileSync } from 'node:fs';
 import { board } from '../server/src/data/board.js';
 import { propertyGroups } from './src/propertyGroups.ts';
 import type { BoardSquare, GameState } from './src/socket.ts';
@@ -506,6 +507,34 @@ section('7. Tabellino fra una partita e l\'altra');
   check('un tabellino valido sopravvive al giro completo salva/carica',
     andataERitorno.players['mario'].wins === originale.players['mario'].wins &&
     andataERitorno.records.highestNetWorth?.amount === originale.records.highestNetWorth?.amount);
+}
+
+// ---------------------------------------------------------------------------
+// La finestra dell'asta non deve ricalcolarsi il rilancio minimo
+// ---------------------------------------------------------------------------
+// Guardia insolita — legge il sorgente invece di eseguirlo — ma mirata a un
+// difetto che in questo progetto è già tornato DUE volte: prima nei bot, che si
+// bloccavano offrendo sempre 10, poi in AuctionModal, dove il bottone
+// "Rilancia" mandava un'offerta sotto il minimo su 24 caselle su 28 e il motore
+// la rifiutava in silenzio, facendo sembrare che rilanciassero solo i bot.
+//
+// La causa è sempre la stessa: il minimo non è fisso, cresce col listino della
+// casella, e qualunque formula riscritta fuori dal motore prima o poi si stacca
+// da quella vera. Il motore lo pubblica già in pendingAction.minBid: qui si
+// verifica soltanto che la finestra lo usi e non se lo rifaccia. Un test sul
+// comportamento non ci arriverebbe senza montare React, e il test lato server
+// non basta: là il calcolo è sempre stato giusto, il difetto stava solo qui.
+{
+  const sorgente = readFileSync(new URL('./src/components/AuctionModal.tsx', import.meta.url), 'utf8');
+  // I commenti si tolgono prima di guardare: quel file SPIEGA la formula
+  // sbagliata di prima, e senza questo passaggio il controllo si accenderebbe
+  // sulla propria stessa spiegazione.
+  const codice = sorgente.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  check("la finestra dell'asta legge il minimo dal motore (pending.minBid)",
+    codice.includes('pending.minBid'));
+  check("e non se lo ricalcola con uno scatto fisso",
+    !/currentBid\s*[+]\s*\d/.test(codice),
+    'trovata un\'espressione tipo "currentBid + 10" nel codice');
 }
 
 // ---------------------------------------------------------------------------

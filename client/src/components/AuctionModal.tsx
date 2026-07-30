@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { AwaitingAuction, BoardSquare, GameState, socket } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
@@ -22,9 +23,18 @@ export default function AuctionModal({
   const nameOf = (id: string) => state.players.find((p) => p.id === id)?.name || '?';
   const isMyTurn = pending.playerId === myId;
   const me = state.players.find((p) => p.id === myId);
-  // Base d'asta 10, poi sempre almeno 10 in più dell'offerta corrente.
-  const minBid = pending.currentBid === 0 ? 10 : pending.currentBid + 10;
+  // Il minimo lo dice il motore e non si ricalcola qui. Prima questa riga
+  // faceva `currentBid + 10`, ma lo scatto minimo cresce col listino della
+  // casella: su 24 caselle su 28 il bottone mandava un'offerta sotto il minimo,
+  // il motore la rifiutava, e siccome l'invio non guardava la risposta non
+  // succedeva assolutamente nulla — sembrava che il tasto fosse morto e che
+  // rilanciassero solo i bot, che invece la soglia la leggevano da qui.
+  const minBid = pending.minBid;
   const puoRilanciare = !!me && me.balance >= minBid;
+  const [errore, setErrore] = useState<string | null>(null);
+  // L'errore si azzera appena l'asta si muove, altrimenti resterebbe appeso
+  // sotto ai bottoni per tutto il resto della gara.
+  useEffect(() => setErrore(null), [pending.currentBid, pending.playerId]);
 
   return (
     <div style={styles.overlay}>
@@ -42,7 +52,7 @@ export default function AuctionModal({
               </span>
             </>
           ) : (
-            <span style={styles.bidLabel}>nessuna offerta ancora: si parte da €10</span>
+            <span style={styles.bidLabel}>nessuna offerta ancora: si parte da €{pending.minBid}</span>
           )}
         </div>
 
@@ -72,7 +82,14 @@ export default function AuctionModal({
               className="btn-primary"
               style={styles.actionBtn}
               disabled={!puoRilanciare}
-              onClick={() => socket.emit('auction_bid', { amount: minBid })}
+              // Si guarda la risposta del server invece di sparare e sperare:
+              // un rifiuto silenzioso è indistinguibile da un bottone rotto, ed
+              // è esattamente così che questo difetto è passato inosservato.
+              onClick={() =>
+                socket.emit('auction_bid', { amount: minBid }, (res?: { error?: string }) => {
+                  if (res?.error) setErrore(res.error);
+                })
+              }
             >
               Rilancia a €{minBid}
             </button>
@@ -88,6 +105,11 @@ export default function AuctionModal({
           <p style={styles.wait}>
             {nameOf(pending.playerId)} sta decidendo se rilanciare...
           </p>
+        )}
+
+        {errore && <p style={styles.errore}>{errore}</p>}
+        {isMyTurn && !puoRilanciare && (
+          <p style={styles.wait}>Non ti bastano i contanti per arrivare a €{minBid}: puoi solo passare.</p>
         )}
       </div>
     </div>
@@ -106,6 +128,7 @@ const styles: Record<string, React.CSSProperties> = {
   title: { fontSize: '1.5rem' },
   price: { fontSize: '0.9rem', color: 'rgba(243,234,216,0.6)' },
   bidBox: { display: 'flex', flexDirection: 'column', gap: 4, padding: 12, borderRadius: 10, background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(201,150,44,0.2)' },
+  errore: { fontSize: '0.82rem', color: '#ffb4a2', textAlign: 'center', flexShrink: 0 },
   bidLabel: { fontSize: '0.74rem', letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.55)' },
   bidValue: { fontSize: '1.3rem', color: 'var(--brass-2)' },
   // minHeight: 0 è ciò che rende comprimibile questo blocco: senza, un figlio
