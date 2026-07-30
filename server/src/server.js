@@ -276,6 +276,12 @@ io.on('connection', (socket) => {
   const withGame = (handler) => (payload, cb) => {
     const room = roomManager.getRoom(socket.data.roomCode);
     if (!room) return cb?.({ error: 'Stanza non trovata' });
+    // Chi sta mandando una mossa è collegato, per definizione: se la mappa dei
+    // socket dice il contrario è la mappa a essere indietro, e va rimessa in
+    // pari prima di trasmettere lo stato (vedi ensureConnected in rooms.js).
+    // Costa un confronto per mossa e chiude in modo definitivo la classe di
+    // difetti "sta giocando ma tutti lo vedono disconnesso".
+    roomManager.ensureConnected(socket.data.roomCode, socket.id, socket.data.playerId);
     const result = handler(room.game, socket.data.playerId, payload || {});
     broadcastState(socket.data.roomCode);
     cb?.(result || {});
