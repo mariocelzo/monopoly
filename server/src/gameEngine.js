@@ -357,7 +357,13 @@ class GameEngine {
     }
     return {
       roomCode: this.roomCode,
-      players: this.players,
+      // Il patrimonio pieno (vedi netWorth qui sopra) si ricalcola a ogni
+      // serializzazione, sullo stesso principio del liquidationValue di
+      // pendingAction: un oggetto giocatore "arricchito" al volo, senza
+      // scrivere il campo dentro this.players. Così il motore resta l'unica
+      // fonte di verità sulle regole di gioco e il client non deve
+      // ricostruirsi da solo un calcolo che già gli arriva pronto.
+      players: this.players.map((p) => ({ ...p, netWorth: this.netWorth(p) })),
       ownership: this.ownership,
       turnIndex: this.turnIndex,
       started: this.started,
@@ -427,6 +433,38 @@ class GameEngine {
       const units = this.unitCount(owned);
       let extra = units > 0 ? units * this.buildingRefund(square) : 0;
       if (!owned.mortgaged) extra += this.mortgageValue(square);
+      return total + extra;
+    }, player.balance);
+  }
+
+  /**
+   * Il patrimonio pieno del giocatore: contanti, più ogni proprietà al prezzo
+   * intero, più ogni edificio al costo intero di costruzione.
+   *
+   * È deliberatamente diverso da liquidationValue qui sopra, anche se
+   * l'impianto è lo stesso: quella funzione risponde a "quanto racimolerei
+   * svendendo tutto per pagare un debito", e per questo conta tutto a metà
+   * (mortgageValue, buildingRefund) — un giocatore pieno di proprietà ci
+   * risulterebbe povero, il che va benissimo per giudicare un debito ma è
+   * fuorviante per dire chi è avanti in partita. Qui invece serve il valore
+   * vero di quello che si possiede, lo stesso metro con cui si giudicherebbe
+   * un'offerta di scambio: si usa nel client per l'indicatore "chi vince",
+   * non per la solvibilità.
+   *
+   * Le proprietà ipotecate valgono comunque qualcosa, ma meno di una libera:
+   * la banca ha già anticipato mortgageValue in contanti (che infatti è già
+   * dentro player.balance, quindi non va contato due volte) e per riavere la
+   * proprietà sgombra bisogna restituirlo con l'interesse (unmortgageCost).
+   * Si conta perciò prezzo pieno meno quel costo di riscatto — non zero,
+   * perché il giocatore un'equity nella proprietà ce l'ha ancora; non il
+   * prezzo pieno, perché quell'equity è ridotta di quanto costerebbe
+   * liberarla adesso.
+   */
+  netWorth(player) {
+    return this.propertiesOf(player.id).reduce((total, { square, owned }) => {
+      const units = this.unitCount(owned);
+      let extra = units > 0 ? units * square.houseCost : 0;
+      extra += owned.mortgaged ? square.price - this.unmortgageCost(square) : square.price;
       return total + extra;
     }, player.balance);
   }

@@ -1848,5 +1848,124 @@ section('33g. Le regole della casa sono nello stato serializzato per il client')
 }
 
 // ---------------------------------------------------------------------------
+section('34. Patrimonio: contanti e proprietà a prezzo pieno');
+{
+  const game = newGame({ balanceA: 730 });
+  const mario = game.players[0];
+  check('con solo contanti il patrimonio coincide col saldo', game.netWorth(mario) === 730);
+
+  give(game, 'a', ORANGE[0]); // 180 di prezzo
+  check(
+    'una proprietà pesa per il prezzo pieno, non per il valore d\'ipoteca dimezzato',
+    game.netWorth(mario) === 730 + board[ORANGE[0]].price,
+    `atteso ${730 + board[ORANGE[0]].price}, ottenuto ${game.netWorth(mario)}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('34b. Comprare a prezzo di listino lascia il patrimonio invariato');
+{
+  // Scelta di design (l'alternativa era lecita, vedi netWorth in
+  // gameEngine.js): il patrimonio pieno valuta una proprietà appena comprata
+  // esattamente quanto costa, quindi trasformare contanti in proprietà a
+  // prezzo di listino è un pareggio, non un guadagno né una perdita — a
+  // differenza di liquidationValue, che la sconterebbe subito a metà prezzo.
+  const game = newGame({ balanceA: 1000 });
+  const mario = game.players[0];
+  const before = game.netWorth(mario);
+
+  game.pendingAction = { type: 'awaiting_buy', playerId: 'a', position: 21, price: board[21].price };
+  game.buyProperty('a');
+
+  check('il saldo è sceso del prezzo', mario.balance === 1000 - board[21].price);
+  check(
+    'il patrimonio resta lo stesso: contanti convertiti in un bene di pari valore',
+    game.netWorth(mario) === before,
+    `prima ${before}, dopo ${game.netWorth(mario)}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('34c. Le case aumentano il patrimonio');
+{
+  const game = newGame({ balanceA: 500 });
+  const mario = game.players[0];
+  give(game, 'a', ORANGE[0]);
+  const before = game.netWorth(mario);
+
+  // Casa aggiunta direttamente (come fa give() con la proprietà): conta il
+  // costo pieno di costruzione, non il rimborso dimezzato di liquidationValue.
+  game.ownership[ORANGE[0]].houses = 2;
+  const after = game.netWorth(mario);
+
+  check(
+    'le case aumentano il patrimonio del loro costo pieno',
+    after === before + 2 * board[ORANGE[0]].houseCost,
+    `prima ${before}, dopo ${after}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('34d. Un\'ipoteca riduce il patrimonio, ma non lo azzera');
+{
+  const game = newGame({ balanceA: 500 });
+  const mario = game.players[0];
+  give(game, 'a', BROWN[0]); // prezzo 60
+  const beforeMortgage = game.netWorth(mario);
+  const square = board[BROWN[0]];
+  const value = game.mortgageValue(square);
+  const interest = game.mortgageInterest(square);
+
+  game.mortgageProperty('a', BROWN[0]);
+  const afterMortgage = game.netWorth(mario);
+
+  check('l\'ipoteca accredita subito metà prezzo in contanti', mario.balance === 500 + value);
+  check(
+    'il patrimonio scende, non resta invariato',
+    afterMortgage < beforeMortgage,
+    `prima ${beforeMortgage}, dopo ${afterMortgage}`
+  );
+  check(
+    'ipotecare costa esattamente l\'interesse di riscatto, non il valore intero della proprietà',
+    afterMortgage === beforeMortgage - interest,
+    `atteso ${beforeMortgage - interest}, ottenuto ${afterMortgage}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('34e. Un giocatore fallito vale zero');
+{
+  const game = newGame({ balanceA: 50 });
+  give(game, 'a', BROWN[0]); // vale 60, ipotecabile per 30: non basta comunque
+  const mario = game.players[0];
+  const giulia = game.players[1];
+
+  game.chargePlayer(mario, 5000, giulia); // debito impossibile da coprire: bancarotta diretta
+  check('il giocatore è fallito', mario.bankrupt);
+  check('il patrimonio di un fallito è zero', game.netWorth(mario) === 0, `netWorth=${game.netWorth(mario)}`);
+}
+
+// ---------------------------------------------------------------------------
+section('34f. Il patrimonio è nello stato serializzato per il client');
+{
+  const game = newGame({ balanceA: 800 });
+  give(game, 'a', ORANGE[0]);
+  const mario = game.players[0];
+  const state = game.serialize();
+  const serialized = state.players.find((p) => p.id === 'a');
+
+  check('ogni giocatore serializzato porta il proprio patrimonio', typeof serialized.netWorth === 'number');
+  check(
+    'il patrimonio serializzato coincide con quello calcolato dal motore',
+    serialized.netWorth === game.netWorth(mario),
+    `serializzato=${serialized.netWorth}, calcolato=${game.netWorth(mario)}`
+  );
+  check(
+    'serializzare non sporca gli oggetti giocatore interni del motore',
+    !('netWorth' in mario)
+  );
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

@@ -20,6 +20,13 @@ export interface Player {
   connected: boolean;
   /** Vero per i giocatori artificiali gestiti dal server. */
   isBot: boolean;
+  /**
+   * Patrimonio pieno calcolato dal server (vedi netWorth in gameEngine.js):
+   * contanti più proprietà ed edifici a valore intero, non di liquidazione.
+   * Diverso da `balance`, che resta solo i contanti: serve a capire chi è
+   * avanti in partita, non chi può permettersi di pagare adesso.
+   */
+  netWorth: number;
 }
 
 export interface Ownership {

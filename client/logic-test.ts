@@ -15,6 +15,7 @@ import { MOBILE_BREAKPOINT, TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
 import { latestLogAt, missedSince } from './src/awayRecap.ts';
 import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts';
 import { isGameWaitingFor } from './src/turnAlert.ts';
+import { netWorthShares } from './src/netWorthBar.ts';
 
 let passed = 0;
 let failed = 0;
@@ -212,8 +213,8 @@ section('5. Avviso di turno: quando il gioco aspetta proprio questo giocatore');
   const statoBase = (overrides: Partial<GameState>): GameState => ({
     roomCode: 'ABCDE',
     players: [
-      { id: 'io', name: 'Io', token: 'auto', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: false },
-      { id: 'bot', name: 'Bot', token: 'cane', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: true },
+      { id: 'io', name: 'Io', token: 'auto', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: false, netWorth: 1500 },
+      { id: 'bot', name: 'Bot', token: 'cane', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: true, netWorth: 1500 },
     ],
     ownership: {},
     turnIndex: 0,
@@ -268,6 +269,44 @@ section('5. Avviso di turno: quando il gioco aspetta proprio questo giocatore');
   // Senza un mio id (non ancora assegnato) non può aspettare me.
   check('nessun myId: non mi aspetta',
     isGameWaitingFor(statoBase({ turnIndex: 0 }), null) === false);
+}
+
+// ---------------------------------------------------------------------------
+section('6. Barra proporzionale del patrimonio');
+{
+  // Il più ricco riempie sempre la barra intera: è il metro di paragone,
+  // non un partecipante come gli altri.
+  const quote = netWorthShares([
+    { id: 'a', netWorth: 4000 },
+    { id: 'b', netWorth: 2000 },
+    { id: 'c', netWorth: 1000 },
+  ]);
+  check('il leader è al 100%', quote[0].percent === 100, JSON.stringify(quote));
+  check('metà del leader fa 50%', quote[1].percent === 50, JSON.stringify(quote));
+  check('un quarto del leader fa 25%', quote[2].percent === 25, JSON.stringify(quote));
+
+  // Parità: entrambi in testa, entrambi pieni.
+  const pari = netWorthShares([{ id: 'a', netWorth: 1500 }, { id: 'b', netWorth: 1500 }]);
+  check('a pari patrimonio le barre sono entrambe piene',
+    pari[0].percent === 100 && pari[1].percent === 100, JSON.stringify(pari));
+
+  // Nessuna divisione per zero a inizio partita fantoccio (tutti a zero):
+  // le barre restano a zero invece di diventare NaN.
+  const azzerati = netWorthShares([{ id: 'a', netWorth: 0 }, { id: 'b', netWorth: 0 }]);
+  check('tutti a zero: barre vuote, non NaN',
+    azzerati.every((q) => q.percent === 0), JSON.stringify(azzerati));
+
+  // Un saldo transitoriamente negativo (debito in sospeso) non deve produrre
+  // una percentuale negativa, che romperebbe la larghezza della barra.
+  const conNegativo = netWorthShares([{ id: 'a', netWorth: 1000 }, { id: 'b', netWorth: -50 }]);
+  check('un patrimonio negativo si clampa a barra vuota, non negativa',
+    conNegativo[1].percent === 0, JSON.stringify(conNegativo));
+
+  // Un solo giocatore (partita appena iniziata, ancora in attesa): resta
+  // pieno rispetto a se stesso.
+  const solo = netWorthShares([{ id: 'a', netWorth: 1500 }]);
+  check('un giocatore da solo riempie comunque la propria barra',
+    solo[0].percent === 100, JSON.stringify(solo));
 }
 
 // ---------------------------------------------------------------------------

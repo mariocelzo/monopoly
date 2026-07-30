@@ -409,6 +409,13 @@ export default function Board({
               )}
             </div>
 
+            {/* Il patrimonio (Player.netWorth, calcolato dal server) NON compare
+                qui: queste pastiglie sono già al limite, coi font che si
+                restringono da soli sotto i 400px di tabellone (vedi
+                veryCompact/scaled più sopra). La barra proporzionale vive nel
+                pannello laterale su computer e nella barra fissa su telefono,
+                dove c'è spazio per farla leggere bene senza affollare la
+                plancia che qui deve restare leggibile a colpo d'occhio. */}
             <div style={styles.playerRow}>
               {state.players.map((p) => {
                 const diTurno = !state.finished && state.players[state.turnIndex]?.id === p.id;
