@@ -962,13 +962,21 @@ section('13. Riconnessione: il giocatore sopravvive al cambio di socket');
   check('il socket nuovo è agganciato', room.sockets.get('socket-3') === 'client-mario');
   check('resta un solo socket per giocatore', room.sockets.size === 2, `${room.sockets.size}`);
 
-  // Una seconda scheda con la stessa identità sostituisce la prima.
+  // Una seconda scheda con la stessa identità si AGGIUNGE, non sostituisce.
+  // Questo controllo prima diceva il contrario ("la seconda subentra alla
+  // prima"), e codificava il difetto invece di prenderlo: cancellare il socket
+  // precedente ne buttava via uno ancora vivo, e bastava chiudere la seconda
+  // scheda per risultare disconnessi mentre si continuava a giocare dalla
+  // prima. L'identità del giocatore resta una sola — sono i suoi socket a
+  // poter essere più d'uno.
   rooms.attachSocket(code, 'socket-4', 'client-mario');
-  check('la seconda scheda subentra alla prima', !room.sockets.has('socket-3') && room.sockets.has('socket-4'));
+  check('la seconda scheda si aggiunge alla prima', room.sockets.has('socket-3') && room.sockets.has('socket-4'));
   check('i giocatori restano due', room.game.players.length === 2);
+  rooms.detachSocket('socket-4');
+  check('e chiudendola resta connesso, perché la prima è ancora aperta', mario.connected === true);
 
   // Con tutti scollegati la stanza scade, ma solo dopo il tempo di grazia.
-  rooms.detachSocket('socket-4');
+  rooms.detachSocket('socket-3');
   rooms.detachSocket('socket-2');
   check('la stanza risulta vuota', room.emptySince !== null);
   check('subito dopo non viene buttata', rooms.sweep(Date.now()) === 0);
@@ -2402,6 +2410,72 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
       `resta ${g.pendingAction?.type}`
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Chi è collegato risulta collegato, e chi non lo è no
+// ---------------------------------------------------------------------------
+// Segnalato giocando: uno dei giocatori compariva "Disconnesso" mentre stava
+// giocando normalmente. Un giocatore può avere PIÙ socket vivi nello stesso
+// momento (seconda scheda, telefono che si riconnette prima che la vecchia
+// connessione cada, link d'invito riaperto), e il vecchio attachSocket
+// cancellava quello precedente pur essendo ancora vivo: chiudendo la seconda
+// scheda non restava nessun socket per lui e finiva offline pur continuando a
+// giocare dalla prima.
+//
+// La direzione opposta conta quanto questa: un disconnesso vero deve ancora
+// risultare disconnesso, altrimenti "correggendo" il difetto si sarebbe solo
+// spenta la funzione.
+{
+  console.log('\n--- Stato di connessione con più socket per lo stesso giocatore ---');
+  const { RoomManager } = require('./src/rooms');
+
+  const rm = new RoomManager();
+  const code = rm.createRoom();
+  const room = rm.getRoom(code);
+  room.game.addPlayer('mario', 'Mario', '🎩');
+  room.game.addPlayer('giulia', 'Giulia', '🐕');
+  const mario = () => room.game.players.find((p) => p.id === 'mario');
+
+  rm.attachSocket(code, 'sock-A', 'mario');
+  rm.attachSocket(code, 'sock-G', 'giulia');
+  check('collegandosi risulta collegato', mario().connected === true);
+
+  // Seconda scheda dello stesso giocatore.
+  rm.attachSocket(code, 'sock-B', 'mario');
+  check('con due schede aperte resta collegato', mario().connected === true);
+
+  // Chiude la seconda: la prima è ancora viva.
+  rm.detachSocket('sock-B');
+  check(
+    'chiudendo la seconda scheda resta collegato: la prima è ancora aperta',
+    mario().connected === true,
+    'risultava disconnesso pur avendo un socket vivo'
+  );
+
+  // Chiude anche la prima: adesso è offline davvero.
+  rm.detachSocket('sock-A');
+  check(
+    'chiuse tutte le schede risulta finalmente disconnesso',
+    mario().connected === false,
+    'continuava a risultare collegato senza nessun socket'
+  );
+  check('e la disconnessione di uno non tocca gli altri', room.game.players.find((p) => p.id === 'giulia').connected === true);
+
+  // Rientro.
+  rm.attachSocket(code, 'sock-C', 'mario');
+  check('rientrando torna collegato', mario().connected === true);
+
+  // La rete di sicurezza: se per qualunque ragione lo stato divergesse, una
+  // mossa lo rimette in pari (è quello che fa withGame a ogni azione).
+  room.game.setConnected('mario', false);
+  room.sockets.delete('sock-C');
+  const cambiato = rm.ensureConnected(code, 'sock-C', 'mario');
+  check('una mossa rimette in pari uno stato divergente', mario().connected === true && cambiato === true);
+  check(
+    'e non fa nulla se era già tutto a posto',
+    rm.ensureConnected(code, 'sock-C', 'mario') === false
+  );
 }
 
 // ---------------------------------------------------------------------------

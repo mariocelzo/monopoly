@@ -77,21 +77,52 @@ class RoomManager {
   }
 
   /**
-   * Associa un socket a un giocatore. Se quel giocatore era già collegato da
-   * un altro socket (una seconda scheda, o una connessione rimasta appesa) il
-   * vecchio aggancio viene sostituito: l'identità è una sola.
+   * Associa un socket a un giocatore. Un giocatore può averne PIÙ D'UNO nello
+   * stesso momento — una seconda scheda, il telefono che si riconnette mentre
+   * la vecchia connessione non è ancora caduta, il link d'invito riaperto — e
+   * qui si tengono tutti.
+   *
+   * Prima il collegamento vecchio veniva cancellato, "l'identità è una sola".
+   * Il ragionamento era giusto sull'identità e sbagliato sui socket: buttava
+   * via un collegamento ancora VIVO. Bastava aprire una seconda scheda e
+   * richiuderla per finire segnati offline mentre si continuava a giocare
+   * dalla prima, che nel frattempo era sparita dalla mappa e non ci sarebbe
+   * più rientrata da sola (attachSocket lo richiama solo un `connect` nuovo).
+   *
+   * Tenendoli tutti, `connected` diventa semplicemente "esiste almeno un
+   * socket vivo per questo giocatore", che è la domanda a cui deve rispondere.
+   * Le voci morte non si accumulano: socket.io emette comunque `disconnect`,
+   * al più dopo il timeout del ping, e detachSocket toglie la sua e ricalcola.
    */
   attachSocket(code, socketId, playerId) {
     const room = this.rooms.get(code);
     if (!room) return;
-    for (const [existingSocket, existingPlayer] of room.sockets) {
-      if (existingPlayer === playerId && existingSocket !== socketId) {
-        room.sockets.delete(existingSocket);
-      }
-    }
     room.sockets.set(socketId, playerId);
     room.emptySince = null;
     room.game.setConnected(playerId, true);
+  }
+
+  /**
+   * Rimette in pari lo stato di connessione di chi ha appena fatto una mossa.
+   * Rete di sicurezza voluta: se un giocatore sta agendo, per definizione è
+   * collegato, qualunque cosa dica la mappa. Serve perché il difetto sopra si
+   * era manifestato proprio così — uno che giocava normalmente e che tutti
+   * vedevano "disconnesso" — e una divergenza del genere non deve poter
+   * sopravvivere a una mossa, da qualunque strada sia arrivata.
+   *
+   * Torna true se qualcosa è cambiato, così chi chiama sa se vale la pena
+   * ritrasmettere lo stato.
+   */
+  ensureConnected(code, socketId, playerId) {
+    const room = this.rooms.get(code);
+    if (!room || !playerId) return false;
+    const giocatore = room.game.players.find((p) => p.id === playerId);
+    const mancaIlSocket = room.sockets.get(socketId) !== playerId;
+    if (!mancaIlSocket && giocatore?.connected) return false;
+    room.sockets.set(socketId, playerId);
+    room.emptySince = null;
+    room.game.setConnected(playerId, true);
+    return true;
   }
 
   /**
