@@ -2288,5 +2288,122 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
 }
 
 // ---------------------------------------------------------------------------
+// Chi lascia il tavolo non deve bloccare la partita agli altri
+// ---------------------------------------------------------------------------
+// Tutti e tre i casi qui sotto sono stati trovati da invariant-test.js, non a
+// mano: sono la ragione per cui quel file esiste. Restano fissati qui perché il
+// fuzzer è probabilistico — con un altro seme potrebbe non ripassare da queste
+// strade — mentre una regressione su un blocco di partita non deve poter
+// tornare in silenzio.
+{
+  console.log('\n--- Abbandoni che congelavano la partita ---');
+
+  const tavolo = (n) => {
+    const g = new GameEngine('LEAVE');
+    ['Anna', 'Bruno', 'Carla', 'Dino'].slice(0, n).forEach((nome, i) => {
+      g.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗', '🚢'][i]);
+    });
+    g.start();
+    return g;
+  };
+
+  // 1. Chi abbandona PRIMA di tirare, nel proprio turno. `turnResolved` è
+  // ancora alzato dalla chiusura del turno precedente (si azzera solo quando si
+  // tira), quindi endTurn si fermava subito e il turno restava intestato a chi
+  // era appena uscito: con tre o più giocatori nessuno poteva più muovere, per
+  // sempre. Ora il turno avanza a mano (advanceTurn).
+  {
+    const g = tavolo(3);
+    g.rollDice('a');
+    while (g.pendingAction) {
+      const pa = g.pendingAction;
+      if (pa.type === 'awaiting_buy') g.declineBuy(pa.playerId);
+      else if (pa.type === 'awaiting_card') g.acknowledgeCard(pa.playerId);
+      else if (pa.type === 'awaiting_rent') g.payRent(pa.playerId);
+      else if (pa.type === 'awaiting_tax') g.payTax(pa.playerId);
+      else if (pa.type === 'awaiting_auction') g.passAuction(pa.playerId);
+      else break;
+    }
+    if (g.currentPlayer?.id === 'a') g.endTurn();
+    const diTurno = g.currentPlayer.id;
+    check('prima dell\'abbandono il turno non è ancora stato "risolto" da un tiro', g.turnResolved === true);
+    g.abandonGame(diTurno);
+    check(
+      'chi abbandona prima di tirare non si tiene il turno: la partita va avanti',
+      !g.currentPlayer.bankrupt,
+      `il turno è rimasto a ${g.currentPlayer.name}, in bancarotta`
+    );
+  }
+
+  // 2. Affitto verso chi non è più il padrone di casa. La finestra dell'affitto
+  // si apre col proprietario congelato dentro; se quello abbandona prima che
+  // l'affitto venga confermato, le sue proprietà tornano libere — ma l'affitto
+  // veniva pagato comunque a lui: soldi tolti a chi paga per una casella di
+  // nessuno, e accreditati a un giocatore in bancarotta, che deve stare a zero.
+  {
+    const g = tavolo(3);
+    g.ownership[1] = { ownerId: 'b', houses: 0, hotels: 0, mortgaged: false };
+    // Anna finisce sulla casella di Bruno e si apre la richiesta d'affitto.
+    g.players.find((p) => p.id === 'a').position = 1;
+    g.resolveLanding(g.players.find((p) => p.id === 'a'));
+    check('la richiesta d\'affitto è aperta verso Bruno', g.pendingAction?.type === 'awaiting_rent');
+    const saldoAnna = g.players.find((p) => p.id === 'a').balance;
+    g.abandonGame('b');
+    check('abbandonando, la casella di Bruno torna libera', !g.ownership[1]);
+    g.payRent('a');
+    const bruno = g.players.find((p) => p.id === 'b');
+    check('Anna non paga l\'affitto di una casella che non è più di nessuno',
+      g.players.find((p) => p.id === 'a').balance === saldoAnna,
+      `saldo passato da ${saldoAnna} a ${g.players.find((p) => p.id === 'a').balance}`);
+    check('e Bruno, in bancarotta, resta a saldo zero', bruno.balance === 0, `saldo=${bruno.balance}`);
+    check('la finestra dell\'affitto si chiude comunque', g.pendingAction?.type !== 'awaiting_rent');
+  }
+
+  // 3. Proposta di scambio di chi poi esce dal tavolo. Restava aperta: chi
+  // l'aveva ricevuta, premendo "accetta", otteneva solo un errore che non
+  // poteva risolvere in alcun modo — l'unica via d'uscita era indovinare che
+  // andasse rifiutata.
+  {
+    const g = tavolo(3);
+    g.ownership[1] = { ownerId: 'a', houses: 0, hotels: 0, mortgaged: false };
+    g.proposeTrade('a', { toId: 'b', offerProperties: [1], offerMoney: 0, requestProperties: [], requestMoney: 100 });
+    check('la proposta è in sospeso', g.pendingAction?.type === 'awaiting_trade');
+    g.abandonGame('a');
+    check(
+      'la proposta di chi lascia il tavolo decade da sé',
+      g.pendingAction === null,
+      `resta ${g.pendingAction?.type}`
+    );
+  }
+
+  // 4. Il rovescio: un abbandono durante il turno di un ALTRO non deve
+  // interrompere quel turno. È la ragione per cui la correzione è condizionata
+  // e non incondizionata.
+  {
+    const g = tavolo(3);
+    const primo = g.currentPlayer.id;
+    g.abandonGame(primo === 'c' ? 'a' : 'c');
+    check('chi abbandona fuori dal proprio turno non sposta il turno di nessuno', g.currentPlayer.id === primo);
+  }
+
+  // 5. A partita finita non deve restare aperta nessuna finestra: verrebbe
+  // mostrata sopra la schermata di fine partita, chiedendo una decisione che
+  // non si può più prendere.
+  {
+    const g = tavolo(2);
+    g.players.find((p) => p.id === 'a').position = 5;
+    g.resolveLanding(g.players.find((p) => p.id === 'a'));
+    const finestraAperta = g.pendingAction?.type;
+    g.abandonGame('a');
+    check('con l\'abbandono in due la partita finisce', g.finished === true);
+    check(
+      `nessuna finestra sopravvive alla fine della partita (era ${finestraAperta || 'nessuna'})`,
+      g.pendingAction === null,
+      `resta ${g.pendingAction?.type}`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

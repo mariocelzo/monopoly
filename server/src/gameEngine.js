@@ -820,9 +820,34 @@ class GameEngine {
     if (this.pendingAction?.type !== 'awaiting_rent') return { error: 'Nessun affitto da pagare' };
     if (this.pendingAction.playerId !== playerId) return { error: 'Non tocca a te' };
 
-    const { amount, ownerId, position } = this.pendingAction;
+    const { amount, position } = this.pendingAction;
     const player = this.players.find((p) => p.id === playerId);
-    const owner = this.players.find((p) => p.id === ownerId);
+
+    // Il padrone di casa si ricontrolla ADESSO, non si prende quello
+    // congelato nella finestra quando è stata aperta. Fra i due momenti passa
+    // tempo reale, e in mezzo la casella può aver cambiato padrone o non
+    // averne più uno: chi la possedeva può aver abbandonato il tavolo (le sue
+    // proprietà tornano libere), essere fallito verso un terzo (passano al
+    // creditore), o averla ipotecata — e una proprietà ipotecata non incassa
+    // affitto. Senza questo controllo l'affitto veniva pagato comunque a chi
+    // se n'era andato: denaro tolto a chi paga per una casella di nessuno, e
+    // accreditato a un giocatore in bancarotta, che per invariante deve stare
+    // a saldo zero (il patrimonio e il tabellino leggono quei saldi).
+    const owned = this.ownership[position];
+    const owner = owned ? this.players.find((p) => p.id === owned.ownerId) : null;
+    const daNessuno = !owned || !owner || owner.bankrupt;
+    if (daNessuno || owned.mortgaged || owner.id === playerId) {
+      this.pendingAction = null;
+      const perche = daNessuno
+        ? 'non è più di nessuno'
+        : owned.mortgaged
+          ? 'è stata ipotecata nel frattempo'
+          : 'è passata a lui nel frattempo';
+      this.addLog(`${board[position].name} ${perche}: ${player.name} non paga l'affitto.`);
+      this.finishRoll(this.currentPlayer);
+      return {};
+    }
+
     // Si sgombra prima: se il saldo non basta, chargePlayer deve poter aprire
     // il debito al posto suo.
     this.pendingAction = null;
@@ -1574,6 +1599,21 @@ class GameEngine {
     // subito: altrimenti l'asta resterebbe ad aspettare un'offerta da chi non
     // può più farla.
     this.removeFromAuctionIfPresent(player.id);
+    // Stessa ragione per uno scambio in sospeso, da qualunque lato lo si
+    // guardi. Se esce chi ha proposto, la proposta non sta più in piedi: le
+    // proprietà offerte non sono più sue e accettarla restituisce solo un
+    // errore, che l'altro non può risolvere in alcun modo — l'unica uscita
+    // sarebbe indovinare che va rifiutata. Se esce il destinatario, non c'è
+    // più nessuno che possa rispondere. In entrambi i casi la proposta va
+    // chiusa qui: questo è il punto da cui si passa comunque, sia per
+    // abbandono sia per bancarotta.
+    if (this.hasPendingTrade()) {
+      const t = this.pendingAction;
+      if (t.fromId === player.id || t.toId === player.id) {
+        this.pendingAction = null;
+        this.addLog(`Lo scambio in sospeso decade: ${player.name} non è più in partita.`);
+      }
+    }
     this.checkWinner(motivo);
 
     // Il turno si chiude solo se a uscire è stato chi stava giocando. Quando a
@@ -1747,17 +1787,30 @@ class GameEngine {
     // partita prosegue fra i rimanenti. In due questo coincide con la vittoria
     // a tavolino dell'altro, perché resta lui solo.
     const eraDiTurno = this.currentPlayer?.id === playerId;
-    const suoDebito = this.hasPendingDebt() && this.pendingAction.playerId === playerId;
-    if (suoDebito) this.pendingAction = null;
+    // Va chiusa QUALUNQUE finestra intestata a chi esce, non solo il debito.
+    // Chi abbandona può avere aperta una proposta d'acquisto, una carta da
+    // leggere, un affitto o una tassa da confermare: quella finestra congela
+    // la partita per tutti, e l'unico che potrebbe risolverla se ne sta
+    // andando. endTurn non basta a ripulirla, perché sulle finestre di
+    // affitto, tassa e carta si ferma proprio lui (vedi le sue guardie).
+    const suaFinestra = this.pendingAction?.playerId === playerId;
+    if (suaFinestra) this.pendingAction = null;
 
     this.addLog(`${player.name} abbandona la partita.`);
     this.bankruptPlayer(player, null, 'abandoned');
 
     // Il turno si tocca solo se se n'è andato chi stava giocando: un abbandono
     // durante il turno altrui non deve interromperlo.
-    if (!this.finished && (eraDiTurno || suoDebito)) {
+    if (!this.finished && (eraDiTurno || suaFinestra)) {
       this.settleNextDebt();
-      if (!this.pendingAction) this.endTurn();
+      // Se il turno è ancora intestato a chi è appena uscito va spostato a
+      // mano, e non con endTurn: chi abbandona senza aver ancora tirato lascia
+      // `turnResolved` alzato dal turno precedente, endTurn si fermerebbe lì e
+      // la partita resterebbe in attesa di un giocatore che non c'è più — un
+      // blocco definitivo, con tre o più giocatori al tavolo. La condizione
+      // sul giocatore in bancarotta rende questa chiamata innocua quando il
+      // turno è già avanzato da sé (bankruptPlayer chiama finishRoll).
+      if (!this.pendingAction && this.currentPlayer?.bankrupt) this.advanceTurn();
     }
     return {};
   }
@@ -1856,8 +1909,34 @@ class GameEngine {
       this.winnerId = alive[0].id;
       this.endedReason = motivo;
       this.stats.finishedAt = Date.now();
+      // A partita finita non deve restare aperta nessuna finestra: era
+      // intestata a qualcuno che a questo punto è fuori dai giochi, e il
+      // client la mostrerebbe sopra la schermata di fine partita chiedendo
+      // una decisione che non ha più senso prendere. endTurn di solito la
+      // chiude, ma quando la partita finisce si ferma prima (vedi la guardia
+      // su `finished`), quindi va chiusa qui.
+      this.pendingAction = null;
       this.addLog(`${alive[0].name} vince la partita!`);
     }
+  }
+
+  /**
+   * Sposta il turno al prossimo giocatore ancora in gioco, senza le guardie di
+   * endTurn. Serve ai casi in cui il turno DEVE avanzare perché chi lo teneva è
+   * uscito dal tavolo: endTurn è la porta per il giocatore che chiude il turno
+   * di sua volontà, e le sue guardie (`turnResolved`, finestre aperte) lì sono
+   * giuste, ma su un giocatore che non c'è più bloccherebbero la partita per
+   * tutti gli altri.
+   */
+  advanceTurn() {
+    // Il tiro appena chiuso non è più quello in corso: se restasse, il
+    // tabellone mostrerebbe nome e somma di chi ha già passato la mano.
+    this.lastRoll = null;
+    if (this.players.every((p) => p.bankrupt)) return;
+    do {
+      this.turnIndex = (this.turnIndex + 1) % this.players.length;
+    } while (this.currentPlayer.bankrupt);
+    this.addLog(`Turno di ${this.currentPlayer.name}.`);
   }
 
   endTurn() {
@@ -1876,19 +1955,13 @@ class GameEngine {
     if (this.turnResolved || this.finished) return {};
     this.turnResolved = true;
     this.pendingAction = null;
-    // Il tiro appena chiuso non è più quello in corso: se restasse in
-    // `lastRoll` il tabellone continuerebbe a mostrare nome e somma di chi ha
-    // già finito, facendo credere che stia ancora giocando lui. Col doppio
-    // invece `finishRoll` non arriva fin qui (vedi sopra), quindi la scritta
-    // resta finché il giocatore che deve rigiocare non tira di nuovo.
-    this.lastRoll = null;
     // I doppi contano solo entro il turno di chi li ha tirati.
     if (this.currentPlayer) this.currentPlayer.doublesInARow = 0;
-    if (this.players.every((p) => p.bankrupt)) return {};
-    do {
-      this.turnIndex = (this.turnIndex + 1) % this.players.length;
-    } while (this.currentPlayer.bankrupt);
-    this.addLog(`Turno di ${this.currentPlayer.name}.`);
+    // Lo spostamento vero (e l'azzeramento di `lastRoll`, per non mostrare il
+    // tiro di chi ha già finito) sta in advanceTurn: col doppio `finishRoll`
+    // non arriva fin qui, quindi la scritta resta finché non si tira di nuovo.
+    this.advanceTurn();
+    return {};
   }
 }
 
