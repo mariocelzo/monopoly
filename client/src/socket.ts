@@ -1,8 +1,44 @@
 import { io, Socket } from 'socket.io-client';
+import { segnalaEsito } from './azioni';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 export const socket: Socket = io(SERVER_URL, { autoConnect: false });
+
+/**
+ * L'unico modo di mandare un'azione di gioco al server.
+ *
+ * Ogni handler del motore risponde con un ack: `{}` se l'azione è passata,
+ * `{ error: "..." }` con un messaggio già scritto in italiano se l'ha
+ * rifiutata. Un `socket.emit` nudo quella risposta la butta via, e quello che
+ * resta all'utente è un bottone che non fa niente: è così che il rilancio
+ * d'asta sotto il minimo è passato inosservato per settimane (vedi
+ * AuctionModal.tsx). Passando di qui il rifiuto finisce sempre in un posto solo
+ * (azioni.ts) e da lì sullo schermo.
+ *
+ * Restano fuori di proposito le quattro azioni che hanno una loro logica sulla
+ * risposta e non sono mosse di gioco: create_room e join_room (che oltre
+ * all'errore leggono i pedoni già presi, vedi Lobby.tsx), rejoin_room (che
+ * sulla risposta decide se ricominciare dalla lobby, vedi App.tsx) e
+ * leave_table (che aspetta la conferma prima di uscire dalla schermata).
+ *
+ * `alSuccesso` serve a chi deve fare qualcosa SOLO se l'azione è passata
+ * davvero — per esempio chiudere il compositore di scambio: chiuderlo comunque
+ * butterebbe via un'offerta che il server non ha accettato.
+ */
+export function inviaAzione(
+  evento: string,
+  payload: unknown = {},
+  opzioni?: { alSuccesso?: () => void }
+): void {
+  socket.emit(evento, payload, (res?: { error?: string }) => {
+    // Un ack che non arriva (server spento, rete caduta) semplicemente non fa
+    // scattare nulla: se ne accorge la barra rossa della connessione persa,
+    // non serve un secondo avviso che dica la stessa cosa.
+    const rifiutata = segnalaEsito(evento, res?.error);
+    if (!rifiutata) opzioni?.alSuccesso?.();
+  });
+}
 
 export interface Player {
   id: string;

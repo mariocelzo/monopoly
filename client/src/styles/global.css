@@ -97,9 +97,22 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .dice-rolling { animation: dice-tumble 0.25s ease-in-out infinite; }
 
+/* L'avviso di azione rifiutata scende dall'alto invece di apparire di colpo:
+   un movimento breve si nota con la coda dell'occhio anche mentre si sta
+   guardando il bottone appena premuto, che è il momento in cui arriva. */
+@keyframes avviso-entra {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.avviso-azione { animation: avviso-entra 0.18s ease-out; }
+
 /* Chi rispetta le preferenze di sistema non vede animazioni superflue. */
 @media (prefers-reduced-motion: reduce) {
   .dice-rolling { animation: none; }
+  /* L'avviso resta comunque visibile: si toglie il movimento, non il
+     messaggio — senza, un'azione rifiutata tornerebbe muta proprio per chi ha
+     chiesto meno animazioni. */
+  .avviso-azione { animation: none; }
 }
 
 .panel {

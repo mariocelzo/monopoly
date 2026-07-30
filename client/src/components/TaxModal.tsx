@@ -1,4 +1,4 @@
-import { AwaitingTax, BoardSquare, GameState, socket } from '../socket';
+import { AwaitingTax, BoardSquare, GameState, inviaAzione } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
 
@@ -50,7 +50,7 @@ export default function TaxModal({
             <button
               className="btn-primary"
               style={styles.button}
-              onClick={() => socket.emit('pay_tax', {})}
+              onClick={() => inviaAzione('pay_tax')}
             >
               Paga €{pending.amount}
             </button>

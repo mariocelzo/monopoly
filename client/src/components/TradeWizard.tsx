@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BoardSquare, GameState, socket } from '../socket';
+import { BoardSquare, GameState, inviaAzione } from '../socket';
+import { azzeraRifiuto } from '../azioni';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
 import { TOUCH_TARGET } from '../touchTarget';
@@ -18,7 +19,9 @@ import { LAYER } from '../layers';
  * sola.
  *
  * Come sempre il client raccoglie solo l'intento: ogni regola la applica il
- * server, e l'errore che torna dall'ack viene mostrato in fondo.
+ * server, e il rifiuto che torna dall'ack finisce nell'avviso comune (vedi
+ * azioni.ts) invece che in coda a questa schermata, dove su 375px sarebbe
+ * comparso sotto ai bottoni fermi in fondo, cioè fuori dalla vista.
  *
  * App.tsx tiene questo componente montato anche quando nel frattempo si apre
  * un `pendingAction` altrui (l'affitto di un bot, per esempio): prima si
@@ -50,27 +53,29 @@ export default function TradeWizard({
   const [requestMoney, setRequestMoney] = useState(0);
   const [offerJailCards, setOfferJailCards] = useState(0);
   const [requestJailCards, setRequestJailCards] = useState(0);
-  const [error, setError] = useState<string | null>(null);
 
   if (!other || !me) return null;
 
+  // Toccare il patto cancella il rifiuto ancora a schermo: parlava della
+  // proposta di prima, e non vale più per quella che si sta componendo adesso.
   const cambiaDestinatario = (id: string) => {
     setToId(id);
     // Le richieste erano rivolte a un altro giocatore: si azzerano.
     setRequestProperties([]);
     setRequestMoney(0);
     setRequestJailCards(0);
-    setError(null);
+    azzeraRifiuto();
   };
 
   const toggle = (list: number[], setList: (v: number[]) => void, position: number) => {
-    setError(null);
+    azzeraRifiuto();
     setList(list.includes(position) ? list.filter((p) => p !== position) : [...list, position]);
   };
 
+  // Come in TradeModal: si esce dalla procedura solo se la proposta è partita
+  // davvero, altrimenti tre schermate di lavoro sparirebbero per un rifiuto.
   const manda = () => {
-    setError(null);
-    socket.emit(
+    inviaAzione(
       'propose_trade',
       {
         toId: other.id,
@@ -81,10 +86,7 @@ export default function TradeWizard({
         offerJailCards,
         requestJailCards,
       },
-      (res: { error?: string }) => {
-        if (res?.error) setError(res.error);
-        else onClose();
-      }
+      { alSuccesso: onClose }
     );
   };
 
@@ -272,8 +274,6 @@ export default function TradeWizard({
               )}
             </>
           )}
-
-          {error && <p style={styles.errore}>{error}</p>}
         </div>
 
         <div style={styles.piede}>
@@ -370,7 +370,6 @@ const styles: Record<string, React.CSSProperties> = {
   riepDenaro: { fontSize: '1.05rem', color: 'var(--brass-2)', marginTop: 3 },
   freccia: { textAlign: 'center', fontSize: '1.3rem', color: 'var(--brass)' },
   avviso: { fontSize: '0.8rem', color: 'rgba(243,234,216,0.6)', margin: 0, fontStyle: 'italic' },
-  errore: { fontSize: '0.82rem', color: '#e18a8a', margin: 0 },
   piede: {
     padding: '10px 16px calc(12px + env(safe-area-inset-bottom))',
     borderTop: '1px solid rgba(201,150,44,0.22)',

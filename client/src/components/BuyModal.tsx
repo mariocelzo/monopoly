@@ -1,4 +1,4 @@
-import { AwaitingBuy, BoardSquare, GameState, socket } from '../socket';
+import { AwaitingBuy, BoardSquare, GameState, inviaAzione } from '../socket';
 import { LAYER } from '../layers';
 
 /**
@@ -29,10 +29,13 @@ export default function BuyModal({
         <p className="mono" style={styles.price}>€{pending.price}</p>
         {isMe ? (
           <div style={styles.actions}>
-            <button className="btn-primary" onClick={() => socket.emit('buy_property', {})}>
+            {/* "Saldo insufficiente" arriva solo dal server: qui non si
+                sconta nulla a mano, e senza guardare la risposta il tasto
+                Compra restava muto proprio quando serviva capire. */}
+            <button className="btn-primary" onClick={() => inviaAzione('buy_property')}>
               Compra
             </button>
-            <button className="btn-ghost" onClick={() => socket.emit('decline_buy', {})}>
+            <button className="btn-ghost" onClick={() => inviaAzione('decline_buy')}>
               Rinuncia
             </button>
           </div>

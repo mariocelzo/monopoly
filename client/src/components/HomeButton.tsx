@@ -20,6 +20,12 @@ export default function HomeButton({
   const leave = () => {
     // Prima si avvisa il server, così l'altro ci vede offline invece di
     // aspettare un turno che non arriverebbe mai.
+    //
+    // Una delle poche azioni che NON passano da inviaAzione (vedi socket.ts):
+    // non è una mossa di gioco e non può essere rifiutata — il server stacca
+    // il socket e risponde `{}` e basta. Qui la risposta serve per sapere
+    // QUANDO uscire dalla schermata, non se: uscire prima lascerebbe l'altro a
+    // vedere un giocatore ancora seduto e collegato.
     socket.emit('leave_table', {}, () => onLeave());
     setConfirming(false);
   };
