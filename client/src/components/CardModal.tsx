@@ -1,4 +1,4 @@
-import { AwaitingCard, GameState, socket } from '../socket';
+import { AwaitingCard, GameState, inviaAzione } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
 
@@ -45,7 +45,7 @@ export default function CardModal({
           <button
             className="btn-primary"
             style={styles.button}
-            onClick={() => socket.emit('acknowledge_card', {})}
+            onClick={() => inviaAzione('acknowledge_card')}
           >
             Ho capito
           </button>

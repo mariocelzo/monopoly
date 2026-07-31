@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GameState, socket } from '../socket';
+import { GameState, inviaAzione } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 
 /**
@@ -47,7 +47,13 @@ export default function EndGameControl({
       : 'Abbandonare? Esci solo tu: le tue proprietà tornano libere e la partita prosegue fra gli altri.';
 
   const confirm = () => {
-    socket.emit(isHost ? 'end_game' : 'abandon_game', {});
+    // La conferma si richiude comunque, anche se il server rifiuta: le due
+    // uscite possibili sono entrambe definitive e un rifiuto qui vuol dire che
+    // la partita è già finita per altra via (l'avversario è fallito mentre si
+    // stava per abbandonare). Riaprire la domanda su un tavolo già chiuso
+    // chiederebbe di confermare una cosa che non esiste più; il perché lo
+    // racconta l'avviso.
+    inviaAzione(isHost ? 'end_game' : 'abandon_game');
     setConfirming(false);
   };
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GameState, HouseRules as HouseRulesType, socket } from '../socket';
+import { GameState, HouseRules as HouseRulesType, inviaAzione } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 
 // Opzioni mostrate per le due regole a scelta multipla. Devono restare
@@ -35,17 +35,19 @@ export default function HouseRules({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const isHost = state.hostId === myId;
   const rules = state.rules;
 
-  /** Invia il cambiamento al server. Chi non è l'host non ha nemmeno il comando cliccabile. */
+  /**
+   * Invia il cambiamento al server. Chi non è l'host non ha nemmeno il comando
+   * cliccabile; il rifiuto (partita già iniziata, valore non ammesso) finisce
+   * nell'avviso comune come ogni altra azione — su telefono queste righe
+   * vivono dentro un blocco richiudibile in fondo allo schermo, dove un
+   * messaggio in coda alla lista si sarebbe letto solo scorrendo.
+   */
   const set = (changes: Partial<HouseRulesType>) => {
     if (!isHost) return;
-    setError(null);
-    socket.emit('set_rules', changes, (res: { error?: string }) => {
-      if (res?.error) setError(res.error);
-    });
+    inviaAzione('set_rules', changes);
   };
 
   const riepilogo = `Via ${rules.goAmount} · Montepremi ${rules.freeParkingEnabled ? 'acceso' : 'spento'} · Asta ${rules.auctionEnabled ? 'accesa' : 'spenta'} · Saldo ${rules.startingBalance} · Grattacieli ${rules.skyscraperEnabled ? 'accesi' : 'spenti'}`;
@@ -110,7 +112,6 @@ export default function HouseRules({
       </RigaRegola>
 
       {!isHost && <p style={styles.hint}>Solo chi ha creato il tavolo può cambiarle.</p>}
-      {error && <p style={styles.error}>{error}</p>}
     </div>
   );
 
@@ -191,7 +192,6 @@ const styles: Record<string, React.CSSProperties> = {
   pill: { minWidth: 44 },
   pillActive: { borderColor: 'var(--brass-2)', color: 'var(--brass-2)', background: 'rgba(201,150,44,0.15)' },
   hint: { fontSize: '0.68rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic', margin: 0 },
-  error: { fontSize: '0.72rem', color: '#e18a8a', margin: 0 },
 
   // Variante richiudibile per il poco spazio su telefono: chiusa mostra solo
   // un riepilogo su una riga, aperta espone gli stessi comandi di sopra.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LAYER } from './layers';
-import { socket, GameState, BoardSquare } from './socket';
+import { socket, inviaAzione, GameState, BoardSquare } from './socket';
+import { azzeraRifiuto } from './azioni';
 import { useIsMobile, useIsTouchLayout } from './useIsMobile';
 import { useTurnAttention } from './useTurnAttention';
 import {
@@ -34,6 +35,7 @@ import AwayRecapModal from './components/AwayRecapModal';
 import GameSummary from './components/GameSummary';
 import Scoreboard from './components/Scoreboard';
 import LogStrip from './components/LogStrip';
+import AvvisoAzione from './components/AvvisoAzione';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -254,6 +256,9 @@ export default function App() {
   const leaveTable = () => {
     clearRoom();
     clearLogBookmark();
+    // Un rifiuto rimasto a schermo parlava della partita che si sta lasciando:
+    // se sopravvivesse, ricomparirebbe addosso al tavolo successivo.
+    azzeraRifiuto();
     awayBookmarkRef.current = null;
     lastSeenAtRef.current = null;
     checkMissedRef.current = true;
@@ -318,6 +323,12 @@ export default function App() {
           Connessione persa · riconnessione in corso…
         </div>
       )}
+
+      {/* Montato una volta sola, qui: mostra l'ultimo rifiuto del server da
+          qualunque parte arrivi (vedi azioni.ts). Sta accanto alla barra della
+          connessione persa perché occupano lo stesso angolo di schermo, e
+          `sottoBanner` è ciò che impedisce loro di sovrapporsi. */}
+      <AvvisoAzione sottoBanner={!online} />
 
       <div style={styles.boardArea}>
         {board.length > 0 && (
@@ -503,7 +514,7 @@ export default function App() {
                 className="btn-primary"
                 style={styles.newGame}
                 disabled={hoChiestoRivincita}
-                onClick={() => socket.emit('request_rematch', {})}
+                onClick={() => inviaAzione('request_rematch')}
               >
                 {hoChiestoRivincita ? 'In attesa…' : 'Rivincita'}
               </button>

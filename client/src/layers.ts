@@ -37,6 +37,16 @@ export const LAYER = {
   decisione: 40,
   /** La barra rossa della connessione persa: va vista sopra ogni cosa. */
   connessionePersa: 60,
+  /**
+   * L'avviso di azione rifiutata (vedi AvvisoAzione.tsx). Sopra tutto il resto
+   * perché quasi tutti i rifiuti nascono dai bottoni delle finestre che
+   * congelano il turno — asta, debito, scambio — e un messaggio nascosto
+   * dietro la finestra da cui è partito il clic non lo leggerebbe nessuno,
+   * cioè si tornerebbe esattamente al bottone che sembra rotto. Non si
+   * accavalla alla barra della connessione persa perché quella lo spinge più
+   * in basso (vedi `sottoBanner`), non perché stia sotto.
+   */
+  avvisoAzione: 70,
   /** Fine partita: copre tutto, non c'è più niente da decidere sotto. */
   finePartita: 50,
 };

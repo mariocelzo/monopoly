@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GameState, socket } from '../socket';
+import { GameState, inviaAzione } from '../socket';
 import { skipTurnPrompt } from '../skipTurn';
 import { TOUCH_TARGET } from '../touchTarget';
 
@@ -33,7 +33,6 @@ export default function SkipTurnControl({
   compact?: boolean;
 }) {
   const [confermando, setConfermando] = useState(false);
-  const [errore, setErrore] = useState<string | null>(null);
   const [ora, setOra] = useState(() => Date.now());
 
   const bloccato = state.turnoBloccato ?? null;
@@ -64,7 +63,6 @@ export default function SkipTurnControl({
   // altrimenti resterebbe lì una domanda su una situazione che non c'è più.
   useEffect(() => {
     setConfermando(false);
-    setErrore(null);
   }, [bloccato?.playerId]);
 
   const prompt = skipTurnPrompt(state, myId, scadenza === null ? 0 : scadenza - ora);
@@ -81,14 +79,12 @@ export default function SkipTurnControl({
   }
 
   const salta = () => {
-    socket.emit('skip_turn', {}, (res?: { error?: string }) => {
-      // Il server ricontrolla tutto: può rifiutare perché nel frattempo è
-      // rientrato, o perché il tavolo aspetta la risposta di un altro. In quel
-      // caso il motivo si legge, invece di restare con un bottone che sembra
-      // rotto.
-      if (res?.error) setErrore(res.error);
-      else setConfermando(false);
-    });
+    // Passa dal canale comune (vedi azioni.ts): il server ricontrolla tutto e
+    // può rifiutare perché nel frattempo è rientrato, o perché il tavolo
+    // aspetta la risposta di un altro. Il motivo lo mostra l'avviso unico
+    // dell'applicazione, invece di un secondo posto che dice le stesse cose in
+    // modo diverso. La conferma si chiude solo se il salto è davvero avvenuto.
+    inviaAzione('skip_turn', {}, { alSuccesso: () => setConfermando(false) });
   };
 
   if (!confermando) {
@@ -116,7 +112,6 @@ export default function SkipTurnControl({
           quello che deve, rinuncia a comprare, passa all'asta. Non si arrende mai per lui.
         </p>
       )}
-      {errore && <p style={styles.errore}>{errore}</p>}
       <div style={styles.riga}>
         <button className="btn-primary" style={styles.conferma} onClick={salta}>
           Sì, salta il turno
@@ -124,7 +119,7 @@ export default function SkipTurnControl({
         <button
           className="btn-ghost"
           style={styles.annulla}
-          onClick={() => { setConfermando(false); setErrore(null); }}
+          onClick={() => setConfermando(false)}
         >
           Annulla
         </button>
@@ -163,7 +158,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   domanda: { fontSize: '0.78rem', color: 'var(--paper)', margin: 0, lineHeight: 1.45 },
   dettaglio: { fontSize: '0.72rem', color: 'rgba(243,234,216,0.65)', margin: 0, lineHeight: 1.4 },
-  errore: { fontSize: '0.75rem', color: '#e18a8a', margin: 0, lineHeight: 1.4 },
   riga: { display: 'flex', gap: 8 },
   conferma: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem' },
   annulla: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem' },

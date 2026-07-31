@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BoardSquare, GameState, socket } from '../socket';
+import { BoardSquare, GameState, inviaAzione } from '../socket';
+import { azzeraRifiuto } from '../azioni';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
 import MoneyStepper from './MoneyStepper';
@@ -43,29 +44,33 @@ export default function TradeModal({
   const [requestMoney, setRequestMoney] = useState(0);
   const [offerJailCards, setOfferJailCards] = useState(0);
   const [requestJailCards, setRequestJailCards] = useState(0);
-  const [error, setError] = useState<string | null>(null);
 
   if (!other || !me) {
     return null;
   }
 
+  // Toccare l'offerta cancella il rifiuto ancora a schermo: parlava della
+  // proposta di prima, e lasciarlo lì mentre si sta già cambiando le carte in
+  // tavola vorrebbe dire far leggere un motivo che non vale più.
   const cambiaDestinatario = (id: string) => {
     setToId(id);
     // Le richieste erano rivolte a un altro giocatore: si azzerano.
     setRequestProperties([]);
     setRequestMoney(0);
     setRequestJailCards(0);
-    setError(null);
+    azzeraRifiuto();
   };
 
   const toggle = (list: number[], setList: (v: number[]) => void, position: number) => {
-    setError(null);
+    azzeraRifiuto();
     setList(list.includes(position) ? list.filter((p) => p !== position) : [...list, position]);
   };
 
+  // Il compositore si chiude SOLO se la proposta è partita davvero: chiuderlo
+  // comunque butterebbe via un'offerta appena composta per un rifiuto che
+  // magari si correggeva con un ritocco.
   const send = () => {
-    setError(null);
-    socket.emit(
+    inviaAzione(
       'propose_trade',
       {
         toId: other.id,
@@ -76,10 +81,7 @@ export default function TradeModal({
         offerJailCards,
         requestJailCards,
       },
-      (res: { error?: string }) => {
-        if (res?.error) setError(res.error);
-        else onClose();
-      }
+      { alSuccesso: onClose }
     );
   };
 
@@ -242,7 +244,6 @@ export default function TradeModal({
             comporre, ma l'invio resta fermo finché non si risolve.
           </p>
         )}
-        {error && <p style={styles.error}>{error}</p>}
 
         <div style={styles.actions}>
           <button
@@ -279,7 +280,6 @@ const styles: Record<string, React.CSSProperties> = {
   item: { display: 'flex', alignItems: 'center', gap: 9, minHeight: 38, padding: '5px 9px', borderRadius: 6, border: '1px solid transparent', cursor: 'pointer' },
   itemName: { fontSize: '0.78rem', flex: 1 },
   mortgaged: { fontSize: '0.62rem', color: '#e18a8a', fontFamily: 'var(--font-mono)' },
-  error: { fontSize: '0.78rem', color: '#e18a8a', margin: 0 },
   pendingNote: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.6)', fontStyle: 'italic', margin: 0 },
   gruppo: { display: 'flex', flexDirection: 'column', gap: 4 },
   gruppoTesta: { display: 'flex', alignItems: 'center', gap: 7 },

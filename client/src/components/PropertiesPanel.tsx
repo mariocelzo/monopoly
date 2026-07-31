@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { BoardSquare, GameState, Ownership, socket } from '../socket';
+import { BoardSquare, GameState, Ownership, inviaAzione } from '../socket';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 
 /**
@@ -8,7 +7,14 @@ import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
  * Le condizioni di `disabled` qui sotto rispecchiano quelle di gameEngine.js
  * solo per dare un feedback immediato e spiegare il perché nel tooltip: la
  * validazione vera resta esclusivamente sul server, e ogni errore che torna
- * dall'ack del socket viene mostrato in fondo al pannello.
+ * dall'ack del socket viene mostrato nell'avviso comune (vedi azioni.ts).
+ *
+ * L'errore non si mostra più in fondo al pannello: questo componente compare
+ * in tre posti diversi — la colonna su computer, il foglio che sale dal basso
+ * su telefono, e dentro la finestra del debito — e "in fondo al pannello"
+ * voleva dire tre posizioni diverse, in due casi su tre fuori dalla vista,
+ * sotto un elenco che scorre. Adesso il messaggio compare sempre nello stesso
+ * punto, qualunque comando lo abbia provocato.
  */
 export default function PropertiesPanel({
   board,
@@ -19,21 +25,14 @@ export default function PropertiesPanel({
   state: GameState;
   myId: string;
 }) {
-  const [error, setError] = useState<string | null>(null);
-
   const me = state.players.find((p) => p.id === myId);
   const mine = board.filter((s) => state.ownership[s.position]?.ownerId === myId);
 
   // Un debito aperto congela le azioni che costano denaro (vedi gameEngine.js).
   const pendingDebt = state.pendingAction?.type === 'awaiting_debt';
 
-  /** Invia l'intento al server e mostra l'eventuale errore di validazione. */
-  const emit = (event: string, position: number) => {
-    setError(null);
-    socket.emit(event, { position }, (res: { error?: string }) => {
-      if (res?.error) setError(res.error);
-    });
-  };
+  /** Invia l'intento al server; il rifiuto lo mostra l'avviso comune. */
+  const emit = (event: string, position: number) => inviaAzione(event, { position });
 
   // Moltiplicatori della modalità grattacieli (vedi gameEngine.js: stessi
   // numeri, HOTEL_COST_MULTIPLIER e HOTEL_RENT_MULTIPLIER). Duplicati qui
@@ -230,8 +229,6 @@ export default function PropertiesPanel({
           })}
         </div>
       ))}
-
-      {error && <p style={styles.error}>{error}</p>}
     </div>
   );
 }
@@ -250,5 +247,4 @@ const styles: Record<string, React.CSSProperties> = {
   status: { fontSize: '0.7rem', color: 'var(--brass-2)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' },
   rentNow: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.6)' },
   rowActions: { display: 'flex', gap: 5, flexWrap: 'wrap' },
-  error: { fontSize: '0.74rem', color: '#e18a8a', margin: 0 },
 };

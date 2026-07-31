@@ -28,6 +28,14 @@ import {
   rankedPlayers,
   type FinishedGameState,
 } from './src/scoreboard.ts';
+import {
+  azzeraRifiuto,
+  iscrivitiAiRifiuti,
+  messaggioDiRifiuto,
+  rifiutoCorrente,
+  segnalaEsito,
+} from './src/azioni.ts';
+import { readdirSync } from 'node:fs';
 
 let passed = 0;
 let failed = 0;
@@ -626,6 +634,160 @@ section('9. Quando mostrare il comando che salta il turno di un disconnesso');
     skipTurnPrompt(tavolo({
       pendingAction: { type: 'awaiting_buy', playerId: 'anna', position: 5, price: 100 },
     }), 'io', 0)?.ready === true);
+}
+
+// ---------------------------------------------------------------------------
+// I rifiuti del server devono arrivare a chi ha premuto
+// ---------------------------------------------------------------------------
+// Il difetto di partenza: quasi ogni `socket.emit` del client ignorava l'ack, e
+// un'azione rifiutata era indistinguibile da un bottone rotto. Qui si verifica
+// la parte che decide COSA vale la pena mostrare, più il canale che lo porta a
+// schermo (vedi src/azioni.ts).
+section('Avvisi delle azioni rifiutate');
+{
+  // Le istruzioni del motore devono passare intere: sono esattamente quelle che
+  // fino a ieri nessuno vedeva.
+  check('un rifiuto con un motivo si mostra così com\'è',
+    messaggioDiRifiuto('build_house', 'Serve il monopolio del colore per costruire')
+      === 'Serve il monopolio del colore per costruire');
+  check('anche quello del riscatto delle ipoteche',
+    messaggioDiRifiuto('build_house', 'Riscatta prima le ipoteche del colore') !== null);
+  // Il messaggio che il difetto dell'asta produceva a ogni clic: è IL caso da
+  // non tacere mai, e contiene un numero, quindi nessuna lista può contenerlo.
+  check('il rilancio sotto il minimo si mostra (numero compreso)',
+    messaggioDiRifiuto('auction_bid', 'Rilancio minimo 40') === 'Rilancio minimo 40');
+  check('e il saldo insufficiente in asta pure',
+    messaggioDiRifiuto('auction_bid', 'Saldo insufficiente') === 'Saldo insufficiente');
+
+  // Le corse innocue non devono generare avvisi: un falso allarme insegna a
+  // ignorare anche quelli veri.
+  check('il doppio clic su Fine turno non diventa un avviso',
+    messaggioDiRifiuto('end_turn', 'Non è il tuo turno') === null);
+  check('né il doppio clic sui dadi',
+    messaggioDiRifiuto('roll_dice', 'Non è il tuo turno') === null);
+  check('né una finestra che si è già chiusa da sé',
+    messaggioDiRifiuto('buy_property', 'Nessun acquisto in sospeso') === null &&
+    messaggioDiRifiuto('pay_rent', 'Nessun affitto da pagare') === null &&
+    messaggioDiRifiuto('acknowledge_card', 'Nessuna carta da leggere') === null &&
+    messaggioDiRifiuto('auction_pass', 'Nessuna asta in corso') === null);
+  check('né la rivincita chiesta due volte',
+    messaggioDiRifiuto('request_rematch', 'Hai già chiesto la rivincita') === null);
+  check('un\'azione riuscita non dice niente',
+    messaggioDiRifiuto('roll_dice', undefined) === null);
+
+  // Tacere è una scelta PER AZIONE: la stessa frase può essere innocua per un
+  // comando e importante per un altro, e questa è la garanzia che le liste non
+  // si trasformino in un calderone unico.
+  check('"nessun acquisto in sospeso" si tace solo per chi compra',
+    messaggioDiRifiuto('buy_property', 'Nessun acquisto in sospeso') === null &&
+    messaggioDiRifiuto('build_house', 'Nessun acquisto in sospeso') !== null);
+  // "Prima paga l'affitto" NON è una corsa: è un'istruzione, dice cosa fare.
+  check('le istruzioni "prima fai X" restano visibili',
+    messaggioDiRifiuto('end_turn', 'Prima paga l\'affitto') === 'Prima paga l\'affitto');
+
+  // Il canale: pubblica, avvisa chi ascolta, e si azzera alla prossima riuscita.
+  azzeraRifiuto();
+  let avvisi = 0;
+  const stop = iscrivitiAiRifiuti(() => { avvisi += 1; });
+
+  check('un rifiuto taciuto lascia lo schermo pulito',
+    segnalaEsito('end_turn', 'Non è il tuo turno') === true && rifiutoCorrente() === null,
+    'taciuto, ma va comunque riportato come rifiuto a chi ha inviato');
+
+  segnalaEsito('build_house', 'Saldo insufficiente');
+  check('un rifiuto da mostrare diventa l\'avviso corrente',
+    rifiutoCorrente()?.testo === 'Saldo insufficiente' && avvisi === 1);
+
+  const primo = rifiutoCorrente()!.seq;
+  segnalaEsito('build_house', 'Saldo insufficiente');
+  check('ripremere lo stesso bottone produce un avviso NUOVO (seq diverso)',
+    rifiutoCorrente()!.seq !== primo,
+    'senza, il secondo tentativo sembrerebbe di nuovo non fare niente');
+
+  check('l\'azione riuscita successiva porta via l\'avviso',
+    segnalaEsito('build_house', undefined) === false && rifiutoCorrente() === null);
+
+  stop();
+  segnalaEsito('build_house', 'Saldo insufficiente');
+  // Tre notifiche in tutto: i due avvisi mostrati e la loro cancellazione. Il
+  // rifiuto taciuto non ne produce nessuna, e nemmeno l'ultimo, dopo `stop()`.
+  check('dopo l\'annullamento dell\'iscrizione non arrivano più notifiche',
+    avvisi === 3, `ricevute ${avvisi}`);
+  azzeraRifiuto();
+}
+
+// ---------------------------------------------------------------------------
+// Nessuna azione di gioco può tornare a ignorare la risposta del server
+// ---------------------------------------------------------------------------
+// Stessa forma della guardia sull'asta qui sotto: si legge il sorgente, perché
+// è una regola sul CODICE, non sul comportamento. `socket.emit` diretto vuol
+// dire "mando e non guardo cosa risponde", che è precisamente il difetto: 19
+// azioni su 23 erano così. Tutte le mosse passano da `inviaAzione` (socket.ts);
+// restano fuori solo le quattro che hanno una logica propria sulla risposta e
+// non sono mosse di gioco.
+{
+  const consentiti = new Set([
+    'socket.ts', // è qui che vive inviaAzione: l'unico emit legittimo
+    'Lobby.tsx', // create_room/join_room: leggono anche i pedoni già presi
+    'App.tsx', // rejoin_room: sulla risposta decide se tornare alla lobby
+    'HomeButton.tsx', // leave_table: aspetta la conferma prima di uscire
+  ]);
+
+  const cartelle = ['./src/', './src/components/'];
+  const colpevoli: string[] = [];
+  for (const cartella of cartelle) {
+    const dir = new URL(cartella, import.meta.url);
+    for (const nome of readdirSync(dir)) {
+      if (!nome.endsWith('.ts') && !nome.endsWith('.tsx')) continue;
+      if (consentiti.has(nome)) continue;
+      const sorgente = readFileSync(new URL(nome, dir), 'utf8');
+      // I commenti si tolgono prima di guardare: parecchi file SPIEGANO il
+      // difetto citando `socket.emit`, e senza questo passaggio il controllo si
+      // accenderebbe sulle proprie stesse spiegazioni.
+      const codice = sorgente.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      if (codice.includes('socket.emit(')) colpevoli.push(nome);
+    }
+  }
+  check('nessun componente manda un\'azione senza guardare la risposta',
+    colpevoli.length === 0,
+    `socket.emit diretto in: ${colpevoli.join(', ')} — usa inviaAzione`);
+}
+
+// ---------------------------------------------------------------------------
+// Le frasi da silenziare esistono davvero nel motore
+// ---------------------------------------------------------------------------
+// azioni.ts decide cosa tacere confrontando il TESTO ESATTO del messaggio
+// d'errore ("Non è il tuo turno", "Nessun acquisto in sospeso"). I test qui
+// sopra però passano a messaggioDiRifiuto le stesse stringhe scritte in
+// azioni.ts: si controllano a vicenda e sarebbero d'accordo anche se il motore
+// nel frattempo avesse cambiato parole. Il giorno in cui succede, il rifiuto
+// smette di essere riconosciuto e ricompare come avviso rosso durante una
+// partita che funziona — un falso allarme, che è peggio del silenzio perché
+// insegna a ignorare gli avvisi veri.
+//
+// Questo controllo chiude il cerchio ancorando quelle frasi alla sorgente vera:
+// se qualcuno riscrive un messaggio in gameEngine.js, qui diventa rosso e la
+// lista va aggiornata. Stessa idea della guardia su AuctionModal qui sotto.
+{
+  const motore = readFileSync(new URL('../server/src/gameEngine.js', import.meta.url), 'utf8');
+  const righe = readFileSync(new URL('./src/azioni.ts', import.meta.url), 'utf8').split('\n');
+  const inizio = righe.findIndex((r) => r.includes('const CORSE_INNOCUE'));
+  const fine = righe.findIndex((r) => r.includes('export function messaggioDiRifiuto'));
+  const frasi = new Set<string>();
+  for (const riga of righe.slice(inizio, fine)) {
+    const pulita = riga.trim();
+    if (pulita.startsWith('//') || pulita.startsWith('*')) continue; // i commenti citano esempi
+    for (const m of riga.matchAll(/'([^']+)'/g)) {
+      if (m[1].includes(' ')) frasi.add(m[1]); // le frasi, non le chiavi tipo buy_property
+    }
+  }
+  check('ci sono frasi da silenziare da controllare', frasi.size > 0, `trovate ${frasi.size}`);
+  const orfane = [...frasi].filter((f) => !motore.includes(f));
+  check(
+    `tutte le ${frasi.size} frasi silenziate esistono verbatim in gameEngine.js`,
+    orfane.length === 0,
+    `non trovate nel motore: ${orfane.map((f) => JSON.stringify(f)).join(', ')}`
+  );
 }
 
 // ---------------------------------------------------------------------------

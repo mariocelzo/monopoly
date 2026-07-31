@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { AwaitingAuction, BoardSquare, GameState, socket } from '../socket';
+import { AwaitingAuction, BoardSquare, GameState, inviaAzione } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
 
@@ -31,10 +30,6 @@ export default function AuctionModal({
   // rilanciassero solo i bot, che invece la soglia la leggevano da qui.
   const minBid = pending.minBid;
   const puoRilanciare = !!me && me.balance >= minBid;
-  const [errore, setErrore] = useState<string | null>(null);
-  // L'errore si azzera appena l'asta si muove, altrimenti resterebbe appeso
-  // sotto ai bottoni per tutto il resto della gara.
-  useEffect(() => setErrore(null), [pending.currentBid, pending.playerId]);
 
   return (
     <div style={styles.overlay}>
@@ -85,18 +80,18 @@ export default function AuctionModal({
               // Si guarda la risposta del server invece di sparare e sperare:
               // un rifiuto silenzioso è indistinguibile da un bottone rotto, ed
               // è esattamente così che questo difetto è passato inosservato.
-              onClick={() =>
-                socket.emit('auction_bid', { amount: minBid }, (res?: { error?: string }) => {
-                  if (res?.error) setErrore(res.error);
-                })
-              }
+              // La callback scritta a mano qui era il prototipo; adesso che
+              // TUTTE le azioni passano da inviaAzione (vedi socket.ts) il
+              // messaggio e la sua scomparsa li gestisce un posto solo, e
+              // questa finestra torna a occuparsi solo dell'asta.
+              onClick={() => inviaAzione('auction_bid', { amount: minBid })}
             >
               Rilancia a €{minBid}
             </button>
             <button
               className="btn-ghost"
               style={styles.actionBtn}
-              onClick={() => socket.emit('auction_pass', {})}
+              onClick={() => inviaAzione('auction_pass')}
             >
               Passa
             </button>
@@ -107,7 +102,6 @@ export default function AuctionModal({
           </p>
         )}
 
-        {errore && <p style={styles.errore}>{errore}</p>}
         {isMyTurn && !puoRilanciare && (
           <p style={styles.wait}>Non ti bastano i contanti per arrivare a €{minBid}: puoi solo passare.</p>
         )}
@@ -128,7 +122,6 @@ const styles: Record<string, React.CSSProperties> = {
   title: { fontSize: '1.5rem' },
   price: { fontSize: '0.9rem', color: 'rgba(243,234,216,0.6)' },
   bidBox: { display: 'flex', flexDirection: 'column', gap: 4, padding: 12, borderRadius: 10, background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(201,150,44,0.2)' },
-  errore: { fontSize: '0.82rem', color: '#ffb4a2', textAlign: 'center', flexShrink: 0 },
   bidLabel: { fontSize: '0.74rem', letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.55)' },
   bidValue: { fontSize: '1.3rem', color: 'var(--brass-2)' },
   // minHeight: 0 è ciò che rende comprimibile questo blocco: senza, un figlio

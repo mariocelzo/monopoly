@@ -1,4 +1,4 @@
-import { AwaitingRent, BoardSquare, GameState, socket } from '../socket';
+import { AwaitingRent, BoardSquare, GameState, inviaAzione } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
@@ -70,7 +70,7 @@ export default function RentModal({
             <button
               className="btn-primary"
               style={styles.button}
-              onClick={() => socket.emit('pay_rent', {})}
+              onClick={() => inviaAzione('pay_rent')}
             >
               Paga €{pending.amount}
             </button>

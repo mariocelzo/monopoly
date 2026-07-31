@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BoardSquare, GameState, socket } from '../socket';
+import { BoardSquare, GameState, inviaAzione } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 import { PLAYER_COLORS } from './Board';
 import PropertiesPanel from './PropertiesPanel';
@@ -17,6 +17,13 @@ type Sheet = 'proprieta' | 'registro' | null;
  * Comandi di gioco su telefono: una barra fissa in fondo con saldi, turno e
  * dadi, sempre visibile sotto il tabellone, più un pannello che sale dal basso
  * per proprietà e registro. Così durante il turno non si scorre mai.
+ *
+ * L'avviso di azione rifiutata NON sta qui dentro, pur essendo qui che si
+ * preme: la barra ha uno `zIndex` suo (LAYER.barraMobile) e quindi apre un
+ * contesto di sovrapposizione: un figlio, per quanto alto lo si metta, non
+ * riuscirebbe mai a salire sopra le finestre che congelano il turno — asta,
+ * debito, scambio — che è proprio dove i rifiuti nascono più spesso. Sta
+ * fisso in alto, montato da App.tsx (vedi AvvisoAzione.tsx).
  */
 export default function MobileBar({
   state,
@@ -125,7 +132,7 @@ export default function MobileBar({
                   <button
                     className="btn-ghost"
                     style={styles.addBot}
-                    onClick={() => socket.emit('add_bot', {})}
+                    onClick={() => inviaAzione('add_bot')}
                   >
                     + Aggiungi bot
                   </button>
@@ -137,7 +144,7 @@ export default function MobileBar({
                         key={p.id}
                         className="btn-ghost"
                         style={styles.botChip}
-                        onClick={() => socket.emit('remove_bot', { botId: p.id })}
+                        onClick={() => inviaAzione('remove_bot', { botId: p.id })}
                       >
                         {p.token} {p.name} ✕
                       </button>
@@ -202,21 +209,21 @@ export default function MobileBar({
 
         <div style={styles.actions}>
           {!state.started ? (
-            <button className="btn-primary" style={styles.mainBtn} onClick={() => socket.emit('start_game')}>
+            <button className="btn-primary" style={styles.mainBtn} onClick={() => inviaAzione('start_game')}>
               Inizia partita
             </button>
           ) : state.finished ? (
             <span style={styles.waiting}>Partita finita</span>
           ) : isMyTurn && me?.inJail ? (
             <>
-              <button className="btn-primary" style={styles.mainBtn} onClick={() => socket.emit('roll_dice', {})}>
+              <button className="btn-primary" style={styles.mainBtn} onClick={() => inviaAzione('roll_dice')}>
                 Tira (doppio per uscire)
               </button>
-              <button className="btn-ghost" style={styles.smallBtn} onClick={() => socket.emit('pay_jail_fine', {})}>
+              <button className="btn-ghost" style={styles.smallBtn} onClick={() => inviaAzione('pay_jail_fine')}>
                 €50
               </button>
               {me.jailCards > 0 && (
-                <button className="btn-ghost" style={styles.smallBtn} onClick={() => socket.emit('use_jail_card', {})}>
+                <button className="btn-ghost" style={styles.smallBtn} onClick={() => inviaAzione('use_jail_card')}>
                   Carta
                 </button>
               )}
@@ -227,7 +234,7 @@ export default function MobileBar({
                 className="btn-primary"
                 style={styles.mainBtn}
                 disabled={blocked}
-                onClick={() => socket.emit('roll_dice', {})}
+                onClick={() => inviaAzione('roll_dice')}
               >
                 {rolledDouble ? 'Doppio! Tira ancora' : 'Tira i dadi'}
               </button>
@@ -235,7 +242,7 @@ export default function MobileBar({
                 className="btn-ghost"
                 style={styles.smallBtn}
                 disabled={blocked}
-                onClick={() => socket.emit('end_turn', {})}
+                onClick={() => inviaAzione('end_turn')}
               >
                 Fine
               </button>
