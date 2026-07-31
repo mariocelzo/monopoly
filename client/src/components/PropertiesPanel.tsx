@@ -34,14 +34,8 @@ export default function PropertiesPanel({
   /** Invia l'intento al server; il rifiuto lo mostra l'avviso comune. */
   const emit = (event: string, position: number) => inviaAzione(event, { position });
 
-  // Moltiplicatori della modalità grattacieli (vedi gameEngine.js: stessi
-  // numeri, HOTEL_COST_MULTIPLIER e HOTEL_RENT_MULTIPLIER). Duplicati qui
-  // come già succede per mortgageValue/unmortgageCost più sotto: questo
-  // pannello dà solo un riscontro immediato, la validazione vera resta sul
-  // server. Il tetto di hotel per proprietà segue la regola scelta al
-  // tavolo: 1 come da regolamento classico, 4 con la modalità accesa.
-  const HOTEL_COST_MULTIPLIER: Record<number, number> = { 1: 1, 2: 15, 3: 22, 4: 30 };
-  const HOTEL_RENT_MULTIPLIER: Record<number, number> = { 1: 1, 2: 1.7, 3: 2.5, 4: 3.5 };
+  // Il tetto di hotel per proprietà segue la regola scelta al tavolo: 1 come da
+  // regolamento classico, 4 con la modalità grattacieli accesa.
   const maxHotels = state.rules.skyscraperEnabled ? 4 : 1;
 
   const unitsOf = (owned: Ownership) => (owned.hotels > 0 ? 4 + owned.hotels : owned.houses);
@@ -61,21 +55,27 @@ export default function PropertiesPanel({
   const groupHasMortgage = (group?: string) =>
     board.filter((s) => s.group === group).some((s) => state.ownership[s.position]?.mortgaged);
 
+  // Gli importi qui sotto NON si calcolano più: arrivano dal motore insieme al
+  // tabellone (vedi boardWithAmounts in gameEngine.js e la rotta /board). Prima
+  // le formule erano ricopiate qui — costo per livello di hotel, metà del
+  // prezzo, il 10% di interesse in aritmetica intera — e vivevano di vita
+  // propria: due copie della stessa regola che nessuno tiene allineate a mano
+  // per sempre. In questo progetto quella famiglia di guai è già costata i bot
+  // bloccati all'asta e il tasto "Rilancia" che offriva sotto il minimo su 24
+  // caselle su 28.
+  //
+  // Gli array del server sono indicizzati per numero di unità meno uno:
+  // `buildCosts[0]` è la prima casa, `buildCosts[4]` il primo hotel.
+
   /** Costo per costruire la prossima unità (casa o hotel) su questa casella. */
-  const nextBuildCost = (square: BoardSquare, owned: Ownership): number => {
-    const units = unitsOf(owned);
-    if (units < 4) return square.houseCost || 0;
-    const livelloHotel = units - 4 + 1; // 1-4: il livello di hotel che si sta per costruire
-    return (square.houseCost || 0) * (HOTEL_COST_MULTIPLIER[livelloHotel] || 0);
-  };
+  const nextBuildCost = (square: BoardSquare, owned: Ownership): number =>
+    square.buildCosts?.[unitsOf(owned)] ?? 0;
 
   /** Rimborso vendendo l'unità in cima alla pila (l'ultima costruita). */
   const currentSellRefund = (square: BoardSquare, owned: Ownership): number => {
     const units = unitsOf(owned);
     if (units === 0) return 0;
-    if (units <= 4) return Math.floor((square.houseCost || 0) / 2);
-    const livelloHotel = units - 4;
-    return Math.floor(((square.houseCost || 0) * (HOTEL_COST_MULTIPLIER[livelloHotel] || 0)) / 2);
+    return square.buildRefunds?.[units - 1] ?? 0;
   };
 
   /**
@@ -85,21 +85,15 @@ export default function PropertiesPanel({
    */
   const rentNow = (square: BoardSquare, owned: Ownership): number | null => {
     if (square.type !== 'property' || !square.rents) return null;
-    if (owned.hotels > 0) {
-      // Affitto dell'hotel singolo moltiplicato per il livello, arrotondato
-      // ai 25 più vicini: identico a gameEngine.js#hotelRent.
-      const base = square.rents[5] * (HOTEL_RENT_MULTIPLIER[owned.hotels] || 1);
-      return Math.round(base / 25) * 25;
-    }
+    if (owned.hotels > 0) return square.hotelRents?.[owned.hotels - 1] ?? null;
     if (owned.houses > 0) return square.rents[owned.houses];
+    // Il raddoppio sul colore completo resta l'unica cosa che si legge qui: è
+    // scritta sulla carta della proprietà, non è una formula con arrotondamenti.
     return ownsFullGroup(square.group) ? square.rents[0] * 2 : square.rents[0];
   };
 
-  const mortgageValue = (square: BoardSquare) => Math.floor((square.price || 0) / 2);
-  // Interesse in aritmetica intera come sul server: `100 * 1.1` in floating point
-  // vale 110.00000000000001 e mostrerebbe 111 invece di 110.
-  const unmortgageCost = (square: BoardSquare) =>
-    mortgageValue(square) + Math.ceil(mortgageValue(square) / 10);
+  const mortgageValue = (square: BoardSquare) => square.mortgageValue ?? 0;
+  const unmortgageCost = (square: BoardSquare) => square.unmortgageCost ?? 0;
 
   /** Motivo per cui non si può costruire, o null se si può. */
   const buildBlocker = (square: BoardSquare, owned: Ownership): string | null => {

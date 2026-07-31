@@ -274,6 +274,13 @@ export interface GameState {
   /** Regole della casa di questo tavolo: sola lettura per chi non è l'host. */
   rules: HouseRules;
   /**
+   * La multa per uscire di prigione. Non è una regola della casa — non si
+   * sceglie — ma il client la scrive su un bottone, e prima ce l'aveva a mano:
+   * cambiandola nel motore, quel bottone avrebbe promesso un importo diverso da
+   * quello addebitato. Arriva dal server come tutti gli altri importi.
+   */
+  jailFine: number;
+  /**
    * Presente solo mentre la partita è ferma sul turno di un disconnesso, e
    * `null` in tutti gli altri casi. Facoltativo nel tipo perché uno stato
    * ricostruito a mano (i test della logica pura) non deve essere obbligato a
@@ -291,4 +298,15 @@ export interface BoardSquare {
   houseCost?: number;
   rents?: number[];
   amount?: number;
+  // Importi calcolati dal motore e pubblicati con il tabellone (vedi
+  // boardWithAmounts in gameEngine.js): il client li mostra e basta, non li
+  // ricalcola. Gli array sono indicizzati per numero di unità meno uno —
+  // buildCosts[0] è la prima casa, buildCosts[4] il primo hotel,
+  // hotelRents[0] l'affitto con un hotel. Facoltativi perché non ogni casella
+  // ha un prezzo (il Via, la Sosta) o si può edificare (stazioni, società).
+  mortgageValue?: number;
+  unmortgageCost?: number;
+  buildCosts?: number[];
+  buildRefunds?: number[];
+  hotelRents?: number[];
 }

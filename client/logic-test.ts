@@ -791,5 +791,51 @@ section('Avvisi delle azioni rifiutate');
 }
 
 // ---------------------------------------------------------------------------
+// Nessuna formula del motore riscritta nel client
+// ---------------------------------------------------------------------------
+// Gli importi che il client mostra accanto ai bottoni — costo di costruzione,
+// rimborso di vendita, valore d'ipoteca, costo di riscatto, affitto per livello
+// di hotel — arrivano dal server insieme al tabellone (boardWithAmounts in
+// gameEngine.js). Prima erano ricalcolati qui copiando le formule, ed è la
+// famiglia di guai che in questo progetto è già costata due volte: i bot
+// bloccati all'asta e il tasto "Rilancia" che offriva sotto il minimo su 24
+// caselle su 28. Due copie della stessa regola non divergono il giorno in cui
+// le scrivi: divergono il giorno in cui qualcuno ne cambia una sola.
+//
+// Questa guardia non verifica un risultato, verifica che la scorciatoia non
+// rientri dalla finestra: se quei numeri ricompaiono nel client, qui è rosso.
+{
+  const sorgenti = ['src/components/PropertiesPanel.tsx', 'src/components/SquareDetail.tsx']
+    .map((f) => ({ f, testo: readFileSync(new URL(f, import.meta.url), 'utf8') }));
+
+  const impronte: [string, RegExp][] = [
+    ['i moltiplicatori di costo degli hotel (15, 22, 30)', /2:\s*15\s*,\s*3:\s*22\s*,\s*4:\s*30/],
+    ["i moltiplicatori d'affitto degli hotel (1.7, 2.5, 3.5)", /2:\s*1\.7\s*,\s*3:\s*2\.5\s*,\s*4:\s*3\.5/],
+    ["l'arrotondamento dell'affitto ai 25", /\/\s*25\s*\)\s*\*\s*25/],
+    ["la metà del prezzo come valore d'ipoteca", /Math\.floor\(\s*\(?\s*square\.price/],
+  ];
+  for (const [cosa, impronta] of impronte) {
+    const dove = sorgenti.filter((s) => impronta.test(s.testo)).map((s) => s.f);
+    check(
+      `${cosa}: non riscritti nel client`,
+      dove.length === 0,
+      `ricomparsi in ${dove.join(', ')} — quell'importo lo pubblica il motore, vedi boardWithAmounts`
+    );
+  }
+
+  // E il contrario: gli importi pubblicati devono essere davvero letti, se no
+  // la guardia qui sopra resterebbe verde anche cancellando le cifre dallo
+  // schermo.
+  const pannello = sorgenti[0].testo;
+  const letti = ['buildCosts', 'buildRefunds', 'mortgageValue', 'unmortgageCost', 'hotelRents'];
+  const mancanti = letti.filter((c) => !pannello.includes(c));
+  check(
+    'il pannello proprietà legge gli importi pubblicati dal motore',
+    mancanti.length === 0,
+    `non li legge più: ${mancanti.join(', ')}`
+  );
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);

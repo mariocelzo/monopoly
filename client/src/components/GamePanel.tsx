@@ -156,7 +156,7 @@ export default function GamePanel({
         ) : isMyTurn && me?.inJail ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-primary" onClick={roll}>Tira i dadi (esci con doppio)</button>
-            <button className="btn-ghost" onClick={payJail}>Paga €50</button>
+            <button className="btn-ghost" onClick={payJail}>Paga €{state.jailFine}</button>
             {me.jailCards > 0 && <button className="btn-ghost" onClick={useCard}>Usa carta uscita</button>}
           </div>
         ) : isMyTurn ? (
