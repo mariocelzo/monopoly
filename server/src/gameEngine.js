@@ -1281,6 +1281,19 @@ class GameEngine {
   payJailFine(playerId) {
     const player = this.players.find((p) => p.id === playerId);
     if (!player || !player.inJail) return { error: 'Non sei in prigione' };
+    // La multa è una spesa che si sceglie di fare, esattamente come costruire o
+    // riscattare un'ipoteca, e va congelata negli stessi due momenti in cui è
+    // congelata quella (vedi buildHouse e unmortgageProperty). Era l'unica
+    // uscita di denaro rimasta fuori, e bastava per arrivare al risultato che
+    // il congelamento esiste per impedire: si offre all'asta tutto quello che
+    // si ha, si paga la multa, e all'aggiudicazione il conto è scoperto —
+    // closeAuction scala l'offerta senza ricontrollare la cassa, quindi si
+    // finiva a saldo negativo senza nessun debito aperto a chiederne il
+    // rientro. Lo stesso vale per uno scambio in sospeso, che promette denaro
+    // che a quel punto non c'è più: chi ha ricevuto la proposta se la
+    // troverebbe irricevibile senza poterci fare niente.
+    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     if (player.balance < JAIL_FINE) return { error: 'Saldo insufficiente' };
     // Passa da chargePlayer (creditore nullo) così la multa finisce anche lei
     // nel montepremi della Sosta Gratuita, come quella pagata dopo 3 tentativi.
