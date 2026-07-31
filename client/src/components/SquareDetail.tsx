@@ -6,16 +6,12 @@ import { LAYER } from '../layers';
 
 const STATION_RENT = [25, 50, 100, 200];
 
-// Moltiplicatore d'affitto per ciascun livello di hotel, applicato
-// all'affitto dell'hotel singolo e arrotondato ai 25 più vicini: stessi
-// numeri di gameEngine.js (HOTEL_RENT_MULTIPLIER), duplicati qui come le
-// altre formule del pannello — è solo un riferimento, il conto vero lo fa
-// il server.
-const HOTEL_RENT_MULTIPLIER: Record<number, number> = { 1: 1, 2: 1.7, 3: 2.5, 4: 3.5 };
-const hotelRent = (square: BoardSquare, hotels: number): number => {
-  const base = (square.rents?.[5] || 0) * (HOTEL_RENT_MULTIPLIER[hotels] || 1);
-  return Math.round(base / 25) * 25;
-};
+// L'affitto per livello di hotel arriva dal motore insieme al tabellone (vedi
+// boardWithAmounts in gameEngine.js): prima il moltiplicatore e
+// l'arrotondamento ai 25 erano ricopiati qui, ed erano la stessa regola scritta
+// in due posti. `hotelRents[0]` è l'affitto con un hotel.
+const hotelRent = (square: BoardSquare, hotels: number): number =>
+  square.hotelRents?.[hotels - 1] ?? 0;
 
 /**
  * Il contratto di una casella, come la targhetta del gioco vero. Si apre
@@ -129,7 +125,7 @@ export default function SquareDetail({
           </p>
         )}
         {square.price !== undefined && (
-          <p style={styles.note}>Valore d'ipoteca: €{Math.floor(square.price / 2)}</p>
+          <p style={styles.note}>Valore d'ipoteca: €{square.mortgageValue ?? 0}</p>
         )}
 
         <div style={styles.ownerRow}>

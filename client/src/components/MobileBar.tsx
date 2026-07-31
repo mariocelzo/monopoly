@@ -220,7 +220,7 @@ export default function MobileBar({
                 Tira (doppio per uscire)
               </button>
               <button className="btn-ghost" style={styles.smallBtn} onClick={() => inviaAzione('pay_jail_fine')}>
-                €50
+                €{state.jailFine}
               </button>
               {me.jailCards > 0 && (
                 <button className="btn-ghost" style={styles.smallBtn} onClick={() => inviaAzione('use_jail_card')}>

@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { RoomManager } = require('./rooms');
-const { board } = require('./data/board');
+const { boardWithAmounts } = require('./gameEngine');
 const { botMove, botHasMove } = require('./bot');
 const persistence = require('./persistence');
 
@@ -104,7 +104,13 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));
-app.get('/board', (req, res) => res.json(board));
+// Il tabellone arricchito degli importi che il motore calcola da sé — valore
+// d'ipoteca, costo di riscatto, costo e rimborso di ogni livello di edificio,
+// affitto per livello di hotel. Il client li mostra accanto ai bottoni e prima
+// se li ricalcolava copiando le formule: una riscrittura che, in questo
+// progetto, è già divergata due volte (vedi il commento su boardWithAmounts).
+// Si scarica una volta sola all'avvio, quindi non pesa su nessuna mossa.
+app.get('/board', (req, res) => res.json(boardWithAmounts()));
 
 function broadcastState(roomCode) {
   const room = roomManager.getRoom(roomCode);

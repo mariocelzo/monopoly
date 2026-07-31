@@ -1,7 +1,7 @@
 // Smoke test del motore di gioco. Nessun framework: si lancia con `node smoke-test.js`
 // dalla cartella server. Va eseguito prima e dopo ogni modifica sostanziale a
 // gameEngine.js, come da convenzioni del progetto.
-const { GameEngine, SKIP_TURN_DELAY_MS } = require('./src/gameEngine');
+const { GameEngine, boardWithAmounts, JAIL_FINE, SKIP_TURN_DELAY_MS } = require('./src/gameEngine');
 const { board } = require('./src/data/board');
 const { groupWeight, propertyScore, evaluateTrade, regalaMonopolio } = require('./src/botStrategy');
 const { botMove, isBotTurn } = require('./src/bot');
@@ -2969,6 +2969,92 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
     `su ${conFormulaFissa} caselle un rilancio fisso da 10 sarebbe sotto il minimo (era il difetto)`,
     conFormulaFissa === 24,
     `contate ${conFormulaFissa}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Gli importi pubblicati col tabellone
+// ---------------------------------------------------------------------------
+// Il client mostra accanto ai bottoni il valore d'ipoteca, il costo di
+// riscatto, il costo e il rimborso di ogni livello di edificio e l'affitto per
+// livello di hotel. Prima se li ricalcolava copiando le formule del motore;
+// adesso glieli pubblica il motore stesso con GET /board (boardWithAmounts).
+//
+// Il conto qui sotto è rifatto a mano, DELIBERATAMENTE senza chiamare i metodi
+// del motore: usarli per verificare sé stessi sarebbe un controllo circolare,
+// verde anche con la formula sbagliata — è lo stesso principio per cui
+// invariant-test.js si tiene le sue tabelle separate.
+{
+  console.log('\n--- Importi pubblicati col tabellone ---');
+  const tabellone = boardWithAmounts();
+
+  // Oracolo indipendente: le quattro regole, riscritte qui a mano.
+  const ipoteca = (prezzo) => Math.floor(prezzo / 2);
+  const riscatto = (prezzo) => ipoteca(prezzo) + Math.ceil(ipoteca(prezzo) / 10);
+  const costoUnita = (costoCasa, n) => (n <= 4 ? costoCasa : costoCasa * { 1: 1, 2: 15, 3: 22, 4: 30 }[n - 4]);
+  const affittoHotel = (affittoUnHotel, livelli) =>
+    Math.round((affittoUnHotel * { 1: 1, 2: 1.7, 3: 2.5, 4: 3.5 }[livelli]) / 25) * 25;
+
+  let conPrezzo = 0;
+  let conEdifici = 0;
+  let conAffitti = 0;
+  const sbagliate = [];
+  for (const sq of tabellone) {
+    if (sq.price) {
+      conPrezzo += 1;
+      if (sq.mortgageValue !== ipoteca(sq.price)) sbagliate.push(`${sq.name}: ipoteca ${sq.mortgageValue} invece di ${ipoteca(sq.price)}`);
+      if (sq.unmortgageCost !== riscatto(sq.price)) sbagliate.push(`${sq.name}: riscatto ${sq.unmortgageCost} invece di ${riscatto(sq.price)}`);
+    } else if (sq.mortgageValue !== undefined) {
+      sbagliate.push(`${sq.name} non ha prezzo ma pubblica un valore d'ipoteca`);
+    }
+    if (sq.houseCost) {
+      conEdifici += 1;
+      for (let n = 1; n <= 8; n++) {
+        const atteso = costoUnita(sq.houseCost, n);
+        if (sq.buildCosts[n - 1] !== atteso) sbagliate.push(`${sq.name}: unità ${n} costa ${sq.buildCosts[n - 1]} invece di ${atteso}`);
+        if (sq.buildRefunds[n - 1] !== Math.floor(atteso / 2)) sbagliate.push(`${sq.name}: rimborso unità ${n} è ${sq.buildRefunds[n - 1]} invece di ${Math.floor(atteso / 2)}`);
+      }
+    }
+    if (sq.rents) {
+      conAffitti += 1;
+      for (let h = 1; h <= 4; h++) {
+        const atteso = affittoHotel(sq.rents[5], h);
+        if (sq.hotelRents[h - 1] !== atteso) sbagliate.push(`${sq.name}: ${h} hotel rendono ${sq.hotelRents[h - 1]} invece di ${atteso}`);
+      }
+    }
+  }
+
+  check('il tabellone pubblicato ha tutte e 40 le caselle', tabellone.length === 40, `${tabellone.length}`);
+  check(`le ${conPrezzo} caselle con un prezzo pubblicano ipoteca e riscatto`, conPrezzo === 28, `${conPrezzo}`);
+  check(`le ${conEdifici} caselle edificabili pubblicano gli otto livelli`, conEdifici === 22, `${conEdifici}`);
+  check(`le ${conAffitti} caselle con affitto pubblicano i quattro livelli di hotel`, conAffitti === 22, `${conAffitti}`);
+  check(
+    'ogni importo pubblicato coincide col conto rifatto a mano',
+    sbagliate.length === 0,
+    sbagliate.slice(0, 3).join(' | ')
+  );
+
+  // La casella più cara e la più economica, a numeri scritti per esteso: se
+  // qualcuno cambia una formula, qui si legge subito quale importo è cambiato.
+  const parco = tabellone[39];
+  check('Parco della Vittoria (400): ipoteca 200, riscatto 220', parco.mortgageValue === 200 && parco.unmortgageCost === 220, `${parco.mortgageValue}/${parco.unmortgageCost}`);
+  check('Vicolo Corto (60): ipoteca 30, riscatto 33', tabellone[1].mortgageValue === 30 && tabellone[1].unmortgageCost === 33, `${tabellone[1].mortgageValue}/${tabellone[1].unmortgageCost}`);
+
+  // E la multa della prigione, che il client scrive su un bottone.
+  const g = new GameEngine('IMPORTI');
+  g.addPlayer('a', 'Anna', '🎩');
+  g.addPlayer('b', 'Bruno', '🐕');
+  g.start();
+  check('lo stato pubblica la multa della prigione', g.serialize().jailFine === JAIL_FINE, `${g.serialize().jailFine}`);
+  const anna = g.players[0];
+  anna.inJail = true;
+  anna.position = 10;
+  const saldoPrima = anna.balance;
+  g.payJailFine('a');
+  check(
+    'e quella pubblicata è esattamente quella che viene addebitata',
+    saldoPrima - anna.balance === g.serialize().jailFine,
+    `addebitati ${saldoPrima - anna.balance}, pubblicati ${g.serialize().jailFine}`
   );
 }
 
