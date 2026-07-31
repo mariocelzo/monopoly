@@ -1,4 +1,4 @@
-import { AwaitingDebt, BoardSquare, GameState, socket } from '../socket';
+import { AwaitingDebt, BoardSquare, GameState, inviaAzione } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 import PropertiesPanel from './PropertiesPanel';
 import { LAYER } from '../layers';
@@ -56,14 +56,14 @@ export default function DebtModal({
           <button
             className="btn-primary"
             style={styles.actionBtn}
-            onClick={() => socket.emit('resolve_debt_auto', {})}
+            onClick={() => inviaAzione('resolve_debt_auto')}
           >
             Vendi automaticamente
           </button>
           <button
             className="btn-ghost"
             style={styles.actionBtn}
-            onClick={() => socket.emit('declare_bankruptcy', {})}
+            onClick={() => inviaAzione('declare_bankruptcy')}
           >
             Dichiara bancarotta
           </button>

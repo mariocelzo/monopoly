@@ -265,11 +265,17 @@ io.on('connection', (socket) => {
     cb?.(res);
   });
 
-  socket.on('start_game', () => {
+  // L'ack c'è anche qui, dove oggi non può fallire nulla, perché il client
+  // manda ogni azione con una callback e la aspetta (vedi inviaAzione in
+  // client/src/socket.ts): un handler che non risponde lascerebbe quella
+  // callback appesa per sempre nella tabella degli ack di socket.io. Costa una
+  // riga e chiude il caso.
+  socket.on('start_game', (payload, cb) => {
     const room = roomManager.getRoom(socket.data.roomCode);
-    if (!room) return;
+    if (!room) return cb?.({ error: 'Stanza non trovata' });
     room.game.start();
     broadcastState(socket.data.roomCode);
+    cb?.({});
   });
 
   // generic wrapper: call a GameEngine method by name with the player's id

@@ -1,4 +1,4 @@
-import { AwaitingTrade, BoardSquare, GameState, socket } from '../socket';
+import { AwaitingTrade, BoardSquare, GameState, inviaAzione } from '../socket';
 import { GROUP_COLORS } from '../groupColors';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
@@ -68,17 +68,22 @@ export default function TradeOfferModal({
 
         {isRecipient ? (
           <div style={styles.actions}>
+            {/* Accettare può fallire per davvero, e non per colpa di chi
+                preme: fra la proposta e la risposta il proponente può aver
+                speso i contanti promessi o ipotecato una casella ("X non ha
+                più abbastanza denaro"). Senza guardare l'ack, quel rifiuto
+                lasciava la finestra ferma con l'aria di un bottone rotto. */}
             <button
               className="btn-primary"
               style={styles.actionBtn}
-              onClick={() => socket.emit('respond_trade', { accept: true })}
+              onClick={() => inviaAzione('respond_trade', { accept: true })}
             >
               Accetta
             </button>
             <button
               className="btn-ghost"
               style={styles.actionBtn}
-              onClick={() => socket.emit('respond_trade', { accept: false })}
+              onClick={() => inviaAzione('respond_trade', { accept: false })}
             >
               Rifiuta
             </button>

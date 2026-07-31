@@ -1,4 +1,4 @@
-import { BoardSquare, GameState, socket } from '../socket';
+import { BoardSquare, GameState, inviaAzione } from '../socket';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import HomeButton from './HomeButton';
@@ -41,10 +41,14 @@ export default function GamePanel({
     state.lastRoll.playerId === current?.id &&
     state.lastRoll.dice[0] === state.lastRoll.dice[1];
 
-  const roll = () => socket.emit('roll_dice', {});
-  const payJail = () => socket.emit('pay_jail_fine', {});
-  const useCard = () => socket.emit('use_jail_card', {});
-  const endTurn = () => socket.emit('end_turn', {});
+  // Tutte via inviaAzione: se il motore rifiuta ("Saldo insufficiente" per la
+  // multa, "Non hai carte esci di prigione"...) il messaggio compare invece di
+  // lasciare un bottone che sembra rotto. Le corse innocue — il doppio clic su
+  // Fine turno, per dirne una — le filtra azioni.ts, non serve fare niente qui.
+  const roll = () => inviaAzione('roll_dice');
+  const payJail = () => inviaAzione('pay_jail_fine');
+  const useCard = () => inviaAzione('use_jail_card');
+  const endTurn = () => inviaAzione('end_turn');
 
   return (
     <div className="panel" style={styles.wrap}>
@@ -78,7 +82,7 @@ export default function GamePanel({
                   <button
                     style={styles.removeBot}
                     title="Togli questo bot"
-                    onClick={() => socket.emit('remove_bot', { botId: p.id })}
+                    onClick={() => inviaAzione('remove_bot', { botId: p.id })}
                   >
                     ✕
                   </button>
@@ -130,7 +134,7 @@ export default function GamePanel({
         <button
           className="btn-ghost"
           style={styles.addBot}
-          onClick={() => socket.emit('add_bot', {})}
+          onClick={() => inviaAzione('add_bot')}
         >
           + Aggiungi bot
         </button>
@@ -143,7 +147,7 @@ export default function GamePanel({
 
       <div style={styles.turnBox}>
         {!state.started ? (
-          <button className="btn-primary" onClick={() => socket.emit('start_game')}>
+          <button className="btn-primary" onClick={() => inviaAzione('start_game')}>
             Inizia partita
           </button>
         ) : state.finished ? (
