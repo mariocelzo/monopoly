@@ -1585,6 +1585,65 @@ section('32c. Il tiro extra del doppio sopravvive all\'asta');
 }
 
 // ---------------------------------------------------------------------------
+section('32c-bis. Chi lascia il tavolo mentre tocca a lui rilanciare non porta via l\'asta agli altri');
+{
+  // L'asta non è la finestra di uno solo: è di tutti quelli rimasti in coda.
+  // abandonGame però chiudeva "qualunque finestra intestata a chi esce", e
+  // siccome durante un'asta `pendingAction.playerId` è semplicemente chi deve
+  // parlare adesso, chi lasciava il tavolo proprio in quel momento portava via
+  // l'asta intera: la migliore offerta di un altro annullata, la casella di
+  // nuovo libera e nessuno in grado di capire perché.
+  const game = new GameEngine('ABBANDONO-ASTA');
+  ['Anna', 'Bruno', 'Carla'].forEach((nome, i) => {
+    game.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗'][i]);
+  });
+  game.start();
+  const [, bruno, carla] = game.players;
+
+  game.turnResolved = false;
+  game.movePlayer(game.players[0], 39); // Parco della Vittoria, 400, libera
+  game.declineBuy('a');
+  game.bidAuction('a', game.pendingAction.minBid);
+  game.bidAuction('b', game.pendingAction.minBid);
+  game.bidAuction('c', game.pendingAction.minBid); // Carla ha la migliore
+  const offertaDiCarla = game.pendingAction.currentBid;
+  check('tocca di nuovo ad Anna, con Carla in testa', game.pendingAction.playerId === 'a' && game.pendingAction.currentBidderId === 'c');
+
+  game.abandonGame('a');
+  check('l\'asta resta aperta per gli altri due', game.pendingAction?.type === 'awaiting_auction', JSON.stringify(game.pendingAction));
+  // Da qui in poi si legge pendingAction con la protezione: se una regressione
+  // facesse di nuovo sparire l'asta, questi controlli devono fallire dicendo
+  // cosa non va, non esplodere su un null e fermare tutta la suite.
+  check('l\'offerta di chi è rimasto non viene annullata', game.pendingAction?.currentBid === offertaDiCarla && game.pendingAction?.currentBidderId === 'c');
+  check('chi ha abbandonato esce dalla coda', !game.pendingAction?.queue?.includes('a'));
+  check('e la parola passa al prossimo', game.pendingAction?.playerId === 'b');
+
+  const saldoCarla = carla.balance;
+  game.passAuction('b'); // resta solo Carla: si aggiudica la casella
+  check('l\'asta si chiude assegnando la casella a chi aveva offerto di più', game.ownership[39]?.ownerId === 'c');
+  check('e il prezzo viene scalato davvero', carla.balance === saldoCarla - offertaDiCarla, `saldo=${carla.balance}`);
+  check('chiusa l\'asta il turno riparte da chi è ancora in partita', !game.currentPlayer.bankrupt && game.currentPlayer.id === 'b', `turno di ${game.currentPlayer.name}`);
+
+  // Rovescio: se ad andarsene è proprio chi aveva la migliore offerta, quella
+  // offerta va annullata — non potrebbe pagarla — e l'asta prosegue dalla base.
+  const g2 = new GameEngine('ABBANDONO-ASTA-2');
+  ['Anna', 'Bruno', 'Carla', 'Dino'].forEach((nome, i) => {
+    g2.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗', '🚢'][i]);
+  });
+  g2.start();
+  g2.turnResolved = false;
+  g2.movePlayer(g2.players[0], 39);
+  g2.declineBuy('a');
+  g2.bidAuction('a', g2.pendingAction.minBid); // Anna in testa, poi tocca a Bruno
+  check('Anna è in testa', g2.pendingAction.currentBidderId === 'a');
+  g2.abandonGame('a');
+  check('l\'asta continua anche così', g2.pendingAction?.type === 'awaiting_auction');
+  check('l\'offerta di chi se n\'è andato è annullata', g2.pendingAction?.currentBid === 0 && g2.pendingAction?.currentBidderId === null);
+  check('e il minimo torna la base d\'asta', g2.pendingAction?.minBid === g2.pendingAction?.minIncrement, JSON.stringify(g2.pendingAction?.minBid));
+  check('la casella non è di nessuno finché l\'asta non si chiude', !g2.ownership[39]);
+}
+
+// ---------------------------------------------------------------------------
 section('32d. Un bot partecipa all\'asta e la chiude da solo, in una partita di soli bot');
 {
   const game = new GameEngine('BOTS-AUCTION');
