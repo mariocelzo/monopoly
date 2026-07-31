@@ -663,5 +663,42 @@ section('Avvisi delle azioni rifiutate');
 }
 
 // ---------------------------------------------------------------------------
+// Le frasi da silenziare esistono davvero nel motore
+// ---------------------------------------------------------------------------
+// azioni.ts decide cosa tacere confrontando il TESTO ESATTO del messaggio
+// d'errore ("Non è il tuo turno", "Nessun acquisto in sospeso"). I test qui
+// sopra però passano a messaggioDiRifiuto le stesse stringhe scritte in
+// azioni.ts: si controllano a vicenda e sarebbero d'accordo anche se il motore
+// nel frattempo avesse cambiato parole. Il giorno in cui succede, il rifiuto
+// smette di essere riconosciuto e ricompare come avviso rosso durante una
+// partita che funziona — un falso allarme, che è peggio del silenzio perché
+// insegna a ignorare gli avvisi veri.
+//
+// Questo controllo chiude il cerchio ancorando quelle frasi alla sorgente vera:
+// se qualcuno riscrive un messaggio in gameEngine.js, qui diventa rosso e la
+// lista va aggiornata. Stessa idea della guardia su AuctionModal qui sotto.
+{
+  const motore = readFileSync(new URL('../server/src/gameEngine.js', import.meta.url), 'utf8');
+  const righe = readFileSync(new URL('./src/azioni.ts', import.meta.url), 'utf8').split('\n');
+  const inizio = righe.findIndex((r) => r.includes('const CORSE_INNOCUE'));
+  const fine = righe.findIndex((r) => r.includes('export function messaggioDiRifiuto'));
+  const frasi = new Set<string>();
+  for (const riga of righe.slice(inizio, fine)) {
+    const pulita = riga.trim();
+    if (pulita.startsWith('//') || pulita.startsWith('*')) continue; // i commenti citano esempi
+    for (const m of riga.matchAll(/'([^']+)'/g)) {
+      if (m[1].includes(' ')) frasi.add(m[1]); // le frasi, non le chiavi tipo buy_property
+    }
+  }
+  check('ci sono frasi da silenziare da controllare', frasi.size > 0, `trovate ${frasi.size}`);
+  const orfane = [...frasi].filter((f) => !motore.includes(f));
+  check(
+    `tutte le ${frasi.size} frasi silenziate esistono verbatim in gameEngine.js`,
+    orfane.length === 0,
+    `non trovate nel motore: ${orfane.map((f) => JSON.stringify(f)).join(', ')}`
+  );
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);
