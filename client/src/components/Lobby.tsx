@@ -1,8 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { socket } from '../socket';
 import { getClientId, saveRoom } from '../identity';
 
 const TOKENS = ['🐕', '🎩', '🚗', '🚢', '🐈', '🎸'];
+
+// Oltre questa attesa si presume che il server sia addormentato, non solo
+// lento in rete: il piano gratuito su cui gira spegne il servizio dopo un po'
+// di inattività e lo riaccende alla prima richiesta, un risveglio che può
+// costare anche una quarantina di secondi. Prima "Crea tavolo" restava lì,
+// cliccato, senza dire nulla: sembrava un bottone rotto, esattamente il difetto
+// che l'avviso di rifiuto (vedi azioni.ts) risolve già per le mosse di
+// partita. Qui è la stessa idea applicata al primo clic, quello prima ancora
+// che una partita esista. La soglia sta via dal giro di rete normale (di
+// solito sotto il secondo) ma ben dentro un risveglio vero: non deve
+// comparire quando il server è già sveglio, solo quando c'è davvero da
+// aspettare.
+const SOGLIA_RISVEGLIO_MS = 2500;
 
 export default function Lobby({
   onJoined,
@@ -25,9 +38,31 @@ export default function Lobby({
   // Pedoni già occupati nella stanza: il server li comunica quando rifiuta
   // l'ingresso, così alla prova successiva sono già disabilitati.
   const [taken, setTaken] = useState<string[]>([]);
+  // In attesa della risposta del server: disabilita i bottoni (un secondo clic
+  // mentre il primo è ancora appeso creerebbe un secondo tavolo, non solo un
+  // fastidio visivo) e fa comparire il messaggio di risveglio se l'attesa si
+  // allunga oltre SOGLIA_RISVEGLIO_MS.
+  const [pending, setPending] = useState(false);
+  const [risveglio, setRisveglio] = useState(false);
+  const timerRisveglio = useRef<number | null>(null);
+
+  // Il timer non deve sopravvivere al componente: senza questa pulizia, un
+  // risveglio più lento del tempo che ci mette React a smontare la lobby
+  // (si entra nel tavolo prima che il server risponda al giocatore più lento
+  // di una seconda scheda, per dire) farebbe scattare setRisveglio su un
+  // componente che non c'è più.
+  useEffect(() => () => {
+    if (timerRisveglio.current) window.clearTimeout(timerRisveglio.current);
+  }, []);
 
   /** Gestisce la risposta del server sia per la creazione sia per l'ingresso. */
   const handleResponse = (res: any) => {
+    setPending(false);
+    setRisveglio(false);
+    if (timerRisveglio.current) {
+      window.clearTimeout(timerRisveglio.current);
+      timerRisveglio.current = null;
+    }
     if (res.error) {
       setError(res.error);
       if (Array.isArray(res.takenTokens)) {
@@ -43,17 +78,29 @@ export default function Lobby({
     onJoined(res.roomCode, res.playerId);
   };
 
+  /** Avvia l'attesa: va chiamata subito prima di ogni emit verso il server. */
+  const avviaAttesa = () => {
+    setError(null);
+    setPending(true);
+    setRisveglio(false);
+    timerRisveglio.current = window.setTimeout(() => setRisveglio(true), SOGLIA_RISVEGLIO_MS);
+  };
+
   const createRoom = () => {
+    if (pending) return;
     if (!name.trim()) return setError('Inserisci un nome');
     if (!socket.connected) socket.connect();
+    avviaAttesa();
     socket.emit('create_room', { name, token, clientId: getClientId() }, handleResponse);
   };
 
   /** Unisciti con un codice: quello digitato a mano, o quello del link. */
   const joinRoom = (code: string) => {
+    if (pending) return;
     if (!name.trim()) return setError('Inserisci un nome');
     if (!code.trim()) return setError('Inserisci il codice stanza');
     if (!socket.connected) socket.connect();
+    avviaAttesa();
     socket.emit(
       'join_room',
       { roomCode: code.toUpperCase(), name, token, clientId: getClientId() },
@@ -120,8 +167,8 @@ export default function Lobby({
         {isInvite && (
           <>
             <div style={styles.actions}>
-              <button className="btn-primary" onClick={() => joinRoom(inviteCode!)}>
-                Entra nel tavolo
+              <button className="btn-primary" disabled={pending} onClick={() => joinRoom(inviteCode!)}>
+                {pending ? 'Un attimo…' : 'Entra nel tavolo'}
               </button>
             </div>
             <button
@@ -139,8 +186,10 @@ export default function Lobby({
 
         {mode === 'choose' && (
           <div style={styles.actions}>
-            <button className="btn-primary" onClick={createRoom}>Crea tavolo</button>
-            <button className="btn-ghost" onClick={() => setMode('join')}>Unisciti con codice</button>
+            <button className="btn-primary" disabled={pending} onClick={createRoom}>
+              {pending ? 'Un attimo…' : 'Crea tavolo'}
+            </button>
+            <button className="btn-ghost" disabled={pending} onClick={() => setMode('join')}>Unisciti con codice</button>
           </div>
         )}
 
@@ -155,10 +204,22 @@ export default function Lobby({
               maxLength={5}
             />
             <div style={styles.actions}>
-              <button className="btn-primary" onClick={() => joinRoom(joinCode)}>Entra</button>
-              <button className="btn-ghost" onClick={() => setMode('choose')}>Indietro</button>
+              <button className="btn-primary" disabled={pending} onClick={() => joinRoom(joinCode)}>
+                {pending ? 'Un attimo…' : 'Entra'}
+              </button>
+              <button className="btn-ghost" disabled={pending} onClick={() => setMode('choose')}>Indietro</button>
             </div>
           </>
+        )}
+
+        {/* role/aria-live: chi usa un lettore di schermo deve sapere che il
+            risveglio del server sta succedendo, non solo vederlo scritto —
+            stessa ragione dell'avviso di rifiuto (vedi AvvisoAzione.tsx). */}
+        {risveglio && (
+          <p role="status" aria-live="polite" style={styles.risveglio}>
+            Il tavolo dorme quando resta fermo troppo a lungo, e si sta
+            svegliando adesso: può volerci qualche secondo in più del solito.
+          </p>
         )}
 
         {error && <p style={styles.error}>{error}</p>}
@@ -202,4 +263,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignSelf: 'center',
   },
   error: { color: '#e18a8a', fontSize: '0.85rem', marginTop: 10 },
+  // Non è un errore (il colore resta neutro, non rosso): è un tavolo che si
+  // sta aprendo, solo più lentamente del solito.
+  risveglio: { color: 'rgba(243,234,216,0.65)', fontSize: '0.82rem', marginTop: 10, lineHeight: 1.4 },
 };
