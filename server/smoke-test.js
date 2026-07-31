@@ -746,6 +746,49 @@ section('17e. Anche le tasse si confermano');
   check('vale anche per la tassa di lusso', g2.pendingAction?.amount === 100, `${g2.pendingAction?.amount}`);
 }
 
+section('17f. "Paga a ogni giocatore" quando i soldi non bastano per tutti');
+{
+  // Trovato dal test a invarianti (`fallito-e-a-zero`): la carta cicla su una
+  // lista di destinatari calcolata una volta sola, e continuava a addebitare
+  // anche dopo che il pagante era già fallito a metà giro. La seconda volta
+  // bankruptPlayer esce subito, perché quel giocatore è già in bancarotta: il
+  // saldo restava negativo invece di tornare a zero, e l'ultimo creditore
+  // incassava denaro mai esistito — chargePlayer gli accredita comunque
+  // l'intero importo, e il conguaglio (`creditor.balance += player.balance`,
+  // che restituisce la differenza non coperta) sta dentro la bancarotta, che a
+  // quel punto non viene più eseguita.
+  const game = new GameEngine('PAY-EACH');
+  game.addPlayer('a', 'Anna', '🎩');
+  game.addPlayer('b', 'Bruno', '🐕');
+  game.addPlayer('c', 'Carla', '🚗');
+  game.start();
+  const [anna, bruno, carla] = game.players;
+  anna.balance = 30; // non basta nemmeno per il primo dei due da 50
+  bruno.balance = 100;
+  carla.balance = 100;
+  const cassaPrima = game.players.reduce((s, p) => s + p.balance, 0);
+
+  game.applyCard(anna, { action: 'pay_each_player', amount: 50 });
+
+  check('chi non ce la fa fallisce', anna.bankrupt === true);
+  check('e un fallito resta a saldo zero, non in rosso', anna.balance === 0, `saldo=${anna.balance}`);
+  check(
+    'il primo creditore incassa solo quello che c\'era davvero',
+    bruno.balance === 130,
+    `Bruno=${bruno.balance}, atteso 130 (i suoi 100 più i 30 di Anna)`
+  );
+  check(
+    'e chi viene dopo non incassa denaro inesistente',
+    carla.balance === 100,
+    `Carla=${carla.balance}, atteso 100`
+  );
+  check(
+    'il denaro complessivo non cambia: non se ne crea dal nulla',
+    game.players.reduce((s, p) => s + p.balance, 0) === cassaPrima,
+    `${cassaPrima} -> ${game.players.reduce((s, p) => s + p.balance, 0)}`
+  );
+}
+
 section('18. Nessuna carta scavalca un debito già aperto');
 {
   // Due arancioni ipotecabili per 90 l'una: 100 di scoperto è copribile, quindi
