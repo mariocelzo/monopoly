@@ -3275,5 +3275,67 @@ section('46. Turno bloccato: l\'orologio della stanza (rooms.js)');
 }
 
 // ---------------------------------------------------------------------------
+// Rete di sicurezza: l'asta non chiude mai un conto scoperto in silenzio
+// ---------------------------------------------------------------------------
+// Oggi non ci si arriva giocando: l'offerta viene confrontata con la cassa
+// quando la si fa, e finché l'asta è aperta nessuno può spendere
+// (auctionFreezeBlocker). Il punto è che quella garanzia sta ALTROVE rispetto
+// al momento in cui il denaro viene davvero scalato, e una volta si era già
+// rotta — la multa della prigione non attraversava il congelamento, e chi
+// vinceva l'asta finiva a saldo negativo senza nessun debito aperto.
+//
+// Lo stato di partenza qui sotto è quindi costruito a mano di proposito: è
+// impossibile per il motore di oggi, ed è esattamente quello che questa rete
+// deve saper reggere se un domani tornasse possibile.
+{
+  console.log('\n--- L\'asta non lascia mai un conto scoperto ---');
+  const game = new GameEngine('ASTA-CASSA');
+  ['Anna', 'Bruno', 'Carla', 'Dino'].forEach((nome, i) => {
+    game.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗', '🚢'][i]);
+  });
+  game.start();
+  const carla = game.players[2];
+  carla.balance = 200;
+
+  game.turnResolved = false;
+  game.movePlayer(game.players[0], 1); // Vicolo Corto, libera
+  game.declineBuy('a');
+  game.passAuction('a');
+  game.passAuction('b');
+  game.bidAuction('c', 200); // offre tutto quello che ha: fin qui è tutto lecito
+
+  // La spesa impossibile, forzata: è il buco che la multa della prigione apriva.
+  carla.balance = 150;
+  game.ownership[3] = { ownerId: 'c', houses: 0, hotels: 0, mortgaged: false }; // qualcosa da liquidare
+  game.passAuction('d');
+
+  check('la casella va comunque a chi ha vinto l\'asta', game.ownership[1]?.ownerId === 'c');
+  check('il conto scoperto non passa in silenzio: si apre un debito', game.pendingAction?.type === 'awaiting_debt' && game.pendingAction.playerId === 'c', JSON.stringify(game.pendingAction));
+  check('il debito è dell\'importo mancante', game.pendingAction?.amount === 50, `${game.pendingAction?.amount}`);
+  check('e il turno non avanza finché il conto è scoperto', game.currentPlayer.id === 'a');
+
+  game.resolveDebtAuto('c');
+  check('saldato il debito il giocatore torna in pari', carla.balance >= 0, `saldo=${carla.balance}`);
+  check('nessuna finestra resta aperta', game.pendingAction === null, JSON.stringify(game.pendingAction));
+  check('e la partita riprende dal prossimo giocatore', !game.currentPlayer.bankrupt, `turno di ${game.currentPlayer.name}`);
+
+  // Controprova: l'asta normale, dove la cassa basta, non deve aprire proprio
+  // nulla — la rete non deve trasformare un acquisto riuscito in un debito.
+  const g2 = new GameEngine('ASTA-CASSA-2');
+  ['Anna', 'Bruno', 'Carla'].forEach((nome, i) => {
+    g2.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗'][i]);
+  });
+  g2.start();
+  g2.turnResolved = false;
+  g2.movePlayer(g2.players[0], 1);
+  g2.declineBuy('a');
+  g2.bidAuction('a', 50);
+  g2.passAuction('b');
+  g2.passAuction('c');
+  check('un\'asta pagabile si chiude senza aprire nessun debito', g2.pendingAction === null, JSON.stringify(g2.pendingAction));
+  check('e il prezzo è scalato per intero', g2.players[0].balance === 1450, `${g2.players[0].balance}`);
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} test superati, ${failed} falliti`);
 process.exit(failed === 0 ? 0 : 1);
