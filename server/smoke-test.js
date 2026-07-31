@@ -1726,6 +1726,91 @@ section('32f. Un\'asta fra bot si chiude anche su una casella cara');
 }
 
 // ---------------------------------------------------------------------------
+section('32h. La multa della prigione non aggira il congelamento dell\'asta');
+{
+  // Con un'asta in corso la spesa libera è congelata per tutti: costruire o
+  // riscattare un'ipoteca a metà asta renderebbe inaffrontabile un'offerta già
+  // fatta, e il conto tornerebbe scoperto solo all'aggiudicazione. La multa
+  // della prigione era l'unica uscita di denaro rimasta fuori da quel
+  // congelamento, e bastava per arrivare esattamente al risultato che il
+  // congelamento esiste per impedire: si offre tutto quello che si ha, si paga
+  // la multa, e all'aggiudicazione il conto è scoperto — con un saldo negativo
+  // che nessuno chiede di coprire, perché closeAuction scala l'offerta e basta.
+  const game = new GameEngine('MULTA-ASTA');
+  ['Anna', 'Bruno', 'Carla', 'Dino'].forEach((nome, i) => {
+    game.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗', '🚢'][i]);
+  });
+  game.start();
+  const carla = game.players[2];
+  carla.inJail = true;
+  carla.position = 10;
+  carla.balance = 200;
+
+  game.turnResolved = false;
+  game.movePlayer(game.players[0], 1); // Vicolo Corto, libera
+  game.declineBuy('a');
+  game.passAuction('a');
+  game.passAuction('b'); // ora tocca a Carla, che è in prigione
+  check('l\'asta è aperta e tocca a chi sta in prigione', game.pendingAction?.playerId === 'c');
+
+  game.bidAuction('c', 200); // offre tutta la sua cassa
+  const multa = game.payJailFine('c');
+  check('a metà asta la multa è rifiutata', !!multa.error, JSON.stringify(multa));
+  check('il saldo non è cambiato', carla.balance === 200, `saldo=${carla.balance}`);
+  check('e resta in prigione', carla.inJail === true);
+
+  game.passAuction('d'); // resta solo Carla: si aggiudica la casella
+  check('la casella va a chi ha offerto', game.ownership[1]?.ownerId === 'c');
+  check(
+    'e chi se l\'aggiudica riesce a pagarla: niente saldo negativo',
+    carla.balance === 0,
+    `saldo=${carla.balance} (senza il congelamento finiva a -50)`
+  );
+  check(
+    'nessun rosso senza un debito aperto a chiederne il rientro',
+    !(carla.balance < 0 && !game.pendingAction),
+    `saldo=${carla.balance}, pendente=${game.pendingAction?.type || 'nessuna'}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('32i. La multa della prigione non aggira nemmeno il congelamento dello scambio');
+{
+  // Stesso principio dell'asta, e stesso trattamento che hanno già la
+  // costruzione e il riscatto: mentre una proposta di scambio è in sospeso il
+  // denaro di chi ci sta dentro non deve muoversi, altrimenti la proposta
+  // diventa irricevibile fra quando è stata fatta e quando le si risponde.
+  const game = new GameEngine('MULTA-SCAMBIO');
+  ['Anna', 'Bruno', 'Carla'].forEach((nome, i) => {
+    game.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗'][i]);
+  });
+  game.start();
+  const carla = game.players[2];
+  carla.inJail = true;
+  carla.position = 10;
+  carla.balance = 200;
+  game.ownership[1] = { ownerId: 'a', houses: 0, hotels: 0, mortgaged: false };
+
+  game.proposeTrade('a', { toId: 'c', offerProperties: [1], offerMoney: 0, requestProperties: [], requestMoney: 180 });
+  check('la proposta è in sospeso verso Carla', game.pendingAction?.type === 'awaiting_trade');
+
+  const multa = game.payJailFine('c');
+  check('con una proposta aperta la multa è rifiutata', !!multa.error, JSON.stringify(multa));
+  check('il denaro promesso è ancora tutto lì', carla.balance === 200, `saldo=${carla.balance}`);
+
+  game.respondTrade('c', true);
+  check('così la proposta si può ancora accettare', game.ownership[1]?.ownerId === 'c', JSON.stringify(game.pendingAction));
+
+  // Controprova: chiuse le finestre, la multa si paga come sempre. Il saldo si
+  // rimette a posto a mano perché lo scambio appena concluso se l'è portato via
+  // quasi tutto, e qui interessa il congelamento, non il conto in tasca.
+  carla.balance = 200;
+  const dopo = game.payJailFine('c');
+  check('senza finestre aperte la multa si paga normalmente', !dopo.error, JSON.stringify(dopo));
+  check('esce di prigione', carla.inJail === false);
+}
+
+// ---------------------------------------------------------------------------
 section('32g. Il turno non si chiude con una proposta d\'acquisto aperta');
 {
   // Il riquadro "proprietà libera" era l'unica finestra che endTurn non
