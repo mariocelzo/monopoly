@@ -7,8 +7,27 @@ html, body, #root {
   margin: 0;
 }
 
+/*
+  Il tavolo: non una tinta piatta ma un feltro sotto una luce.
+
+  Tre strati, dal più vicino all'occhio al più lontano, tutti in CSS e senza
+  nemmeno un byte di immagine da scaricare:
+    1. la trama del panno, due righe incrociate a 45° con un'opacità così bassa
+       da non leggersi come righe — si nota solo che la superficie non è liscia;
+    2. la luce che cade dall'alto, come una lampada sopra il tavolo la sera;
+    3. il verde di prima, invariato: la vignettatura che tiene lo sguardo al
+       centro, dove sta il tabellone.
+  Niente `background-attachment: fixed`, per due motivi: la trama è a
+  ripetizione, quindi scorrendo non si vedrebbe comunque muovere, e su iOS uno
+  sfondo fisso costa un ridisegno a ogni frame di scorrimento — proprio dove il
+  registro sotto al tabellone è lungo e si scorre parecchio.
+*/
 body {
-  background: radial-gradient(ellipse at center, var(--felt-3) 0%, var(--felt) 70%);
+  background:
+    repeating-linear-gradient(45deg, rgba(243, 234, 216, 0.012) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.018) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, rgba(243, 234, 216, 0.045) 0%, transparent 45%),
+    radial-gradient(ellipse at center, var(--felt-3) 0%, var(--felt) 70%);
   color: var(--paper);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
@@ -36,25 +55,45 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   outline-offset: 2px;
 }
 
+/*
+  I bottoni sono gettoni, non rettangoli colorati: è scritto nel concept in
+  cima a tokens.css, ma finora l'ottone era una tinta unica e schiacciata. Il
+  peso viene da tre cose messe insieme — una sfumatura verticale (l'ottone
+  prende luce di più in alto), un filo chiaro sul bordo superiore e un'ombra
+  interna in basso, che è quello che distingue un gettone da un adesivo. E
+  soprattutto dalla pressione: premendo, il gettone scende e l'ombra si
+  ribalta all'interno. Prima non succedeva niente, e il dito non riceveva
+  nessuna risposta.
+*/
 .btn-primary {
-  background: var(--brass);
+  background: linear-gradient(180deg, var(--brass-2) 0%, var(--brass) 58%, #b0821f 100%);
   color: var(--ink);
   padding: 10px 20px;
   font-size: 0.95rem;
-  box-shadow: var(--shadow-soft);
-  transition: background 0.15s ease, transform 0.1s ease;
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.38), inset 0 -2px 0 rgba(0, 0, 0, 0.16);
+  transition: filter 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease;
 }
-.btn-primary:hover { background: var(--brass-2); transform: translateY(-1px); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.3);
+}
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 .btn-ghost {
-  background: transparent;
+  background: linear-gradient(180deg, rgba(243, 234, 216, 0.05) 0%, rgba(0, 0, 0, 0.08) 100%);
   color: var(--paper);
   border: 1.5px solid rgba(243, 234, 216, 0.35);
   padding: 9px 18px;
   font-size: 0.9rem;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease;
 }
-.btn-ghost:hover { border-color: var(--brass-2); color: var(--brass-2); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--brass-2); color: var(--brass-2); }
+.btn-ghost:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.22);
+}
+.btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 /* Bottoncini del pannello proprietà: costruisci, vendi, ipoteca, riscatta.
    Da disabilitati restano visibili ma spenti, e il title spiega il perché. */
@@ -113,13 +152,49 @@ button:focus-visible, a:focus-visible, input:focus-visible {
      messaggio — senza, un'azione rifiutata tornerebbe muta proprio per chi ha
      chiesto meno animazioni. */
   .avviso-azione { animation: none; }
+  /* Anche il sollevarsi e l'abbassarsi dei bottoni è movimento. Sparisce lo
+     spostamento, restano il colore e l'ombra premuta: il bottone continua a
+     rispondere al dito, semplicemente senza muoversi. */
+  .btn-primary, .btn-ghost { transition: filter 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+  .btn-primary:hover:not(:disabled),
+  .btn-ghost:hover:not(:disabled),
+  .btn-primary:active:not(:disabled),
+  .btn-ghost:active:not(:disabled) { transform: none; }
 }
 
+/*
+  I pannelli sono targhette posate sul tavolo, non riquadri disegnati sopra:
+  un filo di luce sul bordo alto e un velo d'ombra in basso bastano a dargli
+  uno spessore, e la sfumatura appena percettibile evita il grigio-verde piatto
+  su superfici grandi come la colonna di destra.
+*/
 .panel {
-  background: var(--felt-2);
+  background: linear-gradient(180deg, var(--felt-2) 0%, #143f31 100%);
   border: 1px solid rgba(201, 150, 44, 0.25);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(243, 234, 216, 0.07);
+}
+
+/*
+  Il velo dietro le finestre che chiedono una decisione. Era ripetuto dentro
+  dieci componenti con quattro opacità diverse (0.55, 0.6, 0.62, 0.66), scelte
+  una alla volta: la stessa finestra sembrava più o meno urgente a seconda di
+  quale fosse. Ora è un posto solo, come per LAYER in layers.ts.
+  Il nero puro spegneva il tavolo; questo è un verde quasi nero, così sotto al
+  velo il feltro resta feltro. La sfocatura serve a staccare la finestra dal
+  fondo senza doverla schiarire: il tabellone dietro resta riconoscibile ma
+  smette di competere con quello che c'è da decidere.
+*/
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 24, 18, 0.62);
+  /* Due pixel, non di più: bastano a mandare indietro il tabellone, e con la
+     sfocatura alta le pedine e le caselle diventavano indistinguibili — a metà
+     di una decisione (comprare? rilanciare?) il tabellone è proprio quello che
+     si vuole poter ancora guardare. */
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
 
 .money-positive { color: var(--brass-2); }
@@ -127,3 +202,10 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: rgba(201,150,44,0.4); border-radius: 4px; }
+/* Firefox non conosce le regole qui sopra: senza questa riga si ritrova la
+   barra grigia di sistema in mezzo all'ottone. */
+* { scrollbar-color: rgba(201, 150, 44, 0.4) transparent; scrollbar-width: thin; }
+
+/* Selezionando del testo (il codice del tavolo, il link d'invito) l'azzurro di
+   sistema è l'unico colore della pagina che non appartiene a questo tavolo. */
+::selection { background: rgba(201, 150, 44, 0.35); color: var(--paper); }

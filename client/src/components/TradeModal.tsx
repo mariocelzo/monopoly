@@ -139,7 +139,7 @@ export default function TradeModal({
   };
 
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>proposta di scambio</span>
         <h2 style={styles.title}>Tu ↔ {other.name}</h2>
@@ -262,7 +262,7 @@ export default function TradeModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.compositoreScambio, padding: 20 },
+  overlay: { display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.compositoreScambio, padding: 20 },
   card: { padding: 26, width: 900, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12 },
   destinatari: { display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' },
   destLabel: { fontSize: '0.76rem', color: 'rgba(243,234,216,0.6)' },

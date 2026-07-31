@@ -26,7 +26,7 @@ export default function DebtModal({
 
   if (!isMe) {
     return (
-      <div style={styles.overlay}>
+      <div className="scrim" style={styles.overlay}>
         <div className="panel" style={styles.waitCard}>
           <span style={styles.eyebrow}>debito in sospeso</span>
           <h2 style={styles.title}>{debtor?.name} deve €{pending.amount}</h2>
@@ -39,7 +39,7 @@ export default function DebtModal({
   }
 
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>sei in rosso</span>
         <h2 style={styles.title}>Devi coprire €{pending.amount}</h2>
@@ -83,7 +83,7 @@ const styles: Record<string, React.CSSProperties> = {
   // bassissimi, testi che vanno a capo — e per i browser mobile dove 100vh non
   // coincide con l'area davvero visibile. Qui pesa più che altrove: un debito
   // congela il turno di tutti, e un bottone irraggiungibile pianta la partita.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
+  overlay: { display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
   // `calc(100vh - 40px)` toglie i 20px di padding dell'overlay sopra e sotto:
   // con `90vh` la card poteva chiedere più dello spazio che l'overlay le lascia.
   // `margin: auto` la centra quando c'è spazio e collassa quando non ce n'è,

@@ -19,7 +19,7 @@ export default function AwayRecapModal({
   onClose: () => void;
 }) {
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>bentornato</span>
         <h2 style={styles.title}>Mentre non c'eri</h2>
@@ -47,7 +47,7 @@ const styles: Record<string, React.CSSProperties> = {
   // Stesso schema di TradeOfferModal/DebtModal: `alignItems: flex-start` più
   // `overflowY: auto` sull'overlay evitano che, su schermi bassi, la card
   // trabocchi da sopra dove nessuno scorrimento la raggiungerebbe più.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.riepilogoRientro, padding: 20, overflowY: 'auto' },
+  overlay: { display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.riepilogoRientro, padding: 20, overflowY: 'auto' },
   // `margin: auto` centra quando c'è spazio e collassa quando non ce n'è,
   // lasciando che sia l'overlay a tenere la card attaccata in alto.
   card: { padding: 26, width: 440, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12 },

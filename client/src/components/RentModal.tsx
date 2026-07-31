@@ -40,7 +40,7 @@ export default function RentModal({
   const dopo = (payer?.balance ?? 0) - pending.amount;
 
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
         <div style={{ ...styles.band, background: bandColor }} />
 
@@ -84,7 +84,7 @@ export default function RentModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.66)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20 },
+  overlay: { display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20 },
   card: { width: 320, maxWidth: '100%', padding: '0 24px 24px', textAlign: 'center', overflow: 'hidden' },
   band: { height: 12, margin: '0 -24px 18px' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#e18a8a' },

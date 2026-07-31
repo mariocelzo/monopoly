@@ -95,7 +95,7 @@ export default function SquareDetail({
   const attiva = rigaAttiva();
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div className="scrim" style={styles.overlay} onClick={onClose}>
       <div className="panel" style={styles.card} onClick={(e) => e.stopPropagation()}>
         <div style={{ ...styles.band, background: bandColor }}>
           <span style={styles.bandLabel}>
@@ -161,7 +161,7 @@ export default function SquareDetail({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.dettaglioCasella, padding: 18 },
+  overlay: { display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.dettaglioCasella, padding: 18 },
   card: { width: 300, maxWidth: '100%', maxHeight: '88vh', overflowY: 'auto', padding: 0, display: 'flex', flexDirection: 'column' },
   band: { height: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0', borderBottom: '2px solid rgba(0,0,0,0.4)' },
   bandLabel: { fontFamily: 'var(--font-mono)', fontSize: '0.66rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.65)', fontWeight: 700 },
