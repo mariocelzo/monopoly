@@ -1841,7 +1841,18 @@ class GameEngine {
     // la partita per tutti, e l'unico che potrebbe risolverla se ne sta
     // andando. endTurn non basta a ripulirla, perché sulle finestre di
     // affitto, tassa e carta si ferma proprio lui (vedi le sue guardie).
-    const suaFinestra = this.pendingAction?.playerId === playerId;
+    //
+    // Con una sola eccezione, l'asta: quella non è una finestra soltanto sua.
+    // È di tutti quelli rimasti in coda, e cancellarla perché tocca a lui
+    // parlare buttava via l'asta intera — la migliore offerta di un altro
+    // compresa, con la casella che tornava libera e nessuno che capiva perché.
+    // A toglierlo dall'asta senza distruggerla ci pensa già
+    // removeFromAuctionIfPresent, chiamata da bankruptPlayer qui sotto: annulla
+    // la sua offerta se era la più alta, lo leva dalla coda, passa la parola al
+    // prossimo e, se resta un solo offerente, chiude l'asta assegnandogli la
+    // casella. Cioè esattamente quello che succede a chi fallisce in mezzo a
+    // un'asta, che è la stessa situazione vista da un'altra porta.
+    const suaFinestra = this.pendingAction?.playerId === playerId && !this.hasPendingAuction();
     if (suaFinestra) this.pendingAction = null;
 
     this.addLog(`${player.name} abbandona la partita.`);
