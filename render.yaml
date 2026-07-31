@@ -17,3 +17,10 @@ services:
         sync: false
       - key: NODE_VERSION
         value: "20"
+      # REDIS_URL non è dichiarata qui di proposito: contiene la password
+      # dell'archivio ed è il tipo di segreto che si aggiunge a mano dal
+      # cruscotto (Environment > Add Environment Variable), non da un file in
+      # repo. Senza di lei il server parte lo stesso e tiene le partite solo in
+      # memoria; con lei le partite sopravvivono anche ai deploy, che qui sul
+      # piano gratuito ricreano il filesystem da zero. Istruzioni passo passo
+      # nel README, sezione "Persistenza delle partite".

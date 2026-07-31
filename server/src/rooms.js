@@ -3,6 +3,9 @@ const persistence = require('./persistence');
 
 // Una stanza rimasta senza nessuno collegato per più di così viene buttata via.
 // Deve essere abbondante: i giocatori possono chiudere il browser e rientrare.
+// Chi decide quando una stanza muore è questo TTL, non l'archivio: la scadenza
+// delle chiavi su Redis (KEY_TTL_S in persistence.js) è volutamente più larga e
+// serve solo contro le chiavi orfane.
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000; // 3 ore
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -19,23 +22,40 @@ class RoomManager {
     //           botTimer: Timeout | null }
     this.rooms = new Map();
     // Se la persistenza è attiva (vedi persistence.js) le stanze salvate da un
-    // avvio precedente sono già pronte qui prima ancora che arrivi un socket:
-    // un client con la partita in localStorage può fare rejoin_room da subito.
-    this.restoreFromDisk();
+    // avvio precedente tornano qui prima ancora che arrivi un socket: un client
+    // con la partita in localStorage può fare rejoin_room da subito.
+    //
+    // La lettura però non è più per forza un file locale: può essere un archivio
+    // ESTERNO raggiunto via rete (Redis), e quindi non si può più fare dentro al
+    // costruttore in modo sincrono. `ready` è la promessa che si risolve quando
+    // le stanze salvate sono di nuovo in memoria: server.js la aspetta prima di
+    // mettersi in ascolto, così nessuno può chiedere rejoin_room di una stanza
+    // che stiamo ancora ripescando. Con la persistenza spenta si risolve subito
+    // e non succede nulla, esattamente come prima.
+    this.ready = this.restoreSaved();
   }
 
   /**
-   * Ricostruisce le stanze da un eventuale salvataggio su disco. GameEngine
-   * resta puro e non sa ricostruirsi da solo (nessun metodo apposta, per non
-   * toccare gameEngine.js): si crea un'istanza vuota con `new GameEngine` e le
-   * si assegnano sopra i campi salvati, esattamente come suggerisce la
-   * consegna. Ogni stanza si ricostruisce per conto suo: una voce corrotta o
-   * incompleta non deve far perdere anche le altre, quindi si scarta solo lei
-   * (e si toglie anche dall'archivio, così non la si ritenta ai prossimi avvii).
+   * Ricostruisce le stanze da un eventuale salvataggio. GameEngine resta puro e
+   * non sa ricostruirsi da solo (nessun metodo apposta, per non toccare
+   * gameEngine.js): si crea un'istanza vuota con `new GameEngine` e le si
+   * assegnano sopra i campi salvati. Ogni stanza si ricostruisce per conto suo:
+   * una voce corrotta o incompleta non deve far perdere anche le altre, quindi
+   * si scarta solo lei (e si toglie anche dall'archivio, così non la si ritenta
+   * ai prossimi avvii).
+   *
+   * Non rifiuta mai: un archivio giù o illeggibile deve costare le partite
+   * salvate, non l'avvio del server.
    */
-  restoreFromDisk() {
+  async restoreSaved() {
     if (!persistence.enabled) return;
-    const states = persistence.load();
+    let states;
+    try {
+      states = await persistence.load();
+    } catch (err) {
+      console.warn(`[persistence] ripristino saltato (${err.message}): si parte senza stanze salvate.`);
+      return;
+    }
     const codes = [];
     for (const [code, state] of Object.entries(states)) {
       try {
