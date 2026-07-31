@@ -1113,17 +1113,40 @@ class GameEngine {
     const square = board[auction.position];
     const original = this.players.find((p) => p.id === auction.originalPlayerId);
 
+    // Chi si aggiudica la casella deve poterla pagare, e il posto per
+    // accorgersene è questo. L'offerta era già stata confrontata con la cassa
+    // nel momento in cui è stata fatta (vedi bidAuction), ma fra quel momento e
+    // adesso passa tempo di gioco, e quel denaro resta certo solo finché
+    // nessuno lo tocca: è esattamente il motivo per cui l'asta congela la spesa
+    // libera per tutti (auctionFreezeBlocker). Se si riaprisse una strada per
+    // spendere a metà asta — è già successo con la multa della prigione, che
+    // quel congelamento non lo attraversava — qui il conto tornerebbe scoperto
+    // in silenzio: saldo negativo e nessuna finestra che chieda di rientrare,
+    // cioè un giocatore che non può più pagare nulla e a cui il motore non
+    // chiede niente. Il costo di questa rete è un confronto a fine asta; il
+    // guadagno è che quel guaio, se ricapita, si presenta come un normale
+    // debito da coprire invece che come uno stato impossibile.
+    let scoperto = false;
     if (auction.currentBidderId) {
       const winner = this.players.find((p) => p.id === auction.currentBidderId);
       winner.balance -= auction.currentBid;
       this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotels: 0, mortgaged: false };
       this.addLog(`${winner.name} si aggiudica ${square.name} all'asta per ${auction.currentBid}.`);
       this.bumpStat(this.stats.purchases, winner.id);
+      if (winner.balance < 0) {
+        winner.debtTo = null; // verso la banca, come ogni acquisto
+        scoperto = true;
+      }
     } else {
       this.addLog(`Nessuno fa offerte per ${square.name}: resta libera.`);
     }
 
     this.pendingAction = null;
+    // Il debito si apre PRIMA di riprendere il tiro: finishRoll passa da
+    // endTurn, che con un debito in sospeso si ferma da sé — ed è giusto, il
+    // turno non deve avanzare finché il conto è scoperto. A rimettere in moto
+    // la partita ci pensa checkDebtResolved quando il debito è saldato.
+    if (scoperto) this.settleNextDebt();
     this.finishRoll(original);
   }
 
