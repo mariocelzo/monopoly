@@ -273,15 +273,39 @@ const INVARIANTI = [
     const p = g.players[g.turnIndex];
     if (!p) return `turnIndex ${g.turnIndex} fuori dai giocatori`;
     // Il controllo vale solo a finestre chiuse, e la sfumatura è importante.
-    // Mentre una finestra è aperta il turno è congelato per tutti comunque:
-    // se chi lo teneva esce dal tavolo nel mezzo di un'asta, il turno resta
-    // formalmente suo fino alla chiusura, e poi avanza da sé (closeAuction
-    // richiama finishRoll). È uno stato di passaggio, brutto da vedere ma non
-    // bloccante — verificato a mano, e comunque coperto qui sotto da
-    // "nessuno-stallo", che si accorgerebbe se non si sbloccasse più. Il caso
-    // fatale è invece questo: nessuna finestra aperta e il turno intestato a
-    // chi non c'è più. Lì nessuno può muovere e la partita è finita per
-    // sempre, senza che il gioco lo dica.
+    // Mentre una finestra è aperta il turno è congelato per tutti comunque: se
+    // chi lo teneva esce dal tavolo nel mezzo di un'asta (o di un debito altrui,
+    // o di uno scambio fra altri due), il turno resta formalmente suo fino alla
+    // chiusura. È uno stato di passaggio, brutto da vedere ma non bloccante.
+    //
+    // Che non sia bloccante, però, non è gratis: vale perché OGNI strada che
+    // chiude una finestra sposta poi il turno se chi lo teneva non c'è più.
+    //   - Asta: la chiude closeAuction, che richiama finishRoll. Qui il turno
+    //     avanza sempre, e per una ragione precisa: con un'asta aperta
+    //     `turnResolved` è per forza false. L'asta si apre solo da declineBuy,
+    //     cioè con una finestra d'acquisto aperta, e quella esiste solo dentro
+    //     la risoluzione di un tiro (rollDice azzera `turnResolved` come prima
+    //     cosa; endTurn, l'unico che lo rialza, quando ci riesce chiude anche la
+    //     finestra, e senza finestra non si può rinunciare). Misurato anche a
+    //     campione: su decine di migliaia di aste giocate da questo fuzzer,
+    //     `turnResolved` non è mai risultato alzato durante un'asta.
+    //   - Debito e scambio: sono le uniche due finestre che possono riguardare
+    //     giocatori DIVERSI da chi ha il turno, e lì la chiusura non spostava
+    //     niente — respondTrade non tocca il turno per scelta, e il debito
+    //     arriva sì a endTurn ma si fermava sulla guardia `turnResolved`,
+    //     alzata dal giro precedente se chi ha abbandonato non aveva ancora
+    //     tirato. Erano due partite bloccate per sempre; adesso ci pensa
+    //     resumeTurnIfHolderLeft (vedi gameEngine.js).
+    //
+    // Il caso fatale è questo qui sotto: nessuna finestra aperta e il turno
+    // intestato a chi non c'è più. Lì nessuno può muovere e la partita è finita
+    // per sempre, senza che il gioco lo dica. Attenzione però a non fidarsi solo
+    // di questo controllo (né di "nessuno-stallo", che pure se ne accorgerebbe):
+    // quelle due partite bloccate non sono mai uscite da qui in milioni di mosse
+    // casuali, perché serve una combinazione che il sorteggio delle mosse
+    // pratica pochissimo (chi ha il turno abbandona mentre è aperta la finestra
+    // di ALTRI due). Sono riprodotte a mano in smoke-test.js, nella sezione
+    // sugli abbandoni che congelavano la partita.
     if (g.pendingAction) return null;
     if (p.bankrupt) return `tocca a ${p.name}, che è in bancarotta, e non c'è nessuna finestra aperta`;
     return null;

@@ -92,6 +92,13 @@ vedevano, tutti attorno a chi lascia il tavolo; i casi corrispondenti sono ora
 fissati anche in `smoke-test.js`, perché un fuzzer con un altro seme potrebbe
 non ripassare da quelle strade.
 
+Altri due sono venuti fuori indagando uno stato che il fuzzer *tollerava*: il
+turno intestato a chi era appena uscito, con una finestra ancora aperta fra gli
+altri. Innocuo con un'asta in corso, una partita bloccata per sempre con uno
+scambio o con il debito di un altro giocatore. Vale anche al contrario, insomma:
+le eccezioni annotate nelle invarianti sono un buon posto dove andare a
+guardare.
+
 ### Test della persistenza
 
 ```bash
