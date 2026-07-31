@@ -4,6 +4,7 @@ import { TOUCH_TARGET } from '../touchTarget';
 import { PLAYER_COLORS } from './Board';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
+import SkipTurnControl from './SkipTurnControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
 import HouseRules from './HouseRules';
@@ -250,6 +251,13 @@ export default function MobileBar({
             <span style={styles.waiting}>Turno di {current?.name}</span>
           )}
         </div>
+
+        {/* Nella barra fissa e non dentro il foglio che sale dal basso: la
+            partita ferma si vede da qui, e il rimedio deve stare dove si sta
+            già guardando, non sepolto sotto due tocchi. Non occupa spazio
+            quando non serve — si disegna da solo solo se c'è un turno da
+            sbloccare (vedi skipTurnPrompt). */}
+        <SkipTurnControl state={state} myId={myId} compact />
 
         <div style={styles.tabs}>
           <button className="btn-ghost" style={styles.tab} onClick={() => setSheet('proprieta')}>

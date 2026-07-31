@@ -235,6 +235,22 @@ export interface HouseRules {
   skyscraperEnabled: boolean;
 }
 
+/**
+ * La partita è ferma perché chi ha il turno è disconnesso. Non arriva da
+ * `serialize()` del motore ma dalla stanza (vedi blockedTurn in rooms.js): il
+ * motore è puro e non guarda l'orologio.
+ *
+ * `attesaRimanenteMs` è una DURATA, non un istante: gli orologi di due
+ * dispositivi non coincidono, quindi il conto alla rovescia si fa da quando
+ * questo stato arriva, non confrontando timestamp del server con quelli locali.
+ */
+export interface BlockedTurn {
+  /** Chi tiene fermo il tavolo: è sempre il giocatore di turno. */
+  playerId: string;
+  /** Quanto manca prima che gli altri possano saltargli il turno. 0 = si può già. */
+  attesaRimanenteMs: number;
+}
+
 export interface GameState {
   roomCode: string;
   players: Player[];
@@ -257,6 +273,13 @@ export interface GameState {
   stats: GameStats;
   /** Regole della casa di questo tavolo: sola lettura per chi non è l'host. */
   rules: HouseRules;
+  /**
+   * Presente solo mentre la partita è ferma sul turno di un disconnesso, e
+   * `null` in tutti gli altri casi. Facoltativo nel tipo perché uno stato
+   * ricostruito a mano (i test della logica pura) non deve essere obbligato a
+   * dichiararlo per dire "non c'è nulla di bloccato".
+   */
+  turnoBloccato?: BlockedTurn | null;
 }
 
 export interface BoardSquare {

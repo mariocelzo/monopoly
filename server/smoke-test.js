@@ -1,7 +1,7 @@
 // Smoke test del motore di gioco. Nessun framework: si lancia con `node smoke-test.js`
 // dalla cartella server. Va eseguito prima e dopo ogni modifica sostanziale a
 // gameEngine.js, come da convenzioni del progetto.
-const { GameEngine } = require('./src/gameEngine');
+const { GameEngine, SKIP_TURN_DELAY_MS } = require('./src/gameEngine');
 const { board } = require('./src/data/board');
 const { groupWeight, propertyScore, evaluateTrade, regalaMonopolio } = require('./src/botStrategy');
 const { botMove, isBotTurn } = require('./src/bot');
@@ -2552,6 +2552,367 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
     conFormulaFissa === 24,
     `contate ${conFormulaFissa}`
   );
+}
+
+// ---------------------------------------------------------------------------
+section('45. Turno bloccato: saltare il turno di chi è disconnesso');
+{
+  /**
+   * Tavolo pronto con Anna di turno e già caduta: è la situazione che prima
+   * bloccava la partita per tutti senza rimedio. `giocatori` serve a provare
+   * sia il caso in due (dove chi salta è per forza l'unico altro) sia quello in
+   * tre (dove a saltare può essere qualcuno che non ha creato il tavolo).
+   */
+  function tavoloFermo({ giocatori = 3, connessa = false, regole = null } = {}) {
+    const g = new GameEngine('SKIP');
+    g.addPlayer('a', 'Anna', '🎩');
+    g.addPlayer('b', 'Bruno', '🐕');
+    if (giocatori >= 3) g.addPlayer('c', 'Carla', '🚗');
+    // Le regole della casa si scelgono solo prima del via (vedi setRules):
+    // dopo start() qualunque cambiamento verrebbe rifiutato in silenzio.
+    if (regole) g.setRules('a', regole);
+    g.start();
+    if (!connessa) g.setConnected('a', false);
+    return g;
+  }
+  // Un'attesa abbondantemente scaduta e una che non lo è ancora: il tempo lo
+  // misura la stanza (vedi rooms.js), qui si passa il numero e basta.
+  const SCADUTA = SKIP_TURN_DELAY_MS;
+  const NON_SCADUTA = SKIP_TURN_DELAY_MS - 1;
+
+  // --- Il caso felice ---
+  {
+    const g = tavoloFermo();
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('un altro giocatore può saltare il turno di chi è disconnesso', !esito.error, esito.error);
+    check('il turno passa al giocatore successivo', g.currentPlayer.id === 'b');
+    check('il registro dice chi ha saltato chi',
+      g.log.some((l) => l.message.includes('Bruno') && l.message.includes('Anna')));
+  }
+
+  // --- La direzione opposta: quando NON si deve poter saltare ---
+  {
+    const g = tavoloFermo({ connessa: true });
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('non si salta il turno di un giocatore COLLEGATO', !!esito.error, 'nessun errore');
+    check('e il turno resta suo', g.currentPlayer.id === 'a');
+  }
+  {
+    const g = tavoloFermo();
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: NON_SCADUTA });
+    check('non si salta un millisecondo prima della soglia', !!esito.error, 'nessun errore');
+    check('l\'errore dice quanti secondi mancano', /\d+s/.test(esito.error || ''), esito.error);
+    check('e il turno resta suo', g.currentPlayer.id === 'a');
+  }
+  {
+    const g = tavoloFermo();
+    check('non si salta a tempo zero (appena caduto)', !!g.skipDisconnectedTurn('b', { fermoDaMs: 0 }).error);
+    check('e nemmeno senza passare affatto il tempo (parametro omesso)',
+      !!g.skipDisconnectedTurn('b').error);
+    check('il turno è ancora di Anna dopo tutti i rifiuti', g.currentPlayer.id === 'a');
+  }
+  {
+    const g = tavoloFermo();
+    g.setConnected('b', false);
+    check('un giocatore a sua volta disconnesso non può saltare nessuno',
+      !!g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA }).error);
+  }
+  {
+    const g = tavoloFermo();
+    // Anna prova a saltare sé stessa: non è un caso reale (chi manda l'evento è
+    // collegato), ma il motore non deve fidarsi di chi lo chiama.
+    check('non si salta il proprio turno', !!g.skipDisconnectedTurn('a', { fermoDaMs: SCADUTA }).error);
+    check('e nemmeno da fuori dal tavolo', !!g.skipDisconnectedTurn('sconosciuto', { fermoDaMs: SCADUTA }).error);
+  }
+  {
+    const g = tavoloFermo();
+    g.players.find((p) => p.id === 'c').bankrupt = true;
+    check('chi è fallito non decide più: non può saltare',
+      !!g.skipDisconnectedTurn('c', { fermoDaMs: SCADUTA }).error);
+  }
+  {
+    const g = new GameEngine('SKIP');
+    g.addPlayer('a', 'Anna', '🎩');
+    g.addPlayer('b', 'Bruno', '🐕');
+    g.setConnected('a', false);
+    check('prima del via non c\'è nessun turno da saltare',
+      !!g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA }).error);
+    g.start();
+    g.finished = true;
+    check('a partita finita nemmeno',
+      !!g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA }).error);
+  }
+  {
+    // Una finestra intestata a un ALTRO giocatore, che è collegato e può
+    // rispondere: la partita non è ferma per colpa del disconnesso, e saltare
+    // il turno la lascerebbe congelata lo stesso.
+    const g = tavoloFermo();
+    give(g, 'c', 39);
+    g.pendingAction = { type: 'awaiting_rent', playerId: 'c', position: 39, amount: 50, ownerId: 'b', doubled: false };
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('non si salta se il tavolo aspetta la risposta di un altro', !!esito.error, 'nessun errore');
+    check('l\'errore nomina chi deve rispondere', (esito.error || '').includes('Carla'), esito.error);
+    check('e la finestra dell\'altro resta aperta', g.pendingAction?.playerId === 'c');
+  }
+
+  // --- Non è un'espulsione: non gli si toglie niente ---
+  {
+    const g = tavoloFermo();
+    const anna = g.players.find((p) => p.id === 'a');
+    give(g, 'a', 1);
+    give(g, 'a', 3, { houses: 0 });
+    anna.balance = 1234;
+    anna.position = 17;
+    anna.jailCards = 2;
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('chi viene saltato resta al tavolo', g.players.some((p) => p.id === 'a'));
+    check('non va in bancarotta', anna.bankrupt === false);
+    check('tiene il suo denaro', anna.balance === 1234);
+    check('tiene le sue proprietà', g.propertiesOf('a').length === 2);
+    check('tiene la sua posizione sul tabellone', anna.position === 17);
+    check('tiene le sue carte "esci di prigione"', anna.jailCards === 2);
+    check('resta segnato come disconnesso, non come uscito', anna.connected === false);
+    check('la partita non finisce', g.finished === false);
+  }
+  {
+    // In prigione: saltare non consuma un tentativo di uscita. Sarebbe un
+    // danno vero, e per un motivo che non dipende da lui.
+    const g = tavoloFermo();
+    const anna = g.players.find((p) => p.id === 'a');
+    anna.inJail = true;
+    anna.jailTurns = 1;
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('chi è in prigione ci resta senza consumare un tentativo',
+      anna.inJail === true && anna.jailTurns === 1);
+  }
+
+  // --- Chi può chiedere il salto ---
+  {
+    const g = tavoloFermo();
+    check('l\'host del tavolo è Anna, quella caduta', g.hostId === 'a');
+    const esito = g.skipDisconnectedTurn('c', { fermoDaMs: SCADUTA });
+    check('anche chi NON ha creato il tavolo può sbloccare la partita', !esito.error, esito.error);
+    check('il turno è passato', g.currentPlayer.id === 'b');
+  }
+  {
+    const g = tavoloFermo({ giocatori: 2 });
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('funziona anche in due, dove chi salta è l\'unico rimasto sveglio', !esito.error, esito.error);
+    check('e la mano passa a lui', g.currentPlayer.id === 'b');
+  }
+
+  // --- Le finestre aperte a suo nome: il modo in cui la partita si congelava ---
+  {
+    // Proposta d'acquisto: rinuncia. Con l'asta accesa la casella va all'asta
+    // fra gli altri, esattamente come se avesse detto "no, grazie".
+    const g = tavoloFermo({ regole: { auctionEnabled: false } });
+    const anna = g.players.find((p) => p.id === 'a');
+    anna.position = 1;
+    g.resolveLanding(anna);
+    check('preparazione: Anna ha una proposta d\'acquisto aperta', g.pendingAction?.type === 'awaiting_buy');
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('la proposta d\'acquisto del disconnesso si chiude', !esito.error && g.pendingAction === null, esito.error);
+    check('non compra nulla al posto suo', g.ownership[1] === undefined);
+    check('e il turno prosegue', g.currentPlayer.id === 'b');
+  }
+  {
+    // Stessa cosa con l'asta accesa: rinunciando si apre l'asta, dove Anna è
+    // la prima a dover parlare — e passa. La partita resta in mano a chi c'è.
+    const g = tavoloFermo({ regole: { auctionEnabled: true } });
+    const anna = g.players.find((p) => p.id === 'a');
+    anna.position = 39;
+    g.resolveLanding(anna);
+    check('preparazione: proposta d\'acquisto su Parco della Vittoria', g.pendingAction?.type === 'awaiting_buy');
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    const dopo = g.pendingAction;
+    check('con l\'asta accesa la casella va all\'asta fra gli altri',
+      dopo === null || (dopo.type === 'awaiting_auction' && dopo.playerId !== 'a'),
+      JSON.stringify(dopo));
+    check('e non è più Anna a dover parlare', dopo === null || dopo.playerId !== 'a');
+  }
+  {
+    // Affitto: si paga per lui. Chiudere e basta la finestra vorrebbe dire
+    // regalargli l'affitto e derubare il padrone di casa — e diventerebbe una
+    // scorciatoia da usare apposta.
+    const g = tavoloFermo();
+    give(g, 'b', 39);
+    const anna = g.players.find((p) => p.id === 'a');
+    const bruno = g.players.find((p) => p.id === 'b');
+    anna.balance = 1000;
+    bruno.balance = 1000;
+    anna.position = 37;
+    g.movePlayer(anna, 2);
+    check('preparazione: Anna deve un affitto a Bruno', g.pendingAction?.type === 'awaiting_rent');
+    const dovuto = g.pendingAction.amount;
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('l\'affitto viene pagato lo stesso, non cancellato', anna.balance === 1000 - dovuto);
+    check('e il padrone di casa lo incassa', bruno.balance === 1000 + dovuto);
+    check('nessuna finestra resta aperta', g.pendingAction === null);
+    check('il turno prosegue', g.currentPlayer.id === 'b');
+  }
+  {
+    // Tassa: identica all'affitto, e con una coda — il saldo non basta, quindi
+    // si apre un debito sempre intestato a lui, che va risolto nello stesso
+    // giro o la partita resta ferma esattamente come prima.
+    const g = tavoloFermo();
+    const anna = g.players.find((p) => p.id === 'a');
+    anna.balance = 10;
+    give(g, 'a', 39); // patrimonio da liquidare: 200 di ipoteca, più che sufficienti
+    anna.position = 2;
+    g.movePlayer(anna, 2); // casella 4: Tassa patrimoniale, 200
+    check('preparazione: Anna ha una tassa da pagare', g.pendingAction?.type === 'awaiting_tax');
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('la tassa si paga e il debito che ne segue si liquida da sé',
+      !esito.error && g.pendingAction === null, `${esito.error || ''} ${JSON.stringify(g.pendingAction)}`);
+    check('il saldo torna in pari senza bancarotta', anna.balance >= 0 && anna.bankrupt === false);
+    check('ha pagato ipotecando, non perdendo la proprietà', g.ownership[39]?.ownerId === 'a');
+    check('e la proprietà risulta ipotecata', g.ownership[39]?.mortgaged === true);
+    check('il turno prosegue', g.currentPlayer.id === 'b');
+  }
+  {
+    // Debito già aperto: si liquida, non ci si arrende mai al posto suo.
+    const g = tavoloFermo();
+    const anna = g.players.find((p) => p.id === 'a');
+    give(g, 'a', 39);
+    anna.balance = 0;
+    g.chargePlayer(anna, 150);
+    check('preparazione: Anna ha un debito aperto', g.pendingAction?.type === 'awaiting_debt');
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('il debito viene coperto liquidando, non con la bancarotta',
+      anna.bankrupt === false && anna.balance >= 0);
+    check('la partita riparte', g.pendingAction === null && g.currentPlayer.id === 'b');
+  }
+  {
+    // Carta pescata e mai letta: è la finestra che blocca tutti pur non
+    // chiedendo nessuna decisione.
+    const g = tavoloFermo();
+    const anna = g.players.find((p) => p.id === 'a');
+    g.drawCard(anna, 'community');
+    check('preparazione: Anna ha una carta da leggere', g.pendingAction?.type === 'awaiting_card');
+    const esito = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('la carta viene letta e applicata al posto suo', !esito.error, esito.error);
+    check('e non resta una finestra intestata ad Anna',
+      g.pendingAction === null || g.pendingAction.playerId !== 'a', JSON.stringify(g.pendingAction));
+  }
+  {
+    // Scambio proposto a chi è caduto: si rifiuta. Accettare al posto suo
+    // vorrebbe dire firmare un contratto per un altro.
+    const g = tavoloFermo();
+    give(g, 'b', 1);
+    const esito0 = g.proposeTrade('b', { toId: 'a', offerProperties: [1], requestMoney: 100 });
+    check('preparazione: c\'è uno scambio in attesa della risposta di Anna',
+      !esito0.error && g.pendingAction?.type === 'awaiting_trade', esito0.error);
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('lo scambio viene rifiutato, mai accettato al posto suo',
+      g.pendingAction === null && g.ownership[1].ownerId === 'b');
+    check('e nessun denaro cambia mano', g.players.find((p) => p.id === 'a').balance === 1500);
+  }
+  {
+    // Asta in cui tocca a lui rilanciare: passa. Offrire per un altro
+    // significherebbe spendere i suoi soldi.
+    const g = tavoloFermo();
+    const anna = g.players.find((p) => p.id === 'a');
+    g.openAuction(39, anna);
+    check('preparazione: tocca ad Anna rilanciare', g.pendingAction?.type === 'awaiting_auction' && g.pendingAction.playerId === 'a');
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('passa l\'asta invece di offrire al posto suo', anna.balance === 1500);
+    check('e l\'asta non aspetta più lei',
+      g.pendingAction === null || g.pendingAction.playerId !== 'a', JSON.stringify(g.pendingAction));
+  }
+
+  // --- Il giro dopo ---
+  {
+    const g = tavoloFermo({ giocatori: 2 });
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('preparazione: tocca a Bruno', g.currentPlayer.id === 'b');
+    g.rollDice('b');
+    while (g.pendingAction) {
+      const pa = g.pendingAction;
+      if (pa.type === 'awaiting_buy') g.declineBuy(pa.playerId);
+      else if (pa.type === 'awaiting_auction') g.passAuction(pa.playerId);
+      else if (pa.type === 'awaiting_card') g.acknowledgeCard(pa.playerId);
+      else if (pa.type === 'awaiting_rent') g.payRent(pa.playerId);
+      else if (pa.type === 'awaiting_tax') g.payTax(pa.playerId);
+      else if (pa.type === 'awaiting_debt') g.resolveDebtAuto(pa.playerId);
+      else break;
+    }
+    if (g.currentPlayer.id === 'b') g.endTurn();
+    check('il giro torna al disconnesso: la partita non lo esclude',
+      g.currentPlayer.id === 'a' || g.finished, `turno di ${g.currentPlayer.id}`);
+    if (!g.finished && g.currentPlayer.id === 'a') {
+      check('e lo si può saltare di nuovo, se ancora non è tornato',
+        !g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA }).error);
+    }
+  }
+  {
+    const g = tavoloFermo({ giocatori: 2 });
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    // Anna rientra: da qui in poi gioca lei, e nessuno può più saltarla.
+    g.setConnected('a', true);
+    g.endTurn();
+    check('preparazione: il turno è tornato ad Anna, che è rientrata', g.currentPlayer.id === 'a');
+    check('rientrata, non la si salta più', !!g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA }).error);
+    check('e può giocare normalmente', !g.rollDice('a').error);
+  }
+  {
+    // Il tiro extra da doppio non protegge dal salto: se è caduto non lo
+    // giocherà nessuno, e il turno deve andare avanti lo stesso.
+    const g = tavoloFermo({ giocatori: 2 });
+    g.lastRollWasDouble = true;
+    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('nemmeno un doppio tiene fermo il tavolo su chi è caduto', g.currentPlayer.id === 'b');
+  }
+
+  check('la soglia esportata dal motore è un minuto', SKIP_TURN_DELAY_MS === 60 * 1000);
+}
+
+// ---------------------------------------------------------------------------
+section('46. Turno bloccato: l\'orologio della stanza (rooms.js)');
+{
+  const { RoomManager } = require('./src/rooms');
+  const rooms = new RoomManager();
+  const code = rooms.createRoom();
+  const room = rooms.getRoom(code);
+  room.game.addPlayer('a', 'Anna', '🎩');
+  room.game.addPlayer('b', 'Bruno', '🐕');
+  rooms.attachSocket(code, 's-a', 'a');
+  rooms.attachSocket(code, 's-b', 'b');
+  room.game.start();
+
+  const T0 = 1_000_000; // un istante qualunque: tutti i conti sono relativi
+  rooms.noteTurn(code, T0);
+
+  check('con tutti collegati non c\'è nessun turno fermo', rooms.stalledTurnMs(code, T0 + 999_999) === null);
+  check('e non c\'è niente da dire al client', rooms.blockedTurn(code, T0 + 999_999) === null);
+
+  // Anna cade mezzo minuto dopo l'inizio del suo turno.
+  rooms.detachSocket('s-a', T0 + 30_000);
+  check('appena caduta, il turno risulta fermo da zero',
+    rooms.stalledTurnMs(code, T0 + 30_000) === 0);
+  check('l\'attesa NON parte dall\'inizio del turno ma dalla caduta',
+    rooms.stalledTurnMs(code, T0 + 40_000) === 10_000);
+  check('il client riceve quanto manca, non un istante di scadenza',
+    rooms.blockedTurn(code, T0 + 40_000)?.attesaRimanenteMs === SKIP_TURN_DELAY_MS - 10_000);
+  check('e riceve di chi si tratta', rooms.blockedTurn(code, T0 + 40_000)?.playerId === 'a');
+  check('passato il minuto l\'attesa è finita',
+    rooms.blockedTurn(code, T0 + 30_000 + SKIP_TURN_DELAY_MS)?.attesaRimanenteMs === 0);
+  check('e non scende mai sotto zero',
+    rooms.blockedTurn(code, T0 + 10_000_000)?.attesaRimanenteMs === 0);
+
+  // Rientra: l'orologio dell'assenza si azzera del tutto.
+  rooms.attachSocket(code, 's-a2', 'a');
+  check('rientrando non c\'è più niente di fermo', rooms.stalledTurnMs(code, T0 + 10_000_000) === null);
+
+  // Chi era offline da un'ora prima ancora che gli toccasse: l'attesa parte da
+  // quando la mano è arrivata a lui, non da quando era caduto.
+  rooms.detachSocket('s-b', T0);
+  room.game.endTurn(); // ora tocca a Bruno, che è offline da un pezzo
+  rooms.noteTurn(code, T0 + 3_600_000);
+  check('chi era già offline non si salta all\'istante: l\'attesa parte dal suo turno',
+    rooms.stalledTurnMs(code, T0 + 3_600_000 + 5_000) === 5_000);
+
+  check('una stanza inesistente non ha orologi da leggere', rooms.stalledTurnMs('XXXXX') === null);
+  rooms.closeRoom(code);
 }
 
 // ---------------------------------------------------------------------------

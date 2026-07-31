@@ -1,6 +1,7 @@
 import { BoardSquare, GameState, inviaAzione } from '../socket';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
+import SkipTurnControl from './SkipTurnControl';
 import HomeButton from './HomeButton';
 import InviteLink from './InviteLink';
 import HouseRules from './HouseRules';
@@ -172,6 +173,11 @@ export default function GamePanel({
           <span style={{ color: 'rgba(243,234,216,0.6)' }}>Turno di {current?.name}...</span>
         )}
       </div>
+
+      {/* Subito sotto al turno, perché è lì che si guarda quando non succede
+          niente. Compare da solo se chi ha la mano è caduto, e solo per gli
+          altri: tutte le condizioni stanno in skipTurnPrompt. */}
+      <SkipTurnControl state={state} myId={myId} />
 
       {state.started && !state.finished && (
         <button
