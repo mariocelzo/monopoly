@@ -1683,6 +1683,57 @@ section('32f. Un\'asta fra bot si chiude anche su una casella cara');
 }
 
 // ---------------------------------------------------------------------------
+section('32g. Il turno non si chiude con una proposta d\'acquisto aperta');
+{
+  // Il riquadro "proprietà libera" era l'unica finestra che endTurn non
+  // guardava, e da lì passava una mossa che nel Monopoli non esiste: premere
+  // "Fine" chiudeva il turno, faceva sparire la proposta e saltava l'asta.
+  // Chi lo faceva non subiva nemmeno la conseguenza normale del rifiuto — la
+  // casella restava libera per il proprio giro dopo, invece di finire all'asta
+  // dove chiunque avrebbe potuto prendersela.
+  const game = new GameEngine('FINE-ACQUISTO');
+  game.addPlayer('a', 'Anna', '🎩');
+  game.addPlayer('b', 'Bruno', '🐕');
+  game.addPlayer('c', 'Carla', '🚗');
+  game.start();
+
+  // Si tira davvero, non si sposta la pedina a mano: "Fine" arriva dopo un
+  // tiro, ed è il tiro che azzera turnResolved. 1+2 = Vicolo Stretto, libera,
+  // e non è un doppio.
+  const dadi = [0, 0.2];
+  const realRandom = Math.random;
+  Math.random = () => (dadi.length ? dadi.shift() : 0.5);
+  game.rollDice('a');
+  Math.random = realRandom;
+  check('il tiro apre la proposta d\'acquisto', game.pendingAction?.type === 'awaiting_buy', JSON.stringify(game.pendingAction));
+
+  const fine = game.endTurn();
+  check('"Fine" è rifiutato finché non si decide', !!fine.error, JSON.stringify(fine));
+  check('la proposta d\'acquisto resta aperta', game.pendingAction?.type === 'awaiting_buy');
+  check('e il turno non è passato a nessuno', game.currentPlayer.id === 'a');
+
+  // Rinunciando si passa dalla strada giusta: la casella va all'asta, come
+  // deve, e chiunque può prendersela.
+  game.declineBuy('a');
+  check('rinunciando la casella va all\'asta, non sparisce', game.pendingAction?.type === 'awaiting_auction');
+  check('l\'asta è sulla casella su cui era atterrato', game.pendingAction.position === 3, `posizione=${game.pendingAction?.position}`);
+
+  // La controprova dall'altro lato: comprando, il turno si chiude da sé e
+  // "Fine" non serve nemmeno.
+  const g2 = new GameEngine('FINE-ACQUISTO-2');
+  g2.addPlayer('a', 'Anna', '🎩');
+  g2.addPlayer('b', 'Bruno', '🐕');
+  g2.start();
+  const dadi2 = [0, 0.2];
+  Math.random = () => (dadi2.length ? dadi2.shift() : 0.5);
+  g2.rollDice('a');
+  Math.random = realRandom;
+  g2.buyProperty('a');
+  check('comprando la finestra si chiude', g2.pendingAction === null);
+  check('e il turno passa da sé, senza premere "Fine"', g2.currentPlayer.id === 'b', `turno di ${g2.currentPlayer.name}`);
+}
+
+// ---------------------------------------------------------------------------
 section('33. Regole della casa: si scelgono prima del via, solo dall\'host');
 {
   const game = new GameEngine('RULES');
