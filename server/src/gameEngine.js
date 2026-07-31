@@ -1758,6 +1758,9 @@ class GameEngine {
     if (!accept) {
       this.pendingAction = null;
       this.addLog(`${to.name} rifiuta lo scambio.`);
+      // La proposta poteva essere l'unica finestra aperta mentre chi aveva il
+      // turno lasciava il tavolo: chiudendola tocca a noi rimetterlo in moto.
+      this.resumeTurnIfHolderLeft();
       return {};
     }
 
@@ -1797,6 +1800,10 @@ class GameEngine {
     // dopo aver chiuso il pendingAction perché l'interesse può aprire un debito.
     this.chargeMortgageInterest(to, trade.offerProperties);
     this.chargeMortgageInterest(from, trade.requestProperties);
+    // Come sopra, e dopo gli interessi: se l'addebito ha aperto un debito la
+    // rete di sicurezza non fa nulla, e a rimettere in moto il turno sarà chi
+    // chiude quel debito.
+    this.resumeTurnIfHolderLeft();
     return {};
   }
 
@@ -1848,10 +1855,14 @@ class GameEngine {
       // mano, e non con endTurn: chi abbandona senza aver ancora tirato lascia
       // `turnResolved` alzato dal turno precedente, endTurn si fermerebbe lì e
       // la partita resterebbe in attesa di un giocatore che non c'è più — un
-      // blocco definitivo, con tre o più giocatori al tavolo. La condizione
-      // sul giocatore in bancarotta rende questa chiamata innocua quando il
-      // turno è già avanzato da sé (bankruptPlayer chiama finishRoll).
-      if (!this.pendingAction && this.currentPlayer?.bankrupt) this.advanceTurn();
+      // blocco definitivo, con tre o più giocatori al tavolo. La condizione sul
+      // giocatore in bancarotta (dentro resumeTurnIfHolderLeft) rende questa
+      // chiamata innocua quando il turno è già avanzato da sé (bankruptPlayer
+      // chiama finishRoll). Se invece resta aperta la finestra di QUALCUN ALTRO
+      // — un debito o uno scambio — qui non si può fare nulla e il turno si
+      // sposta più tardi, quando quella finestra si chiude: stessa rete di
+      // sicurezza, vedi resumeTurnIfHolderLeft.
+      this.resumeTurnIfHolderLeft();
     }
     return {};
   }
@@ -1980,6 +1991,40 @@ class GameEngine {
     this.addLog(`Turno di ${this.currentPlayer.name}.`);
   }
 
+  /**
+   * Rete di sicurezza per il turno rimasto intestato a chi ha lasciato il
+   * tavolo. Con una finestra aperta abandonGame non può spostarlo subito: la
+   * partita è comunque congelata lì, e spostarlo in anticipo farebbe saltare il
+   * turno a qualcuno, perché alla chiusura della finestra la risoluzione
+   * riprende da sé e lo sposterebbe una seconda volta. Lo lascia quindi
+   * formalmente a chi è uscito e conta su chi chiude la finestra per rimetterlo
+   * in moto. Funziona da sé per le finestre che nascono dentro la risoluzione
+   * di un tiro — acquisto, carta, affitto, tassa, asta: le chiude tutte un
+   * finishRoll che passa da endTurn, e lì `turnResolved` è per forza false (a
+   * turno già chiuso quelle finestre non esistono nemmeno). Non funziona per le
+   * due finestre che possono riguardare giocatori DIVERSI da chi ha il turno:
+   *
+   *   - lo scambio, che per scelta non tocca mai il turno (vedi respondTrade):
+   *     chiusa la proposta non resta nessuno a spostarlo;
+   *   - il debito di un altro giocatore aperto fuori da un tiro (l'interesse su
+   *     un'ipoteca ricevuta in uno scambio, o il rosso ereditato da una
+   *     bancarotta che settleNextDebt apre più tardi — anche quello dentro
+   *     abandonGame stesso): lì finishRoll ci arriva, ma endTurn si ferma sulla
+   *     guardia `turnResolved`, già alzata dalla chiusura del turno precedente
+   *     quando chi ha abbandonato non aveva ancora tirato.
+   *
+   * In entrambi i casi si finiva col turno su un giocatore in bancarotta e
+   * nessuna finestra aperta: nessuno può più muovere e la partita è bloccata per
+   * sempre. Va chiamata dove una finestra si chiude senza che il turno passi da
+   * un endTurn andato a buon fine.
+   */
+  resumeTurnIfHolderLeft() {
+    // Con una finestra ancora aperta non si tocca nulla: a rimettere in moto il
+    // turno sarà chi chiude QUELLA, con questa stessa rete di sicurezza.
+    if (this.finished || this.pendingAction) return;
+    if (this.currentPlayer?.bankrupt) this.advanceTurn();
+  }
+
   endTurn() {
     // Un debito o uno scambio aperto congelano la partita per entrambi.
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
@@ -2002,9 +2047,16 @@ class GameEngine {
     // tiro (vedi declineBuy) e deve chiudersi da sé (closeAuction) prima che
     // il turno possa avanzare, tiro extra da doppio compreso.
     if (this.hasPendingAuction()) return { error: 'Prima risolvi l\'asta in corso' };
+    if (this.finished) return {};
     // Il turno può essere chiuso una sola volta per tiro: una bancarotta lo
-    // chiude già da dentro resolveLanding, e rollDice non deve rifarlo.
-    if (this.turnResolved || this.finished) return {};
+    // chiude già da dentro resolveLanding, e rollDice non deve rifarlo. L'unica
+    // eccezione è il turno di chi non c'è più: se chi lo teneva ha lasciato il
+    // tavolo va spostato comunque, altrimenti nessuno potrebbe più muovere
+    // (vedi resumeTurnIfHolderLeft).
+    if (this.turnResolved) {
+      this.resumeTurnIfHolderLeft();
+      return {};
+    }
     this.turnResolved = true;
     this.pendingAction = null;
     // I doppi contano solo entro il turno di chi li ha tirati.

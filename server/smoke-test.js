@@ -2392,11 +2392,21 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
 // ---------------------------------------------------------------------------
 // Chi lascia il tavolo non deve bloccare la partita agli altri
 // ---------------------------------------------------------------------------
-// Tutti e tre i casi qui sotto sono stati trovati da invariant-test.js, non a
-// mano: sono la ragione per cui quel file esiste. Restano fissati qui perché il
-// fuzzer è probabilistico — con un altro seme potrebbe non ripassare da queste
-// strade — mentre una regressione su un blocco di partita non deve poter
-// tornare in silenzio.
+// I primi tre casi sono stati trovati da invariant-test.js, non a mano: sono la
+// ragione per cui quel file esiste. Restano fissati qui perché il fuzzer è
+// probabilistico — con un altro seme potrebbe non ripassare da queste strade —
+// mentre una regressione su un blocco di partita non deve poter tornare in
+// silenzio.
+//
+// I casi dal 6 in poi arrivano dalla direzione opposta, e vale la pena
+// ricordarlo: il fuzzer aveva mostrato uno stato di PASSAGGIO che sembrava
+// innocuo (il turno intestato a chi era appena uscito, con un'asta ancora
+// aperta fra gli altri), e a guardarlo da vicino l'asta si è rivelata l'unico
+// caso davvero sicuro dei tre possibili. Le altre due finestre che possono
+// riguardare giocatori diversi da chi ha il turno — lo scambio e il debito
+// altrui — congelavano la partita per sempre non appena si chiudevano. Quelle
+// due sequenze il fuzzer non le ha mai pescate in milioni di mosse: servono
+// tre giocatori che fanno la cosa giusta nell'ordine giusto.
 {
   console.log('\n--- Abbandoni che congelavano la partita ---');
 
@@ -2502,6 +2512,176 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
       `nessuna finestra sopravvive alla fine della partita (era ${finestraAperta || 'nessuna'})`,
       g.pendingAction === null,
       `resta ${g.pendingAction?.type}`
+    );
+  }
+
+  // 6. Asta in corso fra gli ALTRI mentre chi l'ha aperta abbandona. Il turno
+  // resta formalmente suo fino alla chiusura dell'asta — abandonGame non lo
+  // sposta, perché una finestra aperta congela comunque la partita — e a
+  // rimetterlo in moto ci pensa closeAuction con finishRoll. Funziona per una
+  // ragione precisa, che questo test fissa: quando un'asta è aperta
+  // `turnResolved` è SEMPRE false. L'asta si apre solo da declineBuy, cioè con
+  // una finestra d'acquisto aperta, e una finestra d'acquisto esiste solo
+  // dentro la risoluzione di un tiro — rollDice azzera `turnResolved` come
+  // prima cosa, ed endTurn (l'unico che lo rialza) quando ci riesce chiude
+  // anche la finestra, il che renderebbe impossibile la rinuncia. Se un giorno
+  // qualcuno riuscisse ad aprire un'asta a turno già chiuso, endTurn si
+  // fermerebbe sulla sua guardia e la partita resterebbe bloccata su un
+  // giocatore che non c'è più: è la ragione per cui il controllo su
+  // `turnResolved` sta qui dentro e non è un dettaglio.
+  {
+    const g = tavolo(3);
+    // Si arriva alla casella libera tirando davvero i dadi, non spostando la
+    // pedina a mano: è il tiro che azzera `turnResolved`, ed è esattamente lo
+    // stato che questo test vuole osservare. 1+2 = Vicolo Stretto, libera, e
+    // non è un doppio (che darebbe un tiro extra e cambierebbe il finale).
+    const dadi = [0, 0.2];
+    const realRandom = Math.random;
+    Math.random = () => (dadi.length ? dadi.shift() : 0.5);
+    g.rollDice('a');
+    Math.random = realRandom;
+    check('il tiro porta su una casella libera', g.pendingAction?.type === 'awaiting_buy', JSON.stringify(g.pendingAction));
+
+    g.declineBuy('a');
+    check('la rinuncia apre l\'asta', g.pendingAction?.type === 'awaiting_auction');
+    check(
+      'con un\'asta aperta il turno non è mai "già risolto": è ciò che rende sicura l\'attesa',
+      g.turnResolved === false
+    );
+
+    // Anna rilancia (così resta in coda) e poi lascia il tavolo: l'asta
+    // prosegue fra Bruno e Carla.
+    g.bidAuction('a', g.pendingAction.minBid);
+    g.abandonGame('a');
+    check('l\'asta prosegue fra i rimanenti', g.pendingAction?.type === 'awaiting_auction');
+    check('e chi ha abbandonato non è più in gara', !g.pendingAction.queue.includes('a'));
+    check('il turno resta formalmente suo finché l\'asta è aperta', g.currentPlayer.id === 'a');
+    check(
+      'ma il turno non risulta risolto, altrimenti la chiusura non potrebbe spostarlo',
+      g.turnResolved === false
+    );
+
+    while (g.pendingAction?.type === 'awaiting_auction') g.passAuction(g.pendingAction.playerId);
+    check('chiusa l\'asta non resta nessuna finestra aperta', g.pendingAction === null);
+    check(
+      'e il turno è passato a chi è ancora in partita',
+      !g.currentPlayer.bankrupt,
+      `il turno è rimasto a ${g.currentPlayer.name}, in bancarotta`
+    );
+  }
+
+  // 7. Scambio aperto fra gli ALTRI due mentre chi ha il turno abbandona.
+  // Qui l'attesa non era affatto innocua: respondTrade, per come è fatto, non
+  // tocca mai il turno (giustamente: uno scambio si può proporre in qualunque
+  // momento e non deve consumare il turno di nessuno). Chiusa la proposta non
+  // restava quindi nessuna finestra aperta e nessuno spostava il turno, fermo
+  // su chi aveva appena lasciato il tavolo: partita bloccata per sempre.
+  {
+    const g = tavolo(3);
+    g.ownership[1] = { ownerId: 'b', houses: 0, hotels: 0, mortgaged: false };
+    // La proposta è fra Bruno e Carla: Anna, che ha il turno, non c'entra
+    // nulla — è la differenza col caso 3, dove usciva chi aveva proposto e la
+    // proposta decadeva da sé.
+    g.proposeTrade('b', { toId: 'c', offerProperties: [1], offerMoney: 0, requestProperties: [], requestMoney: 50 });
+    check('la proposta fra gli altri due è in sospeso', g.pendingAction?.type === 'awaiting_trade');
+
+    g.abandonGame('a');
+    check('la proposta fra gli altri due sopravvive all\'abbandono', g.pendingAction?.type === 'awaiting_trade');
+    check('e il turno resta intestato a chi è uscito finché la finestra è aperta', g.currentPlayer.id === 'a');
+
+    g.respondTrade('c', false);
+    check('rispondere allo scambio chiude la finestra', g.pendingAction === null);
+    check(
+      'e a quel punto il turno passa a chi è ancora in partita',
+      !g.currentPlayer.bankrupt,
+      `il turno è rimasto a ${g.currentPlayer.name}, in bancarotta: nessuno può più muovere`
+    );
+  }
+
+  // 8. Debito di un ALTRO giocatore aperto dall'abbandono stesso. Chi eredita
+  // le proprietà di un fallito paga subito il 10% sulle ipotecate, e
+  // quell'addebito è diretto: può lasciarlo in rosso senza aprire nessun
+  // debito (eccezione dichiarata del motore, vedi bankruptPlayer). Il primo
+  // che chiama settleNextDebt gli apre la finestra, e uno di quei punti è
+  // proprio abandonGame. Il risultato era la stessa trappola del caso 7 per
+  // un'altra strada: la finestra è di un altro, il turno resta a chi è uscito,
+  // e chi salda il debito non lo sposta — checkDebtResolved passa da
+  // finishRoll, ma endTurn si ferma sulla guardia `turnResolved`, alzata dalla
+  // chiusura del turno precedente perché chi ha abbandonato non aveva ancora
+  // tirato.
+  {
+    const g = tavolo(4);
+    const bruno = g.players.find((p) => p.id === 'b');
+    const carla = g.players.find((p) => p.id === 'c');
+    // Anna ha il turno e non ha ancora tirato: `turnResolved` è quello alzato
+    // dalla chiusura del turno precedente.
+    g.turnResolved = true;
+
+    // Carla fallisce verso Bruno lasciandogli una casella ipotecata: Bruno
+    // eredita, paga l'interesse e resta in rosso senza debito aperto.
+    g.ownership[39] = { ownerId: 'c', houses: 0, hotels: 0, mortgaged: true };
+    bruno.balance = 5;
+    carla.balance = 0;
+    g.bankruptPlayer(carla, bruno);
+    check('chi eredita un\'ipoteca può restare in rosso senza debito aperto', bruno.balance < 0 && !g.pendingAction, `saldo=${bruno.balance}`);
+
+    g.abandonGame('a');
+    check('l\'abbandono apre il debito rimasto in sospeso di Bruno', g.pendingAction?.type === 'awaiting_debt' && g.pendingAction.playerId === 'b', JSON.stringify(g.pendingAction));
+    // Qui il turno si sposta già subito: quando bankruptPlayer richiama
+    // finishRoll il debito non è ancora stato aperto (settleNextDebt viene
+    // dopo), quindi endTurn arriva in fondo e la rete di sicurezza scatta lì.
+    // Prima della correzione si fermava sulla guardia `turnResolved` e il turno
+    // restava ad Anna: da lì in poi non si sbloccava più.
+    check('il turno non resta a chi è appena uscito', !g.currentPlayer.bankrupt, `il turno è rimasto a ${g.currentPlayer.name}`);
+
+    g.ownership[1] = { ownerId: 'b', houses: 0, hotels: 0, mortgaged: false }; // qualcosa da liquidare
+    g.resolveDebtAuto('b');
+    check('saldato il debito non resta nessuna finestra aperta', g.pendingAction === null, JSON.stringify(g.pendingAction));
+    check(
+      'e il turno passa a chi è ancora in partita',
+      !g.currentPlayer.bankrupt,
+      `il turno è rimasto a ${g.currentPlayer.name}, in bancarotta: nessuno può più muovere`
+    );
+  }
+
+  // 9. La stessa trappola del caso 8 quando il debito dell'altro giocatore è
+  // già aperto PRIMA dell'abbandono. Qui il turno non si può spostare subito —
+  // endTurn si ferma, giustamente, sul debito in sospeso — e resta davvero
+  // intestato a chi è uscito finché quel debito non si chiude. È il caso che
+  // esercita la guardia `turnResolved`: chi salda passa da checkDebtResolved ->
+  // finishRoll -> endTurn, e lì il turno risultava già chiuso dal giro
+  // precedente, perché chi ha abbandonato non aveva ancora tirato.
+  {
+    const g = tavolo(3);
+    const carla = g.players.find((p) => p.id === 'c');
+    g.turnResolved = true; // Anna ha il turno e non ha ancora tirato
+
+    // Bruno cede a Carla Parco della Vittoria ipotecata: chi riceve
+    // un'ipotecata paga subito il 10% alla banca, e a Carla quel che ha non
+    // basta. Lo scambio si può proporre in qualunque momento e non consuma il
+    // turno di nessuno: è così che il debito di un altro giocatore può aprirsi
+    // fuori dalla risoluzione di un tiro.
+    g.ownership[39] = { ownerId: 'b', houses: 0, hotels: 0, mortgaged: true };
+    g.ownership[3] = { ownerId: 'c', houses: 0, hotels: 0, mortgaged: false }; // qualcosa da liquidare
+    carla.balance = 5;
+    g.proposeTrade('b', { toId: 'c', offerProperties: [39], offerMoney: 0, requestProperties: [], requestMoney: 0 });
+    g.respondTrade('c', true);
+    check(
+      'l\'interesse sull\'ipoteca ricevuta apre il debito di Carla',
+      g.pendingAction?.type === 'awaiting_debt' && g.pendingAction.playerId === 'c',
+      JSON.stringify(g.pendingAction)
+    );
+
+    g.abandonGame('a');
+    check('col debito di un altro aperto il turno resta formalmente a chi è uscito', g.currentPlayer.id === 'a');
+    check('e il debito di Carla non viene toccato dall\'abbandono', g.pendingAction?.type === 'awaiting_debt' && g.pendingAction.playerId === 'c');
+
+    g.resolveDebtAuto('c');
+    check('saldato il debito non resta nessuna finestra aperta', g.pendingAction === null, JSON.stringify(g.pendingAction));
+    check(
+      'e il turno riparte da chi è ancora in partita',
+      !g.currentPlayer.bankrupt,
+      `il turno è rimasto a ${g.currentPlayer.name}, in bancarotta: nessuno può più muovere`
     );
   }
 }
