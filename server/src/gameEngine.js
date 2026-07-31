@@ -1199,6 +1199,20 @@ class GameEngine {
         break;
       case 'pay_each_player':
         this.players.filter((p) => p.id !== player.id && !p.bankrupt).forEach((p) => {
+          // Chi è già fallito non paga più nessuno. La lista dei destinatari si
+          // calcola una volta sola, ma la bancarotta può scattare a metà giro:
+          // senza questo controllo si continuava a addebitare a un giocatore
+          // già in bancarotta, e siccome bankruptPlayer la seconda volta esce
+          // subito, il suo saldo restava in rosso invece di tornare a zero
+          // (l'invariante `fallito-e-a-zero` è precisamente questo) e chi
+          // veniva dopo incassava denaro mai esistito: chargePlayer accredita
+          // comunque l'intero importo, e la restituzione della differenza non
+          // coperta sta dentro la bancarotta, che non veniva più eseguita.
+          // Fermarsi qui è anche la cosa giusta secondo il modello del motore,
+          // dove tutto quel che resta va al creditore che ha fatto scattare la
+          // bancarotta: chi non è stato ancora pagato non ha più niente da
+          // riscuotere, perché non c'è più niente.
+          if (player.bankrupt) return;
           this.chargePlayer(player, card.amount, p);
         });
         break;
