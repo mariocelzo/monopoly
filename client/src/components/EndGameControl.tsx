@@ -3,10 +3,21 @@ import { GameState, socket } from '../socket';
 import { TOUCH_TARGET } from '../touchTarget';
 
 /**
- * Uscita anticipata dal tavolo. Chi lo ha creato può chiuderlo per entrambi,
- * l'altro può abbandonare cedendo la vittoria. In ogni caso la stanza viene
- * distrutta e il codice smette di valere, quindi si chiede conferma: il bottone
- * si trasforma invece di aprire un modale, così basta un tocco per ripensarci.
+ * Uscita anticipata dal tavolo. Due comandi diversi, che facevano la stessa
+ * cosa quando si giocava solo in due e oggi non più:
+ *  - "Chiudi il tavolo" (solo chi lo ha creato) finisce la partita per tutti e
+ *    distrugge la stanza: il codice smette di valere;
+ *  - "Abbandona" fa uscire solo chi lo preme. Le sue proprietà tornano libere e
+ *    la partita PROSEGUE fra i rimanenti (vedi abandonGame in gameEngine.js).
+ *    In due questo coincide con la vittoria a tavolino dell'altro, perché resta
+ *    lui solo; da tre in su la partita continua senza chi è uscito, e il tavolo
+ *    resta in piedi.
+ * Il testo di conferma diceva "la vittoria va all'altro giocatore" e questo
+ * commento diceva che la stanza si distrugge in ogni caso: era vero finché i
+ * giocatori erano due, ma adesso possono essere fino a sei.
+ *
+ * In entrambi i casi si chiede conferma: il bottone si trasforma invece di
+ * aprire un modale, così basta un tocco per ripensarci.
  */
 export default function EndGameControl({
   state,
@@ -22,10 +33,18 @@ export default function EndGameControl({
 
   if (state.finished) return null;
 
+  // Quanti restano in partita oltre a chi sta guardando: è il numero che
+  // decide cosa vuol dire davvero abbandonare. Con uno solo si cede la
+  // vittoria, con più di uno la partita va avanti senza di noi. I falliti non
+  // si contano: sono già fuori.
+  const altriInGioco = state.players.filter((p) => p.id !== myId && !p.bankrupt).length;
+
   const label = isHost ? 'Chiudi il tavolo' : 'Abbandona';
   const question = isHost
-    ? 'Chiudere il tavolo? La partita finisce per entrambi e il codice non varrà più.'
-    : 'Abbandonare? La vittoria va all\'altro giocatore.';
+    ? 'Chiudere il tavolo? La partita finisce per tutti e il codice non varrà più.'
+    : altriInGioco <= 1
+      ? 'Abbandonare? Resti fuori dalla partita e la vittoria va all\'altro giocatore.'
+      : 'Abbandonare? Esci solo tu: le tue proprietà tornano libere e la partita prosegue fra gli altri.';
 
   const confirm = () => {
     socket.emit(isHost ? 'end_game' : 'abandon_game', {});

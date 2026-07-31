@@ -109,7 +109,17 @@ app.get('/board', (req, res) => res.json(board));
 function broadcastState(roomCode) {
   const room = roomManager.getRoom(roomCode);
   if (!room) return;
-  io.to(roomCode).emit('state', room.game.serialize());
+  // Prima di trasmettere: se il turno è passato a qualcun altro, la stanza se
+  // ne accorge adesso e fa ripartire il suo orologio (vedi noteTurn). Questo è
+  // l'unico punto da cui passa ogni cambiamento di stato, quindi è anche
+  // l'unico in cui va agganciato.
+  roomManager.noteTurn(roomCode);
+  const stato = room.game.serialize();
+  // Il motore non sa che ora è (vedi skipDisconnectedTurn): quanto manca prima
+  // che gli altri possano saltare il turno di chi è caduto lo calcola la
+  // stanza e viaggia accanto allo stato, non dentro serialize().
+  stato.turnoBloccato = roomManager.blockedTurn(roomCode);
+  io.to(roomCode).emit('state', stato);
   // Salvataggio differito della stanza (no-op se PERSIST_FILE non è
   // impostata, vedi persistence.js): si aggancia qui perché broadcastState
   // gira già dopo ogni cambiamento di stato, lo stesso identico punto da cui
@@ -332,6 +342,35 @@ io.on('connection', (socket) => {
     if (game.currentPlayer?.id !== playerId) return { error: 'Non è il tuo turno' };
     return game.endTurn();
   }));
+
+  /**
+   * Far ripartire la partita quando chi ha il turno è caduto e non torna.
+   * Non passa da `withGame` perché ha bisogno di una cosa che il motore non
+   * ha: l'orologio. Da quanto la partita è ferma lo sa solo la stanza (vedi
+   * stalledTurnMs in rooms.js), e va passato al motore, che sulle regole
+   * decide da solo — chi è davvero disconnesso, quanto tempo serve, cosa fare
+   * della finestra che aveva aperta.
+   */
+  socket.on('skip_turn', (payload, cb) => {
+    const code = socket.data.roomCode;
+    const room = roomManager.getRoom(code);
+    if (!room) return cb?.({ error: 'Stanza non trovata' });
+    // Come in withGame: chi manda una mossa è collegato per definizione, e la
+    // mappa dei socket va rimessa in pari prima di misurare qualunque cosa.
+    roomManager.ensureConnected(code, socket.id, socket.data.playerId);
+    // Un bot non può chiedere di saltare nessuno: non ha un socket da cui
+    // mandare questo evento e bot.js non genera questa mossa, quindi il
+    // controllo qui non può nemmeno scattare. Resta scritto perché la regola
+    // sia leggibile dove si accettano le richieste, e perché un domani un
+    // "bot pilotato da un client" non se la ritrovi per sbaglio.
+    const richiedente = room.game.players.find((p) => p.id === socket.data.playerId);
+    if (!richiedente || richiedente.isBot) return cb?.({ error: 'Non sei a questo tavolo' });
+
+    const fermoDaMs = roomManager.stalledTurnMs(code) ?? 0;
+    const result = room.game.skipDisconnectedTurn(socket.data.playerId, { fermoDaMs });
+    broadcastState(code);
+    cb?.(result || {});
+  });
 
   /**
    * Il giocatore torna alla home senza arrendersi: resta al tavolo con tutto il

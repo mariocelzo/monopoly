@@ -17,6 +17,7 @@ import { latestLogAt, missedSince } from './src/awayRecap.ts';
 import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts';
 import { isGameWaitingFor } from './src/turnAlert.ts';
 import { netWorthShares } from './src/netWorthBar.ts';
+import { skipTurnPrompt } from './src/skipTurn.ts';
 import {
   addResult,
   buildResultFromState,
@@ -535,6 +536,96 @@ section('7. Tabellino fra una partita e l\'altra');
   check("e non se lo ricalcola con uno scatto fisso",
     !/currentBid\s*[+]\s*\d/.test(codice),
     'trovata un\'espressione tipo "currentBid + 10" nel codice');
+}
+
+// ---------------------------------------------------------------------------
+section('9. Quando mostrare il comando che salta il turno di un disconnesso');
+{
+  // Anna ha il turno ed è caduta; io e Carla stiamo guardando. È la situazione
+  // che prima lasciava il tabellone fermo senza spiegazioni né rimedi.
+  const giocatore = (id: string, nome: string, extra: Partial<GameState['players'][number]> = {}) => ({
+    id, name: nome, token: 'auto', balance: 1500, position: 0, inJail: false, jailTurns: 0,
+    jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: false,
+    netWorth: 1500, ...extra,
+  });
+
+  const tavolo = (overrides: Partial<GameState> = {}): GameState => ({
+    roomCode: 'ABCDE',
+    players: [
+      giocatore('anna', 'Anna', { connected: false }),
+      giocatore('io', 'Io'),
+      giocatore('carla', 'Carla'),
+    ],
+    ownership: {},
+    turnIndex: 0,
+    started: true,
+    log: [],
+    pendingAction: null,
+    finished: false,
+    winnerId: null,
+    endedReason: null,
+    hostId: 'anna',
+    rematchVotes: [],
+    lastRoll: null,
+    stats: { startedAt: null, finishedAt: null, rentPaid: {}, rentCollected: {}, bankPaid: {}, purchases: {}, housesBuilt: {}, landings: {}, laps: {}, tradesCompleted: 0 },
+    rules: { goAmount: 500, freeParkingEnabled: true, auctionEnabled: true, startingBalance: 1500, skyscraperEnabled: false },
+    turnoBloccato: { playerId: 'anna', attesaRimanenteMs: 60000 },
+    ...overrides,
+  });
+
+  // Il caso per cui esiste: si mostra, ma prima come attesa e solo dopo come
+  // comando premibile.
+  const durante = skipTurnPrompt(tavolo(), 'io', 12_000);
+  check('mentre l\'attesa scorre si mostra l\'avviso, non il bottone',
+    durante !== null && durante.ready === false);
+  check('e dice quanti secondi mancano, arrotondati per eccesso',
+    skipTurnPrompt(tavolo(), 'io', 11_200)?.secondsLeft === 12);
+  const scaduta = skipTurnPrompt(tavolo(), 'io', 0);
+  check('scaduta l\'attesa il comando è utilizzabile',
+    scaduta !== null && scaduta.ready === true && scaduta.secondsLeft === 0);
+  check('un\'attesa già negativa (timer in ritardo) resta utilizzabile, non torna indietro',
+    skipTurnPrompt(tavolo(), 'io', -5000)?.ready === true);
+  check('nomina il giocatore fermo, per poterlo scrivere nella conferma',
+    scaduta?.player.name === 'Anna');
+
+  // Le direzioni opposte: tutti i casi in cui NON si deve vedere niente.
+  check('non si mostra se chi ha il turno è collegato',
+    skipTurnPrompt(tavolo({ players: [giocatore('anna', 'Anna'), giocatore('io', 'Io'), giocatore('carla', 'Carla')] }), 'io', 0) === null);
+  check('non si mostra senza segnalazione dal server',
+    skipTurnPrompt(tavolo({ turnoBloccato: null }), 'io', 0) === null);
+  check('non si mostra se il campo manca del tutto (server più vecchio del client)',
+    skipTurnPrompt(tavolo({ turnoBloccato: undefined }), 'io', 0) === null);
+  check('non si mostra prima del via',
+    skipTurnPrompt(tavolo({ started: false }), 'io', 0) === null);
+  check('non si mostra a partita finita',
+    skipTurnPrompt(tavolo({ finished: true }), 'io', 0) === null);
+  check('non si mostra a chi il turno ce l\'ha (a sé stessi non ci si salta)',
+    skipTurnPrompt(tavolo(), 'anna', 0) === null);
+  check('non si mostra a chi non è a questo tavolo',
+    skipTurnPrompt(tavolo(), 'estraneo', 0) === null);
+  check('non si mostra a chi è fallito: guarda e basta',
+    skipTurnPrompt(tavolo({
+      players: [giocatore('anna', 'Anna', { connected: false }), giocatore('io', 'Io', { bankrupt: true }), giocatore('carla', 'Carla')],
+    }), 'io', 0) === null);
+  check('non si mostra se il disconnesso è già fuori dalla partita',
+    skipTurnPrompt(tavolo({
+      players: [giocatore('anna', 'Anna', { connected: false, bankrupt: true }), giocatore('io', 'Io'), giocatore('carla', 'Carla')],
+    }), 'io', 0) === null);
+  // La segnalazione del server può riferirsi al turno di prima: lo stato è
+  // sempre più fresco, e comanda lui.
+  check('non si mostra se il turno è già passato ad altri',
+    skipTurnPrompt(tavolo({ turnIndex: 1 }), 'io', 0) === null);
+  // Il tavolo aspetta Carla, che è collegata: non è colpa del disconnesso, e il
+  // server rifiuterebbe comunque il salto.
+  check('non si mostra se la partita aspetta la risposta di un altro',
+    skipTurnPrompt(tavolo({
+      pendingAction: { type: 'awaiting_rent', playerId: 'carla', position: 5, amount: 20, ownerId: 'io', doubled: false },
+    }), 'io', 0) === null);
+  // Le finestre del disconnesso invece sono esattamente il caso da sbloccare.
+  check('si mostra se la finestra aperta è proprio del disconnesso',
+    skipTurnPrompt(tavolo({
+      pendingAction: { type: 'awaiting_buy', playerId: 'anna', position: 5, price: 100 },
+    }), 'io', 0)?.ready === true);
 }
 
 // ---------------------------------------------------------------------------

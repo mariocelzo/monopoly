@@ -202,6 +202,34 @@ const INVARIANTI = [
     return null;
   }],
 
+  ['turno-su-giocatore-in-gioco', (g) => {
+    // Il turno non può essere intestato a chi è fallito: nessuno giocherebbe
+    // più quella mano e il tavolo resterebbe fermo per sempre. Aggiunta col
+    // salto del turno di chi è disconnesso, che è il secondo punto del motore
+    // (dopo abandonGame) a spostare la mano scavalcando endTurn: se un domani
+    // uno di quei due la spostasse su un fallito, il fuzzer se ne accorge qui
+    // invece che in partita.
+    if (!g.started || g.finished) return null;
+    // Tavolo degenere: senza nessuno in piedi advanceTurn si ferma apposta e
+    // non c'è un giocatore valido su cui posare il turno.
+    if (g.players.every((p) => p.bankrupt)) return null;
+    const inTurno = g.currentPlayer;
+    if (!inTurno) return `turnIndex ${g.turnIndex} non corrisponde a nessun giocatore`;
+    // Con una finestra aperta il turno PUÒ momentaneamente restare su chi è
+    // appena uscito di scena, e non è un blocco: chi abbandona nel mezzo di
+    // un'asta iniziata da lui la lascia proseguire fra i rimanenti, e a
+    // spostare la mano ci pensa closeAuction (che chiama finishRoll per conto
+    // di chi aveva iniziato il giro). Questo test l'ha segnalato subito, ed è
+    // stato verificato che sia una situazione di passaggio: il rilevatore di
+    // stalli, che guarda proprio se lo stato smette di cambiare, non scatta
+    // mai su queste partite. Quello che invece non deve mai succedere è
+    // trovarsi col turno su un fallito e NESSUNA finestra aperta: lì non c'è
+    // più niente e nessuno che possa far ripartire il giro.
+    if (g.pendingAction) return null;
+    if (inTurno.bankrupt) return `il turno è di ${inTurno.name}, che è in bancarotta, senza nulla in sospeso`;
+    return null;
+  }],
+
   ['saldo-negativo-solo-in-debito', (g) => {
     // Un saldo negativo è ammesso solo come debito aperto e dichiarato: se
     // qualcuno resta in rosso senza che il motore glielo stia chiedendo, il
@@ -408,6 +436,34 @@ const MOSSE = [
     return ['endTurn', g.endTurn()];
   },
   (g, id) => ['declareBankruptcy', g.declareBankruptcy(id)],
+  (g) => {
+    // Cadute e rientri di rete. Da soli non provano niente, ma senza qualcuno
+    // che risulti offline il salto del turno qui sotto verrebbe sempre
+    // rifiutato al primo controllo e quel codice non lo visiterebbe mai
+    // nessuno. `connected` non entra nell'impronta dello stato (vedi impronta),
+    // quindi questa mossa non maschera uno stallo facendolo sembrare
+    // movimento.
+    const p = scegli(g.players);
+    const connesso = rnd() < 0.5;
+    g.setConnected(p.id, connesso);
+    return [`setConnected(${p.name}, ${connesso})`, {}];
+  },
+  (g, id) => {
+    // Il tempo che il motore non misura da sé (vedi skipDisconnectedTurn):
+    // valori sotto e sopra la soglia, così il fuzzer prova sia i rifiuti sia i
+    // salti veri. Il salto è la seconda strada, dopo l'abbandono, che sposta il
+    // turno scavalcando endTurn e che chiude finestre altrui: esattamente il
+    // genere di mossa da cui sono già nati tre modi di congelare la partita.
+    const fermoDaMs = scegli([0, 1, 30_000, 59_999, 60_000, 3_600_000]);
+    // Chi chiede il salto: metà delle volte proprio l'attore di questa mossa
+    // (che quasi sempre è chi ha il turno, e chiederlo per sé viene giustamente
+    // rifiutato), metà delle volte un altro giocatore — altrimenti il fuzzer
+    // proverebbe quasi soltanto quel rifiuto e i salti veri, quelli da cui
+    // potrebbe nascere un blocco, resterebbero praticamente non visitati.
+    const altri = g.players.filter((p) => p.id !== g.currentPlayer?.id && !p.bankrupt);
+    const richiedente = rnd() < 0.5 && altri.length ? scegli(altri).id : id;
+    return [`skipDisconnectedTurn(fermo da ${fermoDaMs}ms)`, g.skipDisconnectedTurn(richiedente, { fermoDaMs })];
+  },
 ];
 
 // Mosse che chiudono la partita: pescate raramente, altrimenti quasi ogni
@@ -428,7 +484,7 @@ const MOSSE_PER_PARTITA = 400;
 let violazioni = 0;
 let mosseTotali = 0;
 let mosseValide = 0;
-const copertura = { hotelOltreIlPrimo: 0, debiti: 0, aste: 0, scambiAccettati: 0, bancarotte: 0, finite: 0, interessiEreditati: 0 };
+const copertura = { hotelOltreIlPrimo: 0, debiti: 0, aste: 0, scambiAccettati: 0, bancarotte: 0, finite: 0, interessiEreditati: 0, turniSaltati: 0 };
 
 // ---------------------------------------------------------------------------
 // Rilevatore di stalli
@@ -582,6 +638,7 @@ for (let partita = 0; partita < PARTITE && violazioni < 5; partita++) {
     // nulla, anche se passa.
     if (eraAsta) copertura.aste += 1;
     if (eraDebito) copertura.debiti += 1;
+    if (nomeMossa.startsWith('skipDisconnectedTurn') && !esito?.error) copertura.turniSaltati += 1;
     if (game.stats.tradesCompleted > scambiPrima) copertura.scambiAccettati += 1;
     if (Object.values(game.ownership).some((o) => o.hotels > 1)) copertura.hotelOltreIlPrimo += 1;
     const fallitiOra = game.players.filter((p) => p.bankrupt).length;
@@ -660,6 +717,7 @@ console.log(`  debiti aperti:          ${copertura.debiti}`);
 console.log(`  scambi accettati:       ${copertura.scambiAccettati}`);
 console.log(`  con più di un hotel:    ${copertura.hotelOltreIlPrimo}`);
 console.log(`  bancarotte:             ${copertura.bancarotte}`);
+console.log(`  turni saltati:          ${copertura.turniSaltati} (di giocatori disconnessi, vedi skipDisconnectedTurn)`);
 console.log(`  partite concluse:       ${copertura.finite}`);
 console.log(`  rossi da interesse:     ${copertura.interessiEreditati} (eccezione nota, vedi saldo-negativo-solo-in-debito)`);
 
