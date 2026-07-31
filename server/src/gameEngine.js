@@ -617,6 +617,10 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_auction';
   }
 
+  hasPendingBuy() {
+    return this.pendingAction?.type === 'awaiting_buy';
+  }
+
   /**
    * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
    * cambiare la merce dopo aver fatto l'offerta.
@@ -1983,6 +1987,17 @@ class GameEngine {
     if (this.hasPendingCard()) return { error: 'Prima leggi la carta pescata' };
     if (this.hasPendingRent()) return { error: 'Prima paga l\'affitto' };
     if (this.hasPendingTax()) return { error: 'Prima paga la tassa' };
+    // E la proposta d'acquisto come tutte le altre. Era l'unica finestra che
+    // endTurn non guardava, e da lì passava una mossa che nel Monopoli non
+    // esiste: col riquadro "proprietà libera" aperto, premere "Fine" chiudeva
+    // il turno, faceva sparire la proposta (endTurn azzera pendingAction) e
+    // saltava l'asta che la rinuncia avrebbe aperto. Chi lo faceva non subiva
+    // nemmeno la conseguenza normale del rifiuto: la casella restava libera
+    // per il proprio giro dopo, invece di finire all'asta dove chiunque
+    // avrebbe potuto prendersela. Sulla casella si decide, non si sfila. Sta
+    // prima dell'asta perché viene prima anche nel gioco: l'asta è la
+    // conseguenza della rinuncia, non un'alternativa alla decisione.
+    if (this.hasPendingBuy()) return { error: 'Prima decidi se comprare la proprietà' };
     // Anche l'asta congela il turno: si è aperta a metà della risoluzione del
     // tiro (vedi declineBuy) e deve chiudersi da sé (closeAuction) prima che
     // il turno possa avanzare, tiro extra da doppio compreso.
