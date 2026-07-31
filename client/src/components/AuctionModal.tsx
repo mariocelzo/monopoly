@@ -32,7 +32,7 @@ export default function AuctionModal({
   const puoRilanciare = !!me && me.balance >= minBid;
 
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>asta</span>
         <h2 style={styles.title}>{square?.name || `Casella ${pending.position}`}</h2>
@@ -116,7 +116,7 @@ const styles: Record<string, React.CSSProperties> = {
   // partecipanti scorre, con i comandi sempre raggiungibili fuori dallo
   // scorrimento. Qui pesa quanto per il debito: un'asta bloccata pianta la
   // partita per tutti, non solo per chi sta offrendo.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
+  overlay: { display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
   card: { padding: 28, width: 420, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12 },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   title: { fontSize: '1.5rem' },

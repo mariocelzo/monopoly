@@ -54,7 +54,7 @@ export default function TradeOfferModal({
   );
 
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>scambio proposto</span>
         <h2 style={styles.title}>
@@ -105,7 +105,7 @@ const styles: Record<string, React.CSSProperties> = {
   // comprimendo l'elenco il contenuto fisso ci sta — viewport bassissimi, nomi
   // lunghi che vanno a capo — e per i browser mobile dove 100vh non coincide
   // con l'area davvero visibile.
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
+  overlay: { display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
   // `margin: auto` centra la finestra quando c'è spazio e collassa quando non
   // ce n'è, lasciando che sia `alignItems: flex-start` a tenerla attaccata in
   // alto invece di farla uscire da sopra.

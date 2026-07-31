@@ -32,7 +32,7 @@ export default function CardModal({
   const deck = DECKS[pending.deck] || DECKS.chance;
 
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={{ ...styles.card, borderColor: deck.accent }}>
         <div style={{ ...styles.ribbon, background: deck.accent }}>
           <span style={styles.ribbonText}>{deck.label}</span>
@@ -58,7 +58,7 @@ export default function CardModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.66)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20 },
+  overlay: { display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20 },
   card: { width: 330, maxWidth: '100%', padding: '0 24px 24px', textAlign: 'center', borderWidth: 2, borderStyle: 'solid', overflow: 'hidden' },
   ribbon: { margin: '0 -24px 18px', padding: '8px 0' },
   ribbonText: { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.7)', fontWeight: 700 },

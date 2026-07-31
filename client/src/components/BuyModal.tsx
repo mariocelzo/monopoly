@@ -22,7 +22,7 @@ export default function BuyModal({
   const decider = state.players.find((p) => p.id === pending.playerId);
 
   return (
-    <div style={styles.overlay}>
+    <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
         <span style={styles.eyebrow}>proprietà libera</span>
         <h2 style={styles.title}>{square.name}</h2>
@@ -48,7 +48,7 @@ export default function BuyModal({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione },
+  overlay: { display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione },
   card: { padding: 32, width: 320, textAlign: 'center' },
   eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
   title: { fontSize: '1.6rem', marginTop: 8 },
