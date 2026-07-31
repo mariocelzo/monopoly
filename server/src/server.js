@@ -110,11 +110,13 @@ function broadcastState(roomCode) {
   const room = roomManager.getRoom(roomCode);
   if (!room) return;
   io.to(roomCode).emit('state', room.game.serialize());
-  // Salvataggio differito della stanza (no-op se PERSIST_FILE non è
-  // impostata, vedi persistence.js): si aggancia qui perché broadcastState
-  // gira già dopo ogni cambiamento di stato, lo stesso identico punto da cui
-  // parte il broadcast ai client. Non rallenta questo giro: la scrittura vera
-  // è accodata e parte solo dopo un attimo di quiete.
+  // Salvataggio differito della stanza (no-op se non è impostata né REDIS_URL
+  // né PERSIST_FILE, vedi persistence.js): si aggancia qui perché
+  // broadcastState gira già dopo ogni cambiamento di stato, lo stesso identico
+  // punto da cui parte il broadcast ai client. Non rallenta questo giro nemmeno
+  // con l'archivio su Redis: `save` è sincrona e si limita a segnare la stanza,
+  // la scrittura vera è accodata, parte solo dopo un attimo di quiete e nessuno
+  // la aspetta.
   persistence.save(roomCode, room.game);
   scheduleBotMove(roomCode);
 }
@@ -354,30 +356,53 @@ io.on('connection', (socket) => {
   });
 });
 
-// Le stanze ripristinate da un salvataggio (persistenza attiva, vedi
-// persistence.js) possono avere un bot con una mossa in attesa: senza questo
-// aggancio resterebbero ferme finché non arriva un evento qualsiasi a far
-// ripartire lo scheduling. Nessun socket è ancora connesso a questo punto,
-// quindi tutte le stanze in roomManager sono esattamente quelle ripristinate
-// (se la persistenza è spenta, l'elenco è semplicemente vuoto).
-roomManager.roomCodes().forEach(scheduleBotMove);
-
 roomManager.startSweeping();
 
 /**
- * Uno spegnimento pulito (SIGTERM: un nuovo deploy, `docker stop`, o SIGINT
- * da Ctrl+C in locale) forza subito la scrittura su disco invece di aspettare
+ * Uno spegnimento pulito (SIGTERM: un nuovo deploy su Render, `docker stop`, o
+ * SIGINT da Ctrl+C in locale) forza subito il salvataggio invece di aspettare
  * il debounce, così non si perdono le ultime mosse fatte prima di spegnere.
+ * Ora c'è di mezzo la rete, quindi è un'attesa vera: `flushNow` ha però un
+ * tetto di tempo suo (vedi persistence.js) e non lascia il processo appeso a un
+ * archivio che non risponde. Il guardiano `spegnimentoInCorso` serve perché
+ * SIGTERM può arrivare più di una volta e non ha senso partire due volte.
+ *
  * Un `kill -9` non passa da qui: in quel caso si perde al più la finestra di
  * debounce, per la scelta di design spiegata in persistence.js.
  */
-function shutdown() {
-  persistence.flushNow();
+let spegnimentoInCorso = false;
+async function shutdown() {
+  if (spegnimentoInCorso) return;
+  spegnimentoInCorso = true;
+  await persistence.flushNow();
   process.exit(0);
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-server.listen(PORT, () => {
-  console.log(`Monopoly server listening on port ${PORT}`);
+/**
+ * Si va in ascolto solo DOPO che le stanze salvate sono tornate in memoria
+ * (roomManager.ready, vedi rooms.js). Prima la lettura era un file e finiva
+ * dentro al costruttore; ora può essere un archivio esterno raggiunto via rete,
+ * e accettare connessioni nel frattempo significherebbe rispondere "Stanza non
+ * trovata" a chi rientra un istante troppo presto. L'attesa è comunque limitata
+ * da persistence.js, che oltre il suo tetto di tempo rinuncia e parte vuoto: un
+ * archivio lento può costare le partite salvate, non l'avvio del server. Con la
+ * persistenza spenta `ready` è già risolta e non si aspetta niente.
+ */
+roomManager.ready.then(() => {
+  // Le stanze ripristinate possono avere un bot con una mossa in attesa: senza
+  // questo aggancio resterebbero ferme finché non arriva un evento qualsiasi a
+  // far ripartire lo scheduling. Nessun socket è ancora connesso a questo
+  // punto, quindi tutte le stanze in roomManager sono esattamente quelle
+  // ripristinate (se la persistenza è spenta, l'elenco è semplicemente vuoto).
+  roomManager.roomCodes().forEach(scheduleBotMove);
+
+  server.listen(PORT, () => {
+    console.log(`Monopoly server listening on port ${PORT}`);
+    // Riga volutamente esplicita: sul cruscotto di Render è il modo più rapido
+    // per sapere se la persistenza è davvero accesa e su cosa sta scrivendo,
+    // senza dover indovinare dalle variabili d'ambiente.
+    console.log(`[persistence] archivio: ${persistence.descrizione()}`);
+  });
 });

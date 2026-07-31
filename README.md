@@ -92,6 +92,16 @@ vedevano, tutti attorno a chi lascia il tavolo; i casi corrispondenti sono ora
 fissati anche in `smoke-test.js`, perché un fuzzer con un altro seme potrebbe
 non ripassare da quelle strade.
 
+### Test della persistenza
+
+```bash
+cd server && node persistence-test.js
+```
+
+Salvataggio, ripristino e comportamento quando l'archivio esterno fa i capricci.
+Usa un client Redis finto in memoria: non serve nessun Redis acceso. I dettagli
+sono nella sezione "Persistenza delle partite".
+
 Anche il client ha le sue asserzioni, sulla sola logica pura. Girano sotto Node
 senza framework né bundler, perché Node sa eseguire TypeScript togliendo i tipi:
 
@@ -105,31 +115,88 @@ caricamento. È il motivo per cui `propertyGroups.ts` importa soltanto tipi.
 
 ## Persistenza delle partite
 
-Spenta di default: senza `PERSIST_FILE` impostata lo stato vive solo in
-memoria, esattamente come prima di questa funzionalità, e nessun file viene
-creato.
+**Spenta di default.** Senza né `REDIS_URL` né `PERSIST_FILE` lo stato vive
+solo in memoria, esattamente come prima di questa funzionalità: nessun file
+creato, nessuna connessione aperta. In locale non c'è niente da installare né
+da far girare, e i test si lanciano come sempre.
 
-Impostando `PERSIST_FILE` (vedi `server/.env.example`) il server salva su quel
-file lo stato di ogni stanza e lo ricarica all'avvio, così una partita
-sopravvive a un riavvio del processo: crash, `npm start` rilanciato, un
-riavvio manuale. Il salvataggio è differito e accorpato (non scrive a ogni
-mossa, solo dopo un attimo di quiete) apposta per non rallentare il gioco; i
-dettagli sono commentati in `server/src/persistence.js`, l'unico file che
-saprebbe della sua esistenza — `gameEngine.js` resta puro e sincrono, non fa
-I/O e non sa che la persistenza esiste. Un salvataggio corrotto o di uno
-schema che il server non riconosce più non blocca l'avvio: si scarta quello e
-si riparte come se non ci fosse nulla di salvato, loggando il motivo.
+Accendendola, il server salva lo stato di ogni stanza e lo ricarica all'avvio,
+così una partita in corso sopravvive al riavvio del server. Ci sono due
+archivi, e non fanno la stessa cosa:
 
-**Limite importante**: in produzione questo progetto gira su Render piano
-gratuito, dove il filesystem è **effimero** e viene ricreato da zero a ogni
-deploy e a ogni riavvio dell'istanza. Questa persistenza su file protegge da
-un crash o un riavvio "sul posto" — in locale, o su un host con un disco vero
-— ma **non** dal caso che càpita più spesso in produzione, cioè un nuovo
-deploy: il file scritto prima del deploy non c'è più al riavvio successivo.
-Risolverlo davvero richiede un archivio esterno al container (Redis, un
-database, un bucket S3...) che sopravviva al deploy. L'interfaccia di
-`persistence.js` (`load` / `save` / `remove`) è pensata apposta perché quel
-giorno sostituirla sia riscrivere quel solo file, non i chiamanti.
+| Variabile | Sopravvive a un crash / riavvio | Sopravvive a un **deploy** su Render |
+| --- | --- | --- |
+| `PERSIST_FILE` | sì | **no** — il filesystem di Render free è effimero |
+| `REDIS_URL` | sì | **sì** — l'archivio sta fuori dal container |
+
+Il file è il ripiego (va benissimo in locale o su un host con un disco vero);
+in produzione serve `REDIS_URL`, perché il caso che càpita più spesso non è il
+crash, è la pubblicazione di una versione nuova. **Se sono impostate entrambe
+vince `REDIS_URL`** e il file viene ignorato: il server lo scrive nel registro
+all'avvio, insieme all'archivio che sta usando davvero.
+
+`REDIS_URL` funziona con un Redis qualunque raggiungibile via URL — `redis://`
+o `rediss://` per il TLS. Il codice usa solo comandi standard (SCAN, MGET, SET,
+DEL) e non sa chi lo ospita: Upstash, un Redis gestito, un container in locale.
+Una stanza per chiave (`monopoly:room:CODICE`), con una scadenza di sei ore che
+serve solo contro le chiavi orfane — chi decide quando una partita muore resta
+`rooms.js`, dopo tre ore di tavolo vuoto.
+
+### Come accenderlo su Render (da fare a mano, una volta)
+
+1. Crea un'istanza Redis gratuita. Su [Upstash](https://upstash.com) è
+   *Create Database*; va bene qualunque altro fornitore, o un Redis proprio.
+   Conviene sceglierla nella regione più vicina a quella del servizio Render.
+2. Copia l'URL di connessione completo. Su Upstash sta sotto **Redis Connect >
+   `redis-cli`/Node**, ed è nella forma
+   `rediss://default:LA-PASSWORD@nome-istanza.upstash.io:6379`. Contiene la
+   password: è un segreto, non va committato.
+3. Su Render, nel servizio del backend: **Environment > Add Environment
+   Variable**, chiave `REDIS_URL`, valore l'URL copiato. Salva: Render fa un
+   deploy da solo.
+4. Nel log d'avvio deve comparire `[persistence] archivio: Redis (...)`. Da
+   quel momento le partite in corso sopravvivono anche ai deploy successivi.
+
+Per provarlo prima in locale bastano due righe:
+
+```bash
+docker run --rm -p 6379:6379 redis
+cd server && REDIS_URL=redis://127.0.0.1:6379 npm start
+```
+
+Riavviando il server la partita si ritrova; chi ha la partita in `localStorage`
+rientra da solo alla riconnessione.
+
+### Come è fatto, e cosa succede quando l'archivio fa i capricci
+
+Tutto sta in `server/src/persistence.js`, l'unico file che sa dell'esistenza di
+un archivio: `rooms.js` e `server.js` chiamano sempre e solo `load / save /
+remove / flushNow`, e `gameEngine.js` resta puro e sincrono — non fa I/O e non
+sa nemmeno che la persistenza esista.
+
+- **Il salvataggio non rallenta il gioco.** `save()` è sincrona e si limita a
+  segnare la stanza; la scrittura vera parte dopo un paio di secondi di quiete
+  e accorpa tutte le mosse di quella finestra (un turno intero, un'asta con più
+  rilanci = una sola scrittura), e nessuno la aspetta.
+- **Un archivio lento o irraggiungibile non ferma la partita.** Ogni errore
+  viene catturato, loggato con parsimonia e mai propagato: si continua a
+  giocare in memoria e si riprova più tardi da soli, senza perdere le mosse
+  fatte nel frattempo. Anche la lettura all'avvio ha un tetto di tempo: oltre
+  quello si parte vuoti invece di lasciare il server giù.
+- **Uno stato corrotto o di uno schema non più riconosciuto non blocca
+  l'avvio.** Si scarta quella stanza (e la si toglie dall'archivio, per non
+  ritrovarsela a ogni avvio), si logga il motivo e si riparte.
+
+### Test
+
+```bash
+cd server && node persistence-test.js
+```
+
+Gira con un client Redis finto in memoria, quindi non serve avere un Redis
+acceso: è anzi l'unico modo di provare i casi che contano davvero — connessione
+rifiutata, connessione che non risponde mai, comandi che falliscono e poi
+tornano a funzionare, scritture lente e sovrapposte.
 
 ## Variabili d'ambiente
 
@@ -137,7 +204,8 @@ giorno sostituirla sia riscrivere quel solo file, non i chiamanti.
 | --- | --- | --- |
 | `PORT` | server | Porta di ascolto. In cloud la imposta la piattaforma. |
 | `CLIENT_ORIGIN` | server | Origini ammesse dal CORS, separate da virgola. Vuoto = tutte. |
-| `PERSIST_FILE` | server | File su cui salvare lo stato delle partite. Vuoto (default) = persistenza spenta. Vedi "Persistenza delle partite" sopra per il limite su Render. |
+| `REDIS_URL` | server | Archivio esterno delle partite (`redis://` o `rediss://`). Vuoto (default) = niente Redis. È l'unico che fa sopravvivere le partite a un deploy su Render. Se impostato ha la precedenza su `PERSIST_FILE`. Vedi "Persistenza delle partite". |
+| `PERSIST_FILE` | server | File su cui salvare lo stato delle partite. Vuoto (default) = niente file. Copre crash e riavvii, **non** un deploy su Render. Ignorato se c'è `REDIS_URL`. |
 | `VITE_SERVER_URL` | client | URL del server. Vuoto = `http://localhost:3001`. |
 
 I file `.env.example` nelle due cartelle riportano gli stessi valori con degli
@@ -161,20 +229,19 @@ L'ordine giusto è: prima il backend, poi il client con `VITE_SERVER_URL`, poi s
 torna su Render a riempire `CLIENT_ORIGIN` col dominio Vercel. Se si saltano
 le origini, il browser blocca le chiamate e il tabellone resta vuoto.
 
-Due avvertenze sul piano gratuito di Render: il servizio si addormenta dopo un
-po' di inattività, quindi la prima partita della giornata parte con qualche
-secondo di attesa; e a ogni **deploy** le partite in corso si perdono comunque,
-perché il filesystem di Render free è effimero e viene ricreato da zero — vedi
-"Persistenza delle partite" più sopra. Impostare `PERSIST_FILE` su Render non
-risolve questo caso: serve per un riavvio "sul posto" (crash, riavvio
-manuale), non per un deploy nuovo, che è invece l'evento più comune.
+Due avvertenze sul piano gratuito di Render. La prima: il servizio si addormenta
+dopo un po' di inattività, quindi la prima partita della giornata parte con
+qualche secondo di attesa. Il workflow `.github/workflows/keep-alive.yml` chiama
+`/health` ogni 14 minuti apposta per evitarlo (GitHub Actions non garantisce
+però la puntualità dei cron, quindi il rischio è ridotto ma non azzerato).
 
-Il workflow `.github/workflows/keep-alive.yml` chiama `/health` ogni 14
-minuti apposta per evitare l'addormentamento per inattività (GitHub Actions
-non garantisce però la puntualità dei cron, quindi il rischio è ridotto ma
-non azzerato). Resta comunque vero che un nuovo deploy azzera le partite in
-corso: quello non è un problema che un ping o un file su disco possano
-risolvere, serve un archivio esterno che sopravviva al container (vedi sopra).
+La seconda: il filesystem è effimero e viene ricreato da zero a ogni deploy,
+quindi `PERSIST_FILE` su Render non salva le partite in corso quando si
+pubblica — copre solo un riavvio "sul posto". Per quello va impostata
+`REDIS_URL`, che tiene lo stato fuori dal container: le istruzioni passo passo
+sono in "Persistenza delle partite" più sopra. Senza, un deploy azzera le
+partite aperte, e con un progetto che cambia spesso è l'evento più frequente
+di tutti.
 
 ## Struttura
 
@@ -182,6 +249,7 @@ risolvere, serve un archivio esterno che sopravviva al container (vedi sopra).
 server/
   smoke-test.js        Suite di asserzioni sul motore
   invariant-test.js    Partite casuali con venti invarianti ricontrollate a ogni mossa
+  persistence-test.js  Salvataggio e ripristino, con un client Redis finto
   bot-calibration.js   Partite simulate bot-contro-bot, per tarare le soglie
   src/
     data/board.js      Le 40 caselle (edizione italiana), le carte
@@ -189,7 +257,7 @@ server/
     botStrategy.js     Quanto vale una proprietà, conviene questo scambio
     bot.js             Sceglie ed esegue una mossa del giocatore artificiale
     rooms.js           Stanze, aggancio dei socket, scadenza
-    persistence.js     Salvataggio/ripristino delle stanze su file (opzionale)
+    persistence.js     Salvataggio/ripristino delle stanze, su Redis o su file (opzionale)
     server.js          Eventi Socket.io
 client/
   logic-test.ts        Asserzioni sulla logica pura del client
@@ -207,9 +275,9 @@ docs/superpowers/specs/  Documenti di design delle funzionalità
 ## Stato
 
 Fatto: motore completo, bancarotta con liquidazione, costruzioni e ipoteche,
-tre doppi, riconnessione, assetto mobile, bot, persistenza su file opzionale
-(sopravvive a un riavvio del processo, non a un deploy su Render free — vedi
-"Persistenza delle partite").
+tre doppi, riconnessione, assetto mobile, bot, persistenza opzionale delle
+partite — su file oppure su un archivio esterno Redis, che è quello che le fa
+sopravvivere anche a un deploy su Render (vedi "Persistenza delle partite").
 
 Gli scambi hanno due schermate diverse di proposito: da telefono e da tablet
 una procedura guidata in tre passi — cosa vuoi da lui, cosa gli dai, riepilogo
@@ -220,7 +288,6 @@ Da computer restano le due colonne, raggruppate per gruppo di colore col
 
 Regole della casa: il Via paga 500.
 
-Da fare: nulla in lista. Le idee successive sono da decidere; la piu' utile
-resta un archivio esterno (Redis, un database) al posto del file su disco, per
-far sopravvivere le partite anche a un deploy su Render — non solo a un
-riavvio del processo, che la persistenza su file copre già.
+Da fare: nulla in lista. L'archivio esterno che era la voce piu' utile qui
+sopra adesso c'e' (`REDIS_URL`); resta da accenderlo su Render, che e' un
+passaggio manuale di due minuti descritto in "Persistenza delle partite".
