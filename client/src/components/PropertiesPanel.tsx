@@ -1,5 +1,12 @@
 import { BoardSquare, GameState, Ownership, inviaAzione } from '../socket';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
+import {
+  currentSellRefund,
+  nextBuildCost,
+  nextUnitLabel,
+  topUnitLabel,
+  unitsOf,
+} from '../costiCostruzione';
 
 /**
  * Pannello "le mie proprietà": costruzione, vendita, ipoteca e riscatto.
@@ -38,8 +45,6 @@ export default function PropertiesPanel({
   // regolamento classico, 4 con la modalità grattacieli accesa.
   const maxHotels = state.rules.skyscraperEnabled ? 4 : 1;
 
-  const unitsOf = (owned: Ownership) => (owned.hotels > 0 ? 4 + owned.hotels : owned.houses);
-
   /** Unità casa su ogni casella del colore, incluse quelle non possedute (0). */
   const groupUnits = (group?: string) =>
     board
@@ -64,19 +69,10 @@ export default function PropertiesPanel({
   // bloccati all'asta e il tasto "Rilancia" che offriva sotto il minimo su 24
   // caselle su 28.
   //
-  // Gli array del server sono indicizzati per numero di unità meno uno:
-  // `buildCosts[0]` è la prima casa, `buildCosts[4]` il primo hotel.
-
-  /** Costo per costruire la prossima unità (casa o hotel) su questa casella. */
-  const nextBuildCost = (square: BoardSquare, owned: Ownership): number =>
-    square.buildCosts?.[unitsOf(owned)] ?? 0;
-
-  /** Rimborso vendendo l'unità in cima alla pila (l'ultima costruita). */
-  const currentSellRefund = (square: BoardSquare, owned: Ownership): number => {
-    const units = unitsOf(owned);
-    if (units === 0) return 0;
-    return square.buildRefunds?.[units - 1] ?? 0;
-  };
+  // Resta comunque da scegliere QUALE livello leggere degli array pubblicati, e
+  // come chiamarlo a parole: sta in ../costiCostruzione.ts, in un modulo a parte
+  // perché logic-test.ts possa eseguirlo davvero e confrontarlo con il motore
+  // (da un .tsx non si può importare: node non digerisce il JSX).
 
   /**
    * Affitto che quella casella incassa adesso. È solo informativo: il conto che
@@ -103,7 +99,12 @@ export default function PropertiesPanel({
     if (groupHasMortgage(square.group)) return 'Riscatta prima le ipoteche del colore';
     if (owned.hotels >= maxHotels) return maxHotels === 1 ? "C'è già un hotel" : 'Hai già il massimo di hotel';
     if (unitsOf(owned) > Math.min(...groupUnits(square.group))) return 'Costruisci prima sulle altre del colore';
-    if ((me?.balance ?? 0) < nextBuildCost(square, owned)) return 'Saldo insufficiente';
+    // Il costo può mancare solo se si è già al tetto, caso intercettato dal
+    // controllo sugli hotel qui sopra: se manca comunque, meglio non promettere
+    // un'azione di cui non si sa il prezzo.
+    const costo = nextBuildCost(square, owned, maxHotels);
+    if (costo === null) return 'Hai già il massimo di hotel';
+    if ((me?.balance ?? 0) < costo) return 'Saldo insufficiente';
     return null;
   };
 
@@ -158,6 +159,19 @@ export default function PropertiesPanel({
             const unmortgage = unmortgageBlocker(square, owned);
             const isProperty = square.type === 'property';
 
+            // Il listino della casella: quanto costa la prossima unità e quanto
+            // rende quella già in cima. Finché stavano solo nel `title` dei
+            // bottoni erano invisibili proprio a chi ne ha più bisogno: sul
+            // telefono non esiste il passaggio del mouse, e il suggerimento non
+            // compare mai. Con la modalità grattacieli il numero non è un
+            // dettaglio — su Parco della Vittoria la prossima unità può costare
+            // 200 o 6.000 — quindi va letto PRIMA di premere, non scoperto
+            // dopo dal saldo.
+            const costoProssima = isProperty ? nextBuildCost(square, owned, maxHotels) : null;
+            const etichettaProssima = isProperty ? nextUnitLabel(owned, maxHotels) : null;
+            const rimborsoInCima = isProperty ? currentSellRefund(square, owned) : null;
+            const etichettaInCima = isProperty ? topUnitLabel(owned, maxHotels) : null;
+
             return (
               <div key={square.position} style={styles.row}>
                 <div style={styles.rowInfo}>
@@ -177,13 +191,35 @@ export default function PropertiesPanel({
                     Affitto adesso: <strong>€{rentNow(square, owned)}</strong>
                   </div>
                 )}
+                {/*
+                  Su un'ipotecata non si costruisce né si vende, quindi il
+                  listino sparisce invece di mostrare prezzi che nessun bottone
+                  può praticare. I due pezzi vanno a capo interi (flexWrap sul
+                  contenitore, niente a capo dentro il singolo pezzo): a 375px
+                  scendono uno sotto l'altro senza mai spezzare "3º hotel"
+                  dal suo prezzo, e senza far scorrere niente in orizzontale.
+                */}
+                {!owned.mortgaged && (costoProssima !== null || rimborsoInCima !== null) && (
+                  <div style={styles.priceList}>
+                    {costoProssima !== null && (
+                      <span style={styles.priceItem}>
+                        Costruisci: {etichettaProssima} <strong style={styles.priceUp}>€{costoProssima}</strong>
+                      </span>
+                    )}
+                    {rimborsoInCima !== null && (
+                      <span style={styles.priceItem}>
+                        Rivendi: {etichettaInCima} <strong style={styles.priceDown}>€{rimborsoInCima}</strong>
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div style={styles.rowActions}>
                   {isProperty && (
                     <>
                       <button
                         className="btn-mini"
                         disabled={!!build}
-                        title={build || `Costruisci per €${nextBuildCost(square, owned)}`}
+                        title={build || `Costruisci ${etichettaProssima} per €${costoProssima}`}
                         onClick={() => emit('build_house', square.position)}
                       >
                         Costruisci
@@ -191,7 +227,7 @@ export default function PropertiesPanel({
                       <button
                         className="btn-mini"
                         disabled={!!sell}
-                        title={sell || `Vendi per €${currentSellRefund(square, owned)}`}
+                        title={sell || `Vendi ${etichettaInCima} per €${rimborsoInCima}`}
                         onClick={() => emit('sell_house', square.position)}
                       >
                         Vendi
@@ -240,5 +276,20 @@ const styles: Record<string, React.CSSProperties> = {
   name: { fontSize: '0.82rem', fontWeight: 600, color: 'var(--paper)' },
   status: { fontSize: '0.7rem', color: 'var(--brass-2)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' },
   rentNow: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.6)' },
+  // `columnGap` più largo del `rowGap` perché i due pezzi, quando restano in
+  // fila, hanno bisogno di staccarsi ("…€4400  Rivendi:…" attaccati si leggono
+  // come un unico numero); quando invece vanno a capo sono già separati dalla
+  // riga e un respiro verticale minore tiene la scheda compatta.
+  priceList: { display: 'flex', flexWrap: 'wrap', columnGap: 12, rowGap: 2, fontSize: '0.7rem', color: 'rgba(243,234,216,0.6)' },
+  // `nowrap` sul singolo pezzo: l'importo non deve mai staccarsi dall'unità a
+  // cui si riferisce, o "3º hotel" e "€4400" finiscono su righe diverse e in
+  // mezzo ci si legge l'importo dell'altra voce.
+  priceItem: { whiteSpace: 'nowrap' },
+  // Soldi che escono e soldi che entrano: il colore serve a distinguerli al
+  // volo, ma non è l'unico segnale — davanti c'è comunque scritto "Costruisci"
+  // o "Rivendi", perché a colori invertiti o non distinguibili la riga deve
+  // restare leggibile lo stesso.
+  priceUp: { color: 'var(--paper)', fontFamily: 'var(--font-mono)' },
+  priceDown: { color: 'var(--brass-2)', fontFamily: 'var(--font-mono)' },
   rowActions: { display: 'flex', gap: 5, flexWrap: 'wrap' },
 };
