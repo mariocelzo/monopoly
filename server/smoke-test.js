@@ -579,33 +579,70 @@ section('10n. Ritiro della proposta e decadenze da debito, bancarotta, abbandono
   check('chi esce se le porta via tutte, da entrambi i lati', g3.tradeOffers.length === 0);
 }
 
-section('10o. Col tavolo fermo su una decisione non si tratta');
+section('10o. Solo debito e asta fermano una trattativa, non ogni finestra');
 {
-  // L'unico caso in cui una proposta resta bloccata, e vale la pena dirlo: un
-  // pendingAction significa "il tavolo è in pausa perché qualcuno deve
-  // decidere", e in quella pausa non si sposta merce. Sono finestre da pochi
-  // secondi, non l'attesa indefinita di prima.
+  // La regola giusta non è "un pendingAction qualsiasi blocca gli scambi": è
+  // quella che vale già per costruire e riscattare, cioè debito e asta, le due
+  // finestre in cui la spesa è congelata per tutti. La prima versione bloccava
+  // su qualunque finestra, e la prova a mano con tre client socket l'ha
+  // demolita subito: basta che uno tiri e atterri su una casella libera perché
+  // nessun altro possa più trattare finché non decide se comprare — cioè il
+  // difetto di partenza, rientrato da un'altra porta.
+
+  // 1. Acquisto in sospeso: la trattativa va avanti lo stesso.
   const g = tavoloATre();
   give(g, 'x', ORANGE[0]);
   give(g, 'y', BROWN[0]);
-  g.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]], requestProperties: [BROWN[0]] });
-  const id = idUltimaProposta(g);
+  const w = g.players[2];
+  w.position = 0;
+  g.movePlayer(w, 12); // casella 12: Società Elettrica, libera
+  check('preparazione: Z deve decidere se comprare', g.pendingAction?.type === 'awaiting_buy');
+  const propostaConAcquisto = g.proposeTrade('x', {
+    toId: 'y', offerProperties: [ORANGE[0]], requestProperties: [BROWN[0]],
+  });
+  check('con un acquisto in sospeso si può proporre', !propostaConAcquisto.error, propostaConAcquisto.error);
+  const rispostaConAcquisto = g.respondTrade('y', true, idUltimaProposta(g));
+  check('e si può concludere', !rispostaConAcquisto.error, rispostaConAcquisto.error);
+  check('le caselle hanno cambiato mano', g.ownership[ORANGE[0]].ownerId === 'y' && g.ownership[BROWN[0]].ownerId === 'x');
+  check('e la finestra d\'acquisto di Z è rimasta lì, intatta', g.pendingAction?.type === 'awaiting_buy');
 
-  const z = g.players[2];
+  // 2. Debito aperto: lì invece si aspetta. Il motore sta facendo i conti in
+  // tasca a qualcuno e non è il momento di spostargli le cose sotto i piedi.
+  const g2 = tavoloATre();
+  give(g2, 'x', ORANGE[0]);
+  give(g2, 'y', BROWN[0]);
+  g2.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]], requestProperties: [BROWN[0]] });
+  const id2 = idUltimaProposta(g2);
+  const z = g2.players[2];
   // Qualcosa da liquidare: senza, chargePlayer lo manderebbe dritto in
   // bancarotta invece di aprirgli un debito (vedi la guardia su
   // liquidationValue) e non ci sarebbe nessuna finestra da osservare.
-  give(g, 'z', BLUE[0]);
+  give(g2, 'z', BLUE[0]);
   z.balance = 0;
-  g.chargePlayer(z, 20); // apre un debito su Z, che con la trattativa non c'entra
-  check('preparazione: c\'è un debito aperto su Z', g.pendingAction?.type === 'awaiting_debt');
-  check('la proposta fra X e Y è sopravvissuta', g.tradeOffers.length === 1);
+  g2.chargePlayer(z, 20); // apre un debito su Z, che con la trattativa non c'entra
+  check('preparazione: c\'è un debito aperto su Z', g2.pendingAction?.type === 'awaiting_debt');
+  check('la proposta fra X e Y è sopravvissuta', g2.tradeOffers.length === 1);
+  const risposta = g2.respondTrade('y', true, id2);
+  check('col debito aperto non si conclude uno scambio', !!risposta.error, risposta.error);
+  check('e la proposta resta lì, non decade per questo', g2.tradeOffers.length === 1);
+  const nuova = g2.proposeTrade('y', { toId: 'z', offerMoney: 10 });
+  check('né se ne aprono di nuove', !!nuova.error, nuova.error);
+  // Saldato il debito si riprende a trattare da dove si era rimasti.
+  g2.resolveDebtAuto('z');
+  check('saldato il debito la proposta si può concludere', !g2.respondTrade('y', true, id2).error);
 
-  const risposta = g.respondTrade('y', true, id);
-  check('con una finestra aperta non si conclude uno scambio', !!risposta.error, risposta.error);
-  check('e la proposta resta lì, non decade per questo', g.tradeOffers.length === 1);
-  const nuova = g.proposeTrade('y', { toId: 'z', offerMoney: 10 });
-  check('e non se ne aprono di nuove', !!nuova.error, nuova.error);
+  // 3. Asta in corso: come il debito, per la ragione per cui esiste
+  // auctionFreezeBlocker — il denaro di chi rilancia deve restare certo.
+  const g3 = tavoloATre();
+  give(g3, 'x', ORANGE[0]);
+  give(g3, 'y', BROWN[0]);
+  const x3 = g3.players[0];
+  x3.position = 0;
+  g3.movePlayer(x3, 12);
+  g3.declineBuy('x'); // la rinuncia apre l'asta
+  check('preparazione: c\'è un\'asta in corso', g3.pendingAction?.type === 'awaiting_auction');
+  const durante = g3.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]] });
+  check('con un\'asta in corso non si propone', !!durante.error, durante.error);
 }
 
 section('10e. Tre doppi consecutivi mandano in prigione');

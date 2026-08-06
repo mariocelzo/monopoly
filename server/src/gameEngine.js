@@ -2003,13 +2003,26 @@ class GameEngine {
     if (!this.started || this.finished) return { error: 'La partita non è in corso' };
     if (!from || !to || from.id === to.id) return { error: 'Destinatario non valido' };
     if (from.bankrupt || to.bankrupt) return { error: 'Un giocatore è fallito' };
-    // Un pendingAction continua a fermare tutto, proposte comprese, ed è voluto:
-    // quello slot significa "il tavolo è in pausa perché qualcuno deve decidere"
-    // — un'asta in corso, un debito da coprire, una proprietà da comprare — e in
-    // quella pausa non si sposta merce. Non è la vecchia attesa: quelle finestre
-    // le si risolve in pochi secondi, mentre una proposta poteva restare aperta
-    // finché all'altro faceva comodo.
-    if (this.pendingAction) return { error: 'Prima risolvi l\'azione in sospeso' };
+    // Non QUALUNQUE azione in sospeso ferma una trattativa: solo le due che il
+    // motore già tratta come "la spesa è congelata per tutti", cioè il debito e
+    // l'asta (le stesse due guardie che hanno buildHouse e unmortgageProperty).
+    //
+    // La prima versione bloccava su un pendingAction qualsiasi, e la prova a
+    // mano con tre client l'ha smontata in tre mosse: Z tira, atterra su una
+    // casella libera, e da lì in poi nessuno poteva più proporre niente finché
+    // Z non decideva se comprare. Cioè il difetto di partenza, tornato da
+    // un'altra porta — e quella finestra si apre a quasi ogni tiro. Acquisto,
+    // affitto, tassa e carta non hanno bisogno di questo divieto: riguardano un
+    // giocatore solo, si risolvono in un gesto, e ricontrollano da sé i conti
+    // al momento di eseguire.
+    //
+    // Debito e asta invece sì, e per la ragione per cui esistono quelle
+    // guardie: durante un'asta il denaro di chi rilancia deve restare certo,
+    // altrimenti un'offerta già fatta diventa scoperta all'aggiudicazione; e con
+    // un debito aperto il motore sta facendo i conti in tasca a qualcuno, quindi
+    // non è il momento di spostargli proprietà e contanti sotto i piedi.
+    if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     // Una proposta per volta, per chi la fa (il perché sta nel commento sopra).
     if (this.tradeOffers.some((t) => t.fromId === fromId)) {
       return { error: 'Hai già una proposta aperta: aspetta la risposta o ritirala' };
@@ -2175,11 +2188,16 @@ class GameEngine {
     const trade = this.findTradeOffer(tradeId);
     if (!trade) return { error: 'Nessuno scambio in sospeso' };
     if (trade.toId !== playerId) return { error: 'Non tocca a te rispondere' };
-    // Come per proposeTrade: col tavolo in pausa su una decisione di qualcuno
-    // non si sposta merce. Vale anche qui perché accettare muove proprietà e
-    // denaro, e farlo nel mezzo della liquidazione di un debito altrui vuol dire
-    // cambiare i conti sotto i piedi di chi li sta facendo.
-    if (this.pendingAction) return { error: 'Prima risolvi l\'azione in sospeso' };
+    // Le stesse due guardie di proposeTrade, e qui pesano di più: accettare
+    // muove davvero proprietà e denaro. Il debito in particolare non è
+    // negoziabile — se lo si permettesse, l'interesse su un'ipoteca ricevuta
+    // potrebbe mandare in rosso un terzo giocatore mentre il debito di un altro
+    // è già aperto, e settleNextDebt (che ne apre uno per volta, apposta) non
+    // gli aprirebbe nessuna finestra: resterebbe a saldo negativo senza che il
+    // motore gli chieda niente, cioè lo stato che l'invariante
+    // 'saldo-negativo-solo-in-debito' esiste per vietare.
+    if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
 
     const from = this.players.find((p) => p.id === trade.fromId);
     const to = this.players.find((p) => p.id === trade.toId);
