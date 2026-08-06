@@ -26,6 +26,26 @@ function botMustAnswer(game) {
   return !!atteso && atteso.isBot === true && !atteso.bankrupt;
 }
 
+/**
+ * La prima proposta di scambio che aspetta la risposta di un bot, o null.
+ *
+ * Le proposte non stanno più nel pendingAction (vedi gameEngine.js), quindi
+ * vanno cercate a parte: prima bastava `botMustAnswer` perché una proposta
+ * aperta ERA l'azione in sospeso di tutto il tavolo. La guardia su
+ * `game.pendingAction` è indispensabile e non è una precauzione teorica: il
+ * motore rifiuta una risposta con una finestra aperta, un rifiuto non cambia
+ * lo stato, e il ciclo dei bot in server.js richiamerebbe questa stessa mossa
+ * per sempre. È lo stesso modo in cui i bot si erano già bloccati una volta
+ * sulle aste (vedi il commento in risolvePendingAction).
+ */
+function scambioDaRispondere(game) {
+  if (game.pendingAction) return null;
+  return game.tradeOffers.find((t) => {
+    const destinatario = game.players.find((p) => p.id === t.toId);
+    return !!destinatario && destinatario.isBot === true && !destinatario.bankrupt;
+  }) || null;
+}
+
 /** Vero se c'è una qualunque mossa da far fare a un bot adesso. */
 function botHasMove(game) {
   if (game.finished) {
@@ -33,7 +53,8 @@ function botHasMove(game) {
     return game.endedReason !== 'closed' &&
       game.players.some((p) => p.isBot && !game.rematchVotes.includes(p.id));
   }
-  return botMustAnswer(game) || (isBotTurn(game) && !game.pendingAction);
+  return botMustAnswer(game) || !!scambioDaRispondere(game) ||
+    (isBotTurn(game) && !game.pendingAction);
 }
 
 /**
@@ -52,6 +73,17 @@ function botMove(game) {
   }
 
   if (botMustAnswer(game)) return risolvePendingAction(game);
+  // Le proposte ricevute si sbrigano prima del proprio turno, e per una ragione
+  // di cortesia più che di strategia: dall'altra parte c'è qualcuno che aspetta
+  // una risposta e che intanto ha la merce congelata. Rispondere cambia sempre
+  // lo stato (la proposta sparisce comunque), quindi non c'è modo che il ciclo
+  // dei bot giri a vuoto su questo ramo.
+  const offerta = scambioDaRispondere(game);
+  if (offerta) {
+    const bot = game.players.find((p) => p.id === offerta.toId);
+    game.respondTrade(bot.id, evaluateTrade(game, bot.id, offerta), offerta.id);
+    return 'risposta-scambio';
+  }
   if (isBotTurn(game) && !game.pendingAction) return giocaIlTurno(game);
   return false;
 }
@@ -93,10 +125,6 @@ function risolvePendingAction(game) {
       game.declineBuy(bot.id);
       return 'rifiuto';
     }
-
-    case 'awaiting_trade':
-      game.respondTrade(bot.id, evaluateTrade(game, bot.id, pa));
-      return 'risposta-scambio';
 
     case 'awaiting_auction': {
       const square = board[pa.position];
@@ -266,6 +294,11 @@ function provaACostruire(game, bot) {
  */
 function provaAProporreScambio(game, bot) {
   if (game.pendingAction) return false;
+  // Una proposta per volta, come per chiunque (vedi proposeTrade). Senza questo
+  // controllo il bot ritenterebbe a ogni turno un'offerta che il motore
+  // rifiuterebbe sempre, sprecando la sua mossa: qui ci si limita a non
+  // provarci, e si passa a costruire o a tirare.
+  if (game.tradeOffers.some((t) => t.fromId === bot.id)) return false;
   if (Math.random() > 0.3) return false;
 
   // I candidati si ordinano per quanto rende il colore, non per dove capitano

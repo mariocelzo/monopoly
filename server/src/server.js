@@ -333,9 +333,14 @@ io.on('connection', (socket) => {
   // Risoluzione di un debito: liquidazione automatica oppure resa.
   socket.on('resolve_debt_auto', withGame((game, playerId) => game.resolveDebtAuto(playerId)));
   socket.on('declare_bankruptcy', withGame((game, playerId) => game.declareBankruptcy(playerId)));
-  // Scambi fra giocatori: proposta e risposta.
+  // Scambi fra giocatori: proposta, risposta e ritiro. `tradeId` non è
+  // facoltativo nelle ultime due: di proposte aperte insieme adesso ce n'è più
+  // d'una (vedi gameEngine.js), e un "accetta" senza indirizzo si prenderebbe
+  // quella sbagliata. Se manca o non esiste più, il motore risponde con un
+  // rifiuto che il client sa già trattare come corsa innocua.
   socket.on('propose_trade', withGame((game, playerId, payload) => game.proposeTrade(playerId, payload)));
-  socket.on('respond_trade', withGame((game, playerId, { accept }) => game.respondTrade(playerId, !!accept)));
+  socket.on('respond_trade', withGame((game, playerId, { accept, tradeId }) => game.respondTrade(playerId, !!accept, tradeId)));
+  socket.on('cancel_trade', withGame((game, playerId, { tradeId }) => game.cancelTrade(playerId, tradeId)));
   // Abbandonare chiude la partita ma lascia in piedi il tavolo: si puo' chiedere
   // la rivincita. Il tavolo si distrugge solo con "Chiudi il tavolo", che e'
   // esattamente cio' che quel bottone promette.

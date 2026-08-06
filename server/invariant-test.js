@@ -387,6 +387,45 @@ const INVARIANTI = [
       if (v.bankrupt) return `il vincitore ${v.name} è in bancarotta`;
     }
     if (g.pendingAction) return `partita finita ma resta un'azione pendente (${g.pendingAction.type})`;
+    // A partita finita non deve restare nessuna proposta: terrebbe congelate le
+    // proprietà di chi ha vinto, e alla rivincita (stesso tavolo, stessi
+    // giocatori) si ripresenterebbe addosso a una partita che non c'entra.
+    if (g.tradeOffers.length) return `partita finita ma restano ${g.tradeOffers.length} proposte aperte`;
+    return null;
+  }],
+
+  ['proposte-di-scambio-sane', (g) => {
+    // L'invariante nata insieme agli scambi non bloccanti, ed è la sorella di
+    // 'azione-pendente-su-giocatore-valido': finché la proposta ERA il
+    // pendingAction, quel controllo copriva anche lei. Adesso le proposte
+    // vivono per conto loro, possono essere parecchie insieme e sopravvivono a
+    // turni, bancarotte e abbandoni — cioè esattamente le condizioni in cui
+    // qualcosa resta indietro. Una proposta intestata a chi non c'è più non
+    // congela il tavolo (è tutto il punto della modifica), ma congela le
+    // proprietà che nomina, e nessuno potrebbe più sbloccarle: la partita
+    // continuerebbe con un pezzo di tabellone morto e nessun messaggio a
+    // spiegarlo.
+    const visti = new Set();
+    for (const t of g.tradeOffers) {
+      if (visti.has(t.id)) return `due proposte con lo stesso id (${t.id})`;
+      visti.add(t.id);
+      const from = g.players.find((p) => p.id === t.fromId);
+      const to = g.players.find((p) => p.id === t.toId);
+      if (!from || !to) return `proposta ${t.id} fra giocatori inesistenti`;
+      if (from.id === to.id) return `proposta ${t.id} di ${from.name} a sé stesso`;
+      if (from.bankrupt) return `proposta ${t.id} intestata a ${from.name}, che è fuori dalla partita`;
+      if (to.bankrupt) return `proposta ${t.id} rivolta a ${to.name}, che è fuori dalla partita`;
+    }
+    // Una sola proposta per proponente: è la regola dichiarata in proposeTrade,
+    // ed è ciò che impedisce di promettere la stessa casella a più persone.
+    const perProponente = {};
+    for (const t of g.tradeOffers) {
+      perProponente[t.fromId] = (perProponente[t.fromId] || 0) + 1;
+      if (perProponente[t.fromId] > 1) {
+        const from = g.players.find((p) => p.id === t.fromId);
+        return `${from?.name || t.fromId} ha ${perProponente[t.fromId]} proposte aperte insieme`;
+      }
+    }
     return null;
   }],
 
@@ -403,6 +442,17 @@ const INVARIANTI = [
 // d'errore) ed esegue la chiamata. Gli argomenti sono spesso volutamente
 // assurdi: il motore deve rispondere {error} senza toccare lo stato, e le
 // invarianti lo verificano subito dopo.
+/**
+ * L'id di una proposta su cui provare a rispondere: metà delle volte una che
+ * riguarda davvero questo giocatore, metà una a caso (o inesistente).
+ */
+function idProposta(g, playerId) {
+  const mie = g.tradeOffers.filter((t) => t.toId === playerId || t.fromId === playerId);
+  if (mie.length && rnd() < 0.6) return scegli(mie).id;
+  if (g.tradeOffers.length && rnd() < 0.5) return scegli(g.tradeOffers).id;
+  return `t${intero(50)}`;
+}
+
 function posizioneCasuale(g, playerId) {
   // Metà delle volte una casella davvero posseduta, metà una a caso: la prima
   // esplora le mosse legali, la seconda i rifiuti.
@@ -432,8 +482,14 @@ const MOSSE = [
     return [`bidAuction(${imp})`, g.bidAuction(id, imp)];
   },
   (g, id) => ['passAuction', g.passAuction(id)],
-  (g, id) => ['respondTrade(sì)', g.respondTrade(id, true)],
-  (g, id) => ['respondTrade(no)', g.respondTrade(id, false)],
+  // Le risposte agli scambi ora vogliono l'id di UNA proposta precisa. Si pesca
+  // per metà una proposta davvero aperta (così il ramo che conclude lo scambio
+  // viene visitato) e per metà un id inventato: il motore deve rifiutare senza
+  // sporcare nulla, ed è il caso che copre il doppio tocco su una proposta
+  // appena decaduta.
+  (g, id) => { const t = idProposta(g, id); return [`respondTrade(sì, ${t})`, g.respondTrade(id, true, t)]; },
+  (g, id) => { const t = idProposta(g, id); return [`respondTrade(no, ${t})`, g.respondTrade(id, false, t)]; },
+  (g, id) => { const t = idProposta(g, id); return [`cancelTrade(${t})`, g.cancelTrade(id, t)]; },
   (g, id) => {
     // Proposte di scambio casuali: proprietà che non si possiedono, denaro che
     // non si ha, carte inesistenti, se stessi come destinatario.
@@ -531,6 +587,14 @@ function impronta(g) {
     g.players.map((p) => [p.balance, p.position, p.bankrupt, p.inJail, p.jailCards]),
     Object.entries(g.ownership).map(([pos, o]) => [pos, o.ownerId, o.houses, o.hotels, o.mortgaged]),
     g.pendingAction,
+    // Le proposte aperte entrano nell'impronta come il pendingAction, e per lo
+    // stesso motivo: proporre e ritirare sono cambiamenti veri dello stato, e
+    // senza di loro il rilevatore di stalli vedrebbe ferma una partita in cui
+    // si sta trattando. Nel verso opposto conta ancora di più: una partita che
+    // si muove SOLO sulle proposte (si propone, si rifiuta, si ripropone
+    // uguale) non è ferma per questo rilevatore, quindi qui si aggiunge
+    // informazione senza toglierne.
+    g.tradeOffers,
   ]);
 }
 
@@ -543,6 +607,7 @@ function dump(g) {
     `    regole: ${JSON.stringify(g.rules)}`,
     ...righe,
     `    pendente: ${JSON.stringify(g.pendingAction)}`,
+    `    proposte aperte: ${JSON.stringify(g.tradeOffers)}`,
     `    proprietà: ${props || '(nessuna)'}`,
     `    ultime righe di registro:`,
     ...g.log.slice(-4).map((l) => `      ${l.message}`),
@@ -619,16 +684,20 @@ for (let partita = 0; partita < PARTITE && violazioni < 5; partita++) {
     const fallitiPrima = game.players.filter((p) => p.bankrupt).length;
     const saldiPrima = new Map(game.players.map((p) => [p.id, p.balance]));
     const eraAsta = game.pendingAction?.type === 'awaiting_auction';
-    const eraScambio = game.pendingAction?.type === 'awaiting_trade';
+    // Le proposte non stanno più nel pendingAction: per sapere se questa mossa
+    // ne concluderà una bisogna guardarle tutte, e quali proprietà mette in
+    // gioco l'insieme di quelle aperte.
+    const proprietaInTrattativa = game.tradeOffers.flatMap((t) => [
+      ...(t.offerProperties || []),
+      ...(t.requestProperties || []),
+    ]);
+    const eraScambio = game.tradeOffers.length > 0;
     // Uno scambio che fa cambiare mano a una proprietà IPOTECATA non è un
     // trasferimento puro: chi la riceve paga alla banca il 10% di interesse
     // (vedi chargeMortgageInterest), quindi del denaro esce davvero dalle
     // tasche dei giocatori. La prima versione di questo test non lo sapeva e
     // segnalava il motore come colpevole: l'errore era qui, non lì.
-    const scambioConIpoteche = eraScambio && [
-      ...(game.pendingAction.offerProperties || []),
-      ...(game.pendingAction.requestProperties || []),
-    ].some((pos) => game.ownership[pos]?.mortgaged);
+    const scambioConIpoteche = proprietaInTrattativa.some((pos) => game.ownership[pos]?.mortgaged);
     const eraDebito = game.pendingAction?.type === 'awaiting_debt';
     const eraAffitto = game.pendingAction?.type === 'awaiting_rent';
     // Il contatore del motore, non il mio: gli scambi accettati dai bot
@@ -690,7 +759,7 @@ for (let partita = 0; partita < PARTITE && violazioni < 5; partita++) {
     const trasferimentoPuro =
       !esito?.error && fallitiOra === fallitiPrima &&
       ((eraAffitto && nomeMossa === 'payRent') ||
-       (eraScambio && !scambioConIpoteche && nomeMossa === 'respondTrade(sì)'));
+       (eraScambio && !scambioConIpoteche && nomeMossa.startsWith('respondTrade(sì')));
     if (trasferimentoPuro) {
       const cassaDopo = game.players.reduce((s, p) => s + p.balance, 0);
       if (cassaDopo !== cassaPrima) {
