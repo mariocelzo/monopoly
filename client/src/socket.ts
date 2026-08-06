@@ -1,9 +1,43 @@
 import { io, Socket } from 'socket.io-client';
 import { segnalaEsito } from './azioni';
+import { azzeraAzioniInVolo, chiaveAzione, segnaArrivo, segnaPartenza, TETTO_ATTESA_MS } from './azioniInVolo';
+import { segnalaCollegato, segnalaTentativoDiCollegamento } from './statoCollegamento';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 export const socket: Socket = io(SERVER_URL, { autoConnect: false });
+
+// I due registri che raccontano l'attesa all'interfaccia si nutrono qui, in un
+// posto solo, e non nei componenti: chi disegna un bottone non deve sapere
+// niente né del socket né di quando si riconnette.
+socket.on('connect', () => {
+  segnalaCollegato();
+  // Dopo una riconnessione, qualunque azione fosse ancora "in volo" ha già
+  // avuto il suo destino: o è arrivata al server prima della caduta, o è
+  // ripartita adesso dalla coda di socket.io. In entrambi i casi lo stato che
+  // conta è quello che sta per arrivare, e tenere i comandi spenti aspettando
+  // un ack che non tornerà lascerebbe l'interfaccia bloccata fino allo scadere
+  // del tetto d'attesa, proprio nel momento in cui si è appena tornati online.
+  azzeraAzioniInVolo();
+});
+// socket.io ritenta da sé dopo una caduta: il cronometro del risveglio riparte
+// da qui, così una serata che riprende dopo che il servizio si è addormentato
+// racconta la stessa cosa di una pagina appena aperta.
+socket.on('disconnect', segnalaTentativoDiCollegamento);
+
+/**
+ * Apre il collegamento segnando l'istante in cui il tentativo comincia.
+ *
+ * Da usare al posto di `socket.connect()`: senza quell'istante non si può
+ * distinguere "mi sto collegando" (un attimo) da "il servizio dormiva e sta
+ * ripartendo" (22,9 secondi misurati), che è l'unica cosa che chi guarda una
+ * pagina ferma ha davvero bisogno di sapere. Vedi statoCollegamento.ts.
+ */
+export function collegaSocket(): void {
+  if (socket.connected) return;
+  segnalaTentativoDiCollegamento();
+  socket.connect();
+}
 
 /**
  * L'unico modo di mandare un'azione di gioco al server.
@@ -15,6 +49,13 @@ export const socket: Socket = io(SERVER_URL, { autoConnect: false });
  * d'asta sotto il minimo è passato inosservato per settimane (vedi
  * AuctionModal.tsx). Passando di qui il rifiuto finisce sempre in un posto solo
  * (azioni.ts) e da lì sullo schermo.
+ *
+ * Ed è anche il solo punto che sa quando un'azione è PARTITA e quando è
+ * tornata: fra i due momenti passano circa 250ms di rete anche a server caldo, e
+ * prima in quel quarto di secondo non cambiava niente sullo schermo. Il
+ * registro delle azioni in volo (azioniInVolo.ts) si segna qui, così ogni
+ * comando può spegnersi nell'istante del tocco senza che nessun componente
+ * debba tenersi il proprio "sto aspettando".
  *
  * Restano fuori di proposito le quattro azioni che hanno una loro logica sulla
  * risposta e non sono mosse di gioco: create_room e join_room (che oltre
@@ -31,10 +72,22 @@ export function inviaAzione(
   payload: unknown = {},
   opzioni?: { alSuccesso?: () => void }
 ): void {
-  socket.emit(evento, payload, (res?: { error?: string }) => {
+  const chiave = chiaveAzione(evento, payload);
+  segnaPartenza(chiave);
+  // `timeout` non è un capriccio: senza, un ack che non arriva mai (rete caduta
+  // fra l'invio e la risposta, server riavviato nel frattempo) lascerebbe la
+  // callback appesa per sempre nella tabella di socket.io e il comando spento
+  // per il resto della serata. Con il tetto, socket.io richiama la callback con
+  // `scaduto` valorizzato e il comando torna disponibile.
+  socket.timeout(TETTO_ATTESA_MS).emit(evento, payload, (scaduto: unknown, res?: { error?: string }) => {
+    segnaArrivo(chiave);
     // Un ack che non arriva (server spento, rete caduta) semplicemente non fa
     // scattare nulla: se ne accorge la barra rossa della connessione persa,
-    // non serve un secondo avviso che dica la stessa cosa.
+    // non serve un secondo avviso che dica la stessa cosa. Vale anche per lo
+    // scadere del tetto, che è lo stesso silenzio visto da vicino: quello che
+    // NON si deve fare è trattarlo come un rifiuto del motore, perché l'azione
+    // può benissimo essere passata e sarebbe un allarme falso.
+    if (scaduto) return;
     const rifiutata = segnalaEsito(evento, res?.error);
     if (!rifiutata) opzioni?.alSuccesso?.();
   });

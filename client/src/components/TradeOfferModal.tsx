@@ -1,4 +1,5 @@
-import { AwaitingTrade, BoardSquare, GameState, inviaAzione } from '../socket';
+import { AwaitingTrade, BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { GROUP_COLORS } from '../groupColors';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
@@ -73,20 +74,17 @@ export default function TradeOfferModal({
                 speso i contanti promessi o ipotecato una casella ("X non ha
                 più abbastanza denaro"). Senza guardare l'ack, quel rifiuto
                 lasciava la finestra ferma con l'aria di un bottone rotto. */}
-            <button
-              className="btn-primary"
-              style={styles.actionBtn}
-              onClick={() => inviaAzione('respond_trade', { accept: true })}
-            >
+            <BottoneAzione evento="respond_trade" payload={{ accept: true }} style={styles.actionBtn}>
               Accetta
-            </button>
-            <button
+            </BottoneAzione>
+            <BottoneAzione
+              evento="respond_trade"
+              payload={{ accept: false }}
               className="btn-ghost"
               style={styles.actionBtn}
-              onClick={() => inviaAzione('respond_trade', { accept: false })}
             >
               Rifiuta
-            </button>
+            </BottoneAzione>
           </div>
         ) : (
           <p style={styles.wait}>{to?.name} sta decidendo...</p>

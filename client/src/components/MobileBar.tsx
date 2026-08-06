@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BoardSquare, GameState, inviaAzione } from '../socket';
+import { BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { TOUCH_TARGET } from '../touchTarget';
 import { PLAYER_COLORS } from './Board';
 import PropertiesPanel from './PropertiesPanel';
@@ -129,25 +130,22 @@ export default function MobileBar({
             {state.hostId === myId && (
               <>
                 {state.players.length < 6 && (
-                  <button
-                    className="btn-ghost"
-                    style={styles.addBot}
-                    onClick={() => inviaAzione('add_bot')}
-                  >
+                  <BottoneAzione evento="add_bot" className="btn-ghost" style={styles.addBot}>
                     + Aggiungi bot
-                  </button>
+                  </BottoneAzione>
                 )}
                 {state.players.some((p) => p.isBot) && (
                   <div style={styles.botList}>
                     {state.players.filter((p) => p.isBot).map((p) => (
-                      <button
+                      <BottoneAzione
                         key={p.id}
+                        evento="remove_bot"
+                        payload={{ botId: p.id }}
                         className="btn-ghost"
                         style={styles.botChip}
-                        onClick={() => inviaAzione('remove_bot', { botId: p.id })}
                       >
                         {p.token} {p.name} ✕
-                      </button>
+                      </BottoneAzione>
                     ))}
                   </div>
                 )}
@@ -209,43 +207,42 @@ export default function MobileBar({
 
         <div style={styles.actions}>
           {!state.started ? (
-            <button className="btn-primary" style={styles.mainBtn} onClick={() => inviaAzione('start_game')}>
+            <BottoneAzione evento="start_game" style={styles.mainBtn}>
               Inizia partita
-            </button>
+            </BottoneAzione>
           ) : state.finished ? (
             <span style={styles.waiting}>Partita finita</span>
           ) : isMyTurn && me?.inJail ? (
             <>
-              <button className="btn-primary" style={styles.mainBtn} onClick={() => inviaAzione('roll_dice')}>
+              <BottoneAzione evento="roll_dice" style={styles.mainBtn}>
                 Tira (doppio per uscire)
-              </button>
-              <button className="btn-ghost" style={styles.smallBtn} onClick={() => inviaAzione('pay_jail_fine')}>
+              </BottoneAzione>
+              <BottoneAzione evento="pay_jail_fine" className="btn-ghost" style={styles.smallBtn}>
                 €{state.jailFine}
-              </button>
+              </BottoneAzione>
               {me.jailCards > 0 && (
-                <button className="btn-ghost" style={styles.smallBtn} onClick={() => inviaAzione('use_jail_card')}>
+                <BottoneAzione evento="use_jail_card" className="btn-ghost" style={styles.smallBtn}>
                   Carta
-                </button>
+                </BottoneAzione>
               )}
             </>
           ) : isMyTurn ? (
             <>
-              <button
-                className="btn-primary"
-                style={styles.mainBtn}
-                disabled={blocked}
-                onClick={() => inviaAzione('roll_dice')}
-              >
+              {/* Il bersaglio più premuto della partita, e su telefono ha
+                  "Fine" appiccicato accanto: qui il segno d'attesa non può
+                  allargare il bottone, o sposterebbe l'altro sotto il pollice
+                  a metà attesa (vedi BottoneAzione.tsx). */}
+              <BottoneAzione evento="roll_dice" style={styles.mainBtn} disabled={blocked}>
                 {rolledDouble ? 'Doppio! Tira ancora' : 'Tira i dadi'}
-              </button>
-              <button
+              </BottoneAzione>
+              <BottoneAzione
+                evento="end_turn"
                 className="btn-ghost"
                 style={styles.smallBtn}
                 disabled={blocked}
-                onClick={() => inviaAzione('end_turn')}
               >
                 Fine
-              </button>
+              </BottoneAzione>
             </>
           ) : (
             <span style={styles.waiting}>Turno di {current?.name}</span>

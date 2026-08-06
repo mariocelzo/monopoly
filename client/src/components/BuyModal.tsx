@@ -1,4 +1,5 @@
-import { AwaitingBuy, BoardSquare, GameState, inviaAzione } from '../socket';
+import { AwaitingBuy, BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { LAYER } from '../layers';
 
 /**
@@ -31,13 +32,12 @@ export default function BuyModal({
           <div style={styles.actions}>
             {/* "Saldo insufficiente" arriva solo dal server: qui non si
                 sconta nulla a mano, e senza guardare la risposta il tasto
-                Compra restava muto proprio quando serviva capire. */}
-            <button className="btn-primary" onClick={() => inviaAzione('buy_property')}>
-              Compra
-            </button>
-            <button className="btn-ghost" onClick={() => inviaAzione('decline_buy')}>
-              Rinuncia
-            </button>
+                Compra restava muto proprio quando serviva capire. E finché
+                quella risposta è in viaggio il comando si spegne da sé, invece
+                di restare acceso e identico per un quarto di secondo (vedi
+                BottoneAzione.tsx). */}
+            <BottoneAzione evento="buy_property">Compra</BottoneAzione>
+            <BottoneAzione evento="decline_buy" className="btn-ghost">Rinuncia</BottoneAzione>
           </div>
         ) : (
           <p style={styles.wait}>{decider?.name || 'L\'altro giocatore'} sta decidendo...</p>

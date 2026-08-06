@@ -1,4 +1,5 @@
-import { AwaitingCard, GameState, inviaAzione } from '../socket';
+import { AwaitingCard, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
 
@@ -42,13 +43,9 @@ export default function CardModal({
         <p style={styles.text}>{pending.text}</p>
 
         {isMine ? (
-          <button
-            className="btn-primary"
-            style={styles.button}
-            onClick={() => inviaAzione('acknowledge_card')}
-          >
+          <BottoneAzione evento="acknowledge_card" style={styles.button}>
             Ho capito
-          </button>
+          </BottoneAzione>
         ) : (
           <p style={styles.wait}>{drawer?.name} sta leggendo la carta…</p>
         )}

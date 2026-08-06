@@ -1,21 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { socket } from '../socket';
+import { useState } from 'react';
+import { collegaSocket, socket } from '../socket';
 import { getClientId, saveRoom } from '../identity';
+import AvvisoRisveglio from './AvvisoRisveglio';
 
 const TOKENS = ['🐕', '🎩', '🚗', '🚢', '🐈', '🎸'];
-
-// Oltre questa attesa si presume che il server sia addormentato, non solo
-// lento in rete: il piano gratuito su cui gira spegne il servizio dopo un po'
-// di inattività e lo riaccende alla prima richiesta, un risveglio che può
-// costare anche una quarantina di secondi. Prima "Crea tavolo" restava lì,
-// cliccato, senza dire nulla: sembrava un bottone rotto, esattamente il difetto
-// che l'avviso di rifiuto (vedi azioni.ts) risolve già per le mosse di
-// partita. Qui è la stessa idea applicata al primo clic, quello prima ancora
-// che una partita esista. La soglia sta via dal giro di rete normale (di
-// solito sotto il secondo) ma ben dentro un risveglio vero: non deve
-// comparire quando il server è già sveglio, solo quando c'è davvero da
-// aspettare.
-const SOGLIA_RISVEGLIO_MS = 2500;
 
 export default function Lobby({
   onJoined,
@@ -40,29 +28,22 @@ export default function Lobby({
   const [taken, setTaken] = useState<string[]>([]);
   // In attesa della risposta del server: disabilita i bottoni (un secondo clic
   // mentre il primo è ancora appeso creerebbe un secondo tavolo, non solo un
-  // fastidio visivo) e fa comparire il messaggio di risveglio se l'attesa si
-  // allunga oltre SOGLIA_RISVEGLIO_MS.
+  // fastidio visivo) e cambia l'etichetta, così il tocco ha un riscontro
+  // immediato anche quando la risposta ci mette un po'.
+  //
+  // Il messaggio sul server addormentato NON sta più qui. Prima si indovinava
+  // a posteriori — mandata la richiesta, se dopo 2,5 secondi non tornava
+  // niente si diceva "si sta svegliando" — e aveva due difetti: compariva solo
+  // DOPO un clic, quando il risveglio era già in corso da un pezzo (il socket
+  // si collega al caricamento della pagina, vedi App.tsx), e misurava la
+  // lentezza di una risposta invece del fatto vero, cioè che la connessione non
+  // c'è ancora. Adesso lo racconta AvvisoRisveglio guardando il collegamento,
+  // che lo sa prima e lo sa con certezza (vedi statoCollegamento.ts).
   const [pending, setPending] = useState(false);
-  const [risveglio, setRisveglio] = useState(false);
-  const timerRisveglio = useRef<number | null>(null);
-
-  // Il timer non deve sopravvivere al componente: senza questa pulizia, un
-  // risveglio più lento del tempo che ci mette React a smontare la lobby
-  // (si entra nel tavolo prima che il server risponda al giocatore più lento
-  // di una seconda scheda, per dire) farebbe scattare setRisveglio su un
-  // componente che non c'è più.
-  useEffect(() => () => {
-    if (timerRisveglio.current) window.clearTimeout(timerRisveglio.current);
-  }, []);
 
   /** Gestisce la risposta del server sia per la creazione sia per l'ingresso. */
   const handleResponse = (res: any) => {
     setPending(false);
-    setRisveglio(false);
-    if (timerRisveglio.current) {
-      window.clearTimeout(timerRisveglio.current);
-      timerRisveglio.current = null;
-    }
     if (res.error) {
       setError(res.error);
       if (Array.isArray(res.takenTokens)) {
@@ -82,14 +63,14 @@ export default function Lobby({
   const avviaAttesa = () => {
     setError(null);
     setPending(true);
-    setRisveglio(false);
-    timerRisveglio.current = window.setTimeout(() => setRisveglio(true), SOGLIA_RISVEGLIO_MS);
   };
 
   const createRoom = () => {
     if (pending) return;
     if (!name.trim()) return setError('Inserisci un nome');
-    if (!socket.connected) socket.connect();
+    // collegaSocket e non socket.connect: segna l'istante da cui si aspetta, che
+    // è quello che distingue "un attimo" da "il servizio sta ripartendo".
+    collegaSocket();
     avviaAttesa();
     socket.emit('create_room', { name, token, clientId: getClientId() }, handleResponse);
   };
@@ -99,7 +80,7 @@ export default function Lobby({
     if (pending) return;
     if (!name.trim()) return setError('Inserisci un nome');
     if (!code.trim()) return setError('Inserisci il codice stanza');
-    if (!socket.connected) socket.connect();
+    collegaSocket();
     avviaAttesa();
     socket.emit(
       'join_room',
@@ -212,15 +193,10 @@ export default function Lobby({
           </>
         )}
 
-        {/* role/aria-live: chi usa un lettore di schermo deve sapere che il
-            risveglio del server sta succedendo, non solo vederlo scritto —
-            stessa ragione dell'avviso di rifiuto (vedi AvvisoAzione.tsx). */}
-        {risveglio && (
-          <p role="status" aria-live="polite" style={styles.risveglio}>
-            Il tavolo dorme quando resta fermo troppo a lungo, e si sta
-            svegliando adesso: può volerci qualche secondo in più del solito.
-          </p>
-        )}
+        {/* Sotto ai comandi e non sopra al titolo: si legge quando si arriva
+            a premere, che è il momento in cui l'attesa conta. Si disegna da
+            solo quando serve e sparisce da solo quando il collegamento c'è. */}
+        <AvvisoRisveglio nota="Puoi intanto scegliere nome e pedone: la partita parte appena è pronto." />
 
         {error && <p style={styles.error}>{error}</p>}
       </div>
@@ -263,7 +239,4 @@ const styles: Record<string, React.CSSProperties> = {
     alignSelf: 'center',
   },
   error: { color: '#e18a8a', fontSize: '0.85rem', marginTop: 10 },
-  // Non è un errore (il colore resta neutro, non rosso): è un tavolo che si
-  // sta aprendo, solo più lentamente del solito.
-  risveglio: { color: 'rgba(243,234,216,0.65)', fontSize: '0.82rem', marginTop: 10, lineHeight: 1.4 },
 };

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GameState, inviaAzione } from '../socket';
+import { GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { skipTurnPrompt } from '../skipTurn';
 import { TOUCH_TARGET } from '../touchTarget';
 
@@ -78,14 +79,14 @@ export default function SkipTurnControl({
     );
   }
 
-  const salta = () => {
-    // Passa dal canale comune (vedi azioni.ts): il server ricontrolla tutto e
-    // può rifiutare perché nel frattempo è rientrato, o perché il tavolo
-    // aspetta la risposta di un altro. Il motivo lo mostra l'avviso unico
-    // dell'applicazione, invece di un secondo posto che dice le stesse cose in
-    // modo diverso. La conferma si chiude solo se il salto è davvero avvenuto.
-    inviaAzione('skip_turn', {}, { alSuccesso: () => setConfermando(false) });
-  };
+  // Il salto passa dal canale comune (vedi azioni.ts): il server ricontrolla
+  // tutto e può rifiutare perché nel frattempo è rientrato, o perché il tavolo
+  // aspetta la risposta di un altro. Il motivo lo mostra l'avviso unico
+  // dell'applicazione, invece di un secondo posto che dice le stesse cose in
+  // modo diverso. La conferma si chiude solo se il salto è davvero avvenuto —
+  // ed è proprio perché la chiusura arriva DOPO la risposta che qui serve un
+  // riscontro nel frattempo: è il comando che si preme quando la partita è già
+  // ferma e sembra rotta, il momento peggiore per non vedere niente.
 
   if (!confermando) {
     return (
@@ -113,9 +114,13 @@ export default function SkipTurnControl({
         </p>
       )}
       <div style={styles.riga}>
-        <button className="btn-primary" style={styles.conferma} onClick={salta}>
+        <BottoneAzione
+          evento="skip_turn"
+          style={styles.conferma}
+          alSuccesso={() => setConfermando(false)}
+        >
           Sì, salta il turno
-        </button>
+        </BottoneAzione>
         <button
           className="btn-ghost"
           style={styles.annulla}

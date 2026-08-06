@@ -1,4 +1,5 @@
-import { AwaitingDebt, BoardSquare, GameState, inviaAzione } from '../socket';
+import { AwaitingDebt, BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { TOUCH_TARGET } from '../touchTarget';
 import PropertiesPanel from './PropertiesPanel';
 import { LAYER } from '../layers';
@@ -53,20 +54,15 @@ export default function DebtModal({
         </div>
 
         <div style={styles.actions}>
-          <button
-            className="btn-primary"
-            style={styles.actionBtn}
-            onClick={() => inviaAzione('resolve_debt_auto')}
-          >
+          {/* Liquidare in automatico tocca parecchie caselle: è fra le
+              azioni che il motore impiega di più a chiudere, ed è anche la più
+              facile da ripremere per il dubbio che non sia partita. */}
+          <BottoneAzione evento="resolve_debt_auto" style={styles.actionBtn}>
             Vendi automaticamente
-          </button>
-          <button
-            className="btn-ghost"
-            style={styles.actionBtn}
-            onClick={() => inviaAzione('declare_bankruptcy')}
-          >
+          </BottoneAzione>
+          <BottoneAzione evento="declare_bankruptcy" className="btn-ghost" style={styles.actionBtn}>
             Dichiara bancarotta
-          </button>
+          </BottoneAzione>
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
-import { AwaitingRent, BoardSquare, GameState, inviaAzione } from '../socket';
+import { AwaitingRent, BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { GROUP_COLORS } from '../groupColors';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
@@ -67,13 +68,9 @@ export default function RentModal({
                 Non ti basta: dopo il pagamento dovrai vendere o ipotecare.
               </p>
             )}
-            <button
-              className="btn-primary"
-              style={styles.button}
-              onClick={() => inviaAzione('pay_rent')}
-            >
+            <BottoneAzione evento="pay_rent" style={styles.button}>
               Paga €{pending.amount}
-            </button>
+            </BottoneAzione>
           </>
         ) : (
           <p style={styles.wait}>In attesa che {payer?.name} paghi…</p>

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { LAYER } from './layers';
-import { socket, inviaAzione, GameState, BoardSquare } from './socket';
+import { socket, collegaSocket, GameState, BoardSquare } from './socket';
 import { azzeraRifiuto } from './azioni';
+import { secondiAlRisveglio, useStatoCollegamento } from './statoCollegamento';
 import { useIsMobile, useIsTouchLayout } from './useIsMobile';
 import { useTurnAttention } from './useTurnAttention';
 import {
@@ -35,6 +36,8 @@ import AwayRecapModal from './components/AwayRecapModal';
 import GameSummary from './components/GameSummary';
 import Scoreboard from './components/Scoreboard';
 import LogStrip from './components/LogStrip';
+import BottoneAzione from './components/BottoneAzione';
+import AvvisoRisveglio from './components/AvvisoRisveglio';
 import AvvisoAzione from './components/AvvisoAzione';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
@@ -165,7 +168,10 @@ export default function App() {
     };
 
     socket.on('connect', rejoin);
-    if (!socket.connected) socket.connect();
+    // collegaSocket e non socket.connect: è da qui che parte il cronometro del
+    // risveglio, ed è questo il collegamento che l'utente sta aspettando
+    // mentre scrive il proprio nome nella lobby (vedi statoCollegamento.ts).
+    if (!socket.connected) collegaSocket();
     else rejoin();
 
     return () => { socket.off('connect', rejoin); };
@@ -195,7 +201,7 @@ export default function App() {
       checkMissedRef.current = true;
     };
     const ensureConnected = () => {
-      if (!document.hidden && !socket.connected) socket.connect();
+      if (!document.hidden && !socket.connected) collegaSocket();
     };
 
     socket.on('connect', setOn);
@@ -213,6 +219,13 @@ export default function App() {
     };
   }, []);
 
+  // Lo stato del collegamento serve alla barra rossa qui sotto per distinguere
+  // "sto riprovando" da "il servizio è andato a dormire e ci mette una ventina
+  // di secondi". Va letto qui, prima di ogni return condizionale, così l'ordine
+  // degli hook resta lo stesso a ogni render.
+  const { fase: faseRete, attesaMs: attesaRete } = useStatoCollegamento();
+  const secondiRete = secondiAlRisveglio(attesaRete);
+
   // Titolo e favicon lampeggianti quando tocca a questo giocatore (turno o
   // pendingAction che lo nomina) e la scheda è in secondo piano: vedi
   // useTurnAttention.ts per il perché. Va chiamato qui, prima di ogni return
@@ -221,7 +234,18 @@ export default function App() {
 
   if (!playerId || !state) {
     if (rejoining) {
-      return <div style={styles.loading}>Rientro al tavolo…</div>;
+      return (
+        // Chi ricarica la pagina a servizio addormentato aspettava qui, davanti
+        // a tre parole ferme, per una ventina di secondi: la stessa attesa
+        // della lobby e quindi lo stesso racconto, invece di due schermate che
+        // trattano lo stesso fatto in due modi diversi.
+        <div style={styles.loading}>
+          <div style={styles.loadingBox}>
+            <span>Rientro al tavolo…</span>
+            <AvvisoRisveglio nota="Il tavolo e la partita sono al loro posto: si riprende da dov'era rimasta." />
+          </div>
+        </div>
+      );
     }
     return (
       <Lobby
@@ -318,9 +342,18 @@ export default function App() {
 
   return (
     <div style={isMobile ? styles.wrapMobile : styles.wrap}>
+      {/* La barra rossa non dice più solo "connessione persa": se il
+          collegamento non torna entro la soglia, il motivo quasi sempre è che
+          il servizio si è addormentato e sta ripartendo — un fatto che ha una
+          durata nota (una ventina di secondi) e che, detto, trasforma
+          un'interfaccia apparentemente rotta in un'attesa che finisce. Il
+          testo lo decide statoCollegamento.ts, lo stesso che parla nella
+          lobby: una sola verità sul collegamento, raccontata in due posti. */}
       {!online && (
         <div style={styles.offlineBanner}>
-          Connessione persa · riconnessione in corso…
+          {faseRete === 'risveglio'
+            ? `Il server si era addormentato e sta ripartendo${secondiRete > 0 ? ` · ancora ${secondiRete}s circa` : ' · ancora qualche secondo'}`
+            : 'Connessione persa · riconnessione in corso…'}
         </div>
       )}
 
@@ -510,14 +543,13 @@ export default function App() {
 
             {/* Dopo un tavolo chiuso non c'è più nulla a cui tornare. */}
             {state.endedReason !== 'closed' && (
-              <button
-                className="btn-primary"
+              <BottoneAzione
+                evento="request_rematch"
                 style={styles.newGame}
                 disabled={hoChiestoRivincita}
-                onClick={() => inviaAzione('request_rematch')}
               >
                 {hoChiestoRivincita ? 'In attesa…' : 'Rivincita'}
-              </button>
+              </BottoneAzione>
             )}
 
             <button
@@ -569,7 +601,10 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: '100%',
   },
   boardArea: { display: 'flex', justifyContent: 'center' },
-  loading: { minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(243,234,216,0.6)', fontFamily: 'var(--font-mono)' },
+  loading: { minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(243,234,216,0.6)', fontFamily: 'var(--font-mono)', padding: 24 },
+  // Larghezza contenuta: il riquadro del risveglio ha due righe di testo, e a
+  // tutta pagina si leggerebbero attraversando lo schermo da un bordo all'altro.
+  loadingBox: { width: 360, maxWidth: '100%', textAlign: 'center' },
   offlineBanner: {
     position: 'fixed',
     top: 0,

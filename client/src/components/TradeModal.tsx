@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BoardSquare, GameState, inviaAzione } from '../socket';
 import { azzeraRifiuto } from '../azioni';
+import { useAttesaVisibile, useAzioneInVolo } from '../azioniInVolo';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
 import MoneyStepper from './MoneyStepper';
@@ -69,6 +70,11 @@ export default function TradeModal({
   // Il compositore si chiude SOLO se la proposta è partita davvero: chiuderlo
   // comunque butterebbe via un'offerta appena composta per un rifiuto che
   // magari si correggeva con un ritocco.
+  // La proposta in viaggio verso il server: finché non torna, il comando che
+  // l'ha mandata resta spento (vedi azioniInVolo.ts).
+  const inVolo = useAzioneInVolo('propose_trade');
+  const attesa = useAttesaVisibile(inVolo);
+
   const send = () => {
     inviaAzione(
       'propose_trade',
@@ -246,10 +252,19 @@ export default function TradeModal({
         )}
 
         <div style={styles.actions}>
+          {/* Non passa da BottoneAzione perché il patto da mandare si legge
+              da otto stati locali al momento del clic; l'attesa però si
+              racconta allo stesso identico modo, con le stesse classi. Mandare
+              due volte la stessa proposta è un guaio vero: la seconda si
+              prende un rifiuto ("C'è già uno scambio in sospeso") su un patto
+              che era invece appena partito. */}
           <button
-            className="btn-primary"
+            className={['btn-primary', inVolo && 'comando-in-volo', attesa && 'comando-in-attesa']
+              .filter(Boolean)
+              .join(' ')}
             onClick={send}
-            disabled={!!state.pendingAction}
+            aria-busy={inVolo || undefined}
+            disabled={!!state.pendingAction || inVolo}
             title={state.pendingAction ? 'Prima si risolve l\'azione in sospeso' : undefined}
           >
             Manda la proposta

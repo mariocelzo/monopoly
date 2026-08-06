@@ -1,4 +1,5 @@
-import { BoardSquare, GameState, inviaAzione } from '../socket';
+import { BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import PropertiesPanel from './PropertiesPanel';
 import EndGameControl from './EndGameControl';
 import SkipTurnControl from './SkipTurnControl';
@@ -42,14 +43,12 @@ export default function GamePanel({
     state.lastRoll.playerId === current?.id &&
     state.lastRoll.dice[0] === state.lastRoll.dice[1];
 
-  // Tutte via inviaAzione: se il motore rifiuta ("Saldo insufficiente" per la
+  // Tutti i comandi passano da BottoneAzione, che sopra a inviaAzione aggiunge
+  // il riscontro immediato: se il motore rifiuta ("Saldo insufficiente" per la
   // multa, "Non hai carte esci di prigione"...) il messaggio compare invece di
-  // lasciare un bottone che sembra rotto. Le corse innocue — il doppio clic su
-  // Fine turno, per dirne una — le filtra azioni.ts, non serve fare niente qui.
-  const roll = () => inviaAzione('roll_dice');
-  const payJail = () => inviaAzione('pay_jail_fine');
-  const useCard = () => inviaAzione('use_jail_card');
-  const endTurn = () => inviaAzione('end_turn');
+  // lasciare un bottone che sembra rotto, e mentre la risposta è in viaggio il
+  // comando resta spento invece di restare acceso e identico. Le corse innocue
+  // — il doppio clic su Fine turno, per dirne una — le filtra azioni.ts.
 
   return (
     <div className="panel" style={styles.wrap}>
@@ -80,13 +79,15 @@ export default function GamePanel({
                 {p.name}{p.id === myId ? ' (tu)' : ''}
                 {p.isBot && <span style={styles.botTag}>BOT</span>}
                 {p.isBot && !state.started && state.hostId === myId && (
-                  <button
+                  <BottoneAzione
+                    evento="remove_bot"
+                    payload={{ botId: p.id }}
+                    className=""
                     style={styles.removeBot}
                     title="Togli questo bot"
-                    onClick={() => inviaAzione('remove_bot', { botId: p.id })}
                   >
                     ✕
-                  </button>
+                  </BottoneAzione>
                 )}
               </div>
               <div
@@ -132,13 +133,9 @@ export default function GamePanel({
       {/* Riempire il tavolo di bot è una scelta di chi lo ha creato, e solo
           prima del via: a partita iniziata i posti sono quelli. */}
       {!state.started && state.hostId === myId && state.players.length < 6 && (
-        <button
-          className="btn-ghost"
-          style={styles.addBot}
-          onClick={() => inviaAzione('add_bot')}
-        >
+        <BottoneAzione evento="add_bot" className="btn-ghost" style={styles.addBot}>
           + Aggiungi bot
-        </button>
+        </BottoneAzione>
       )}
 
       {/* Le regole si scelgono solo prima del via: a partita iniziata questo
@@ -148,26 +145,26 @@ export default function GamePanel({
 
       <div style={styles.turnBox}>
         {!state.started ? (
-          <button className="btn-primary" onClick={() => inviaAzione('start_game')}>
-            Inizia partita
-          </button>
+          <BottoneAzione evento="start_game">Inizia partita</BottoneAzione>
         ) : state.finished ? (
           <span style={{ color: 'rgba(243,234,216,0.6)' }}>Partita finita</span>
         ) : isMyTurn && me?.inJail ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn-primary" onClick={roll}>Tira i dadi (esci con doppio)</button>
-            <button className="btn-ghost" onClick={payJail}>Paga €{state.jailFine}</button>
-            {me.jailCards > 0 && <button className="btn-ghost" onClick={useCard}>Usa carta uscita</button>}
+            <BottoneAzione evento="roll_dice">Tira i dadi (esci con doppio)</BottoneAzione>
+            <BottoneAzione evento="pay_jail_fine" className="btn-ghost">Paga €{state.jailFine}</BottoneAzione>
+            {me.jailCards > 0 && (
+              <BottoneAzione evento="use_jail_card" className="btn-ghost">Usa carta uscita</BottoneAzione>
+            )}
           </div>
         ) : isMyTurn ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {rolledDouble && <div style={styles.doubleHint}>Doppio! Tiri ancora.</div>}
-            <button className="btn-primary" onClick={roll} disabled={!!state.pendingAction}>
+            <BottoneAzione evento="roll_dice" disabled={!!state.pendingAction}>
               Tira i dadi
-            </button>
-            <button className="btn-ghost" onClick={endTurn} disabled={!!state.pendingAction}>
+            </BottoneAzione>
+            <BottoneAzione evento="end_turn" className="btn-ghost" disabled={!!state.pendingAction}>
               Fine turno
-            </button>
+            </BottoneAzione>
           </div>
         ) : (
           <span style={{ color: 'rgba(243,234,216,0.6)' }}>Turno di {current?.name}...</span>
