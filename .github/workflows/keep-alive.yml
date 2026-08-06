@@ -93,7 +93,7 @@ jobs:
             --retry 4 \
             --retry-delay 15 \
             --retry-all-errors \
-            "https://noi-due-monopoly-api.onrender.com/health")
+            "https://noi-due-monopoly-api-eu.onrender.com/health")
 
           echo "Risposta ricevuta: $RESPONSE"
 
