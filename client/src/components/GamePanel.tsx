@@ -9,6 +9,7 @@ import HouseRules from './HouseRules';
 import Scoreboard from './Scoreboard';
 import { PLAYER_COLORS } from './Board';
 import { netWorthShares } from '../netWorthBar';
+import { motivoScambioBloccato } from '../scambi';
 
 export default function GamePanel({
   state,
@@ -26,6 +27,9 @@ export default function GamePanel({
   const current = state.players[state.turnIndex];
   const isMyTurn = current?.id === myId;
   const me = state.players.find((p) => p.id === myId);
+  // Perché non si può proporre uno scambio adesso, se non si può: regola unica
+  // in scambi.ts, la stessa che applica il motore.
+  const scambiBloccati = motivoScambioBloccato(state, myId);
 
   // Stesso colore della pedina sul tabellone (vedi PLAYER_COLORS in Board.tsx),
   // così la barra del patrimonio si riconosce come "di quel giocatore" senza
@@ -181,8 +185,11 @@ export default function GamePanel({
           className="btn-ghost"
           style={styles.tradeBtn}
           onClick={onProposeTrade}
-          disabled={!!state.pendingAction}
-          title={state.pendingAction ? 'Prima risolvi l\'azione in sospeso' : 'Proponi uno scambio'}
+          // Non più spento a ogni azione in sospeso: una trattativa altrui, un
+          // acquisto o un affitto non impediscono di proporre. Restano solo il
+          // debito e l'asta (vedi scambi.ts), che è la stessa regola del motore.
+          disabled={!!scambiBloccati}
+          title={scambiBloccati ?? 'Proponi uno scambio'}
         >
           Proponi scambio
         </button>

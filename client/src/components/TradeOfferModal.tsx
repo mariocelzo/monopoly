@@ -1,28 +1,38 @@
-import { AwaitingTrade, BoardSquare, GameState } from '../socket';
+import { BoardSquare, GameState, TradeOffer } from '../socket';
 import BottoneAzione from './BottoneAzione';
 import { GROUP_COLORS } from '../groupColors';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
 
 /**
- * Offerta di scambio ricevuta. Al destinatario mostra i due lati del baratto con
- * Accetta e Rifiuta; al proponente solo l'attesa, perché finché non arriva una
- * risposta la partita resta ferma per entrambi.
+ * Offerta di scambio RICEVUTA: i due lati del baratto, Accetta e Rifiuta.
+ *
+ * Adesso la monta solo il destinatario. Prima serviva anche a chi aveva
+ * proposto, per mostrargli "in attesa di X", e aveva senso: la proposta
+ * congelava il tavolo, quindi il proponente non aveva comunque niente da fare
+ * se non guardare. Da quando il gioco va avanti, quella stessa finestra
+ * diventerebbe una gabbia — un velo a tutto schermo che gli impedisce di tirare
+ * i dadi mentre l'altro decide, cioè il difetto di partenza rifatto in
+ * interfaccia dopo averlo tolto dal motore. Chi propone vede una striscia che
+ * non copre niente (vedi PropostaInAttesa.tsx).
+ *
+ * `restanti` è quante altre offerte aspettano dietro questa: verso lo stesso
+ * giocatore adesso possono essercene più d'una, e si risponde una alla volta.
  */
 export default function TradeOfferModal({
-  pending,
+  offerta,
+  restanti = 0,
   board,
   state,
-  myId,
 }: {
-  pending: AwaitingTrade;
+  offerta: TradeOffer;
+  restanti?: number;
   board: BoardSquare[];
   state: GameState;
-  myId: string;
 }) {
+  const pending = offerta;
   const from = state.players.find((p) => p.id === pending.fromId);
   const to = state.players.find((p) => p.id === pending.toId);
-  const isRecipient = pending.toId === myId;
 
   /** Un lato del baratto: le proprietà più l'eventuale denaro. */
   const side = (title: string, positions: number[], money: number, jailCards: number) => (
@@ -57,38 +67,46 @@ export default function TradeOfferModal({
   return (
     <div className="scrim" style={styles.overlay}>
       <div className="panel" style={styles.card}>
-        <span style={styles.eyebrow}>scambio proposto</span>
-        <h2 style={styles.title}>
-          {isRecipient ? `${from?.name} ti propone` : `In attesa di ${to?.name}`}
-        </h2>
+        <span style={styles.eyebrow}>
+          scambio proposto{restanti > 0 ? ` · ne restano altre ${restanti}` : ''}
+        </span>
+        <h2 style={styles.title}>{from?.name} ti propone</h2>
 
         <div style={styles.columns}>
           {side(`${from?.name} dà`, pending.offerProperties, pending.offerMoney, pending.offerJailCards)}
           {side(`${to?.name} dà`, pending.requestProperties, pending.requestMoney, pending.requestJailCards)}
         </div>
 
-        {isRecipient ? (
-          <div style={styles.actions}>
-            {/* Accettare può fallire per davvero, e non per colpa di chi
-                preme: fra la proposta e la risposta il proponente può aver
-                speso i contanti promessi o ipotecato una casella ("X non ha
-                più abbastanza denaro"). Senza guardare l'ack, quel rifiuto
-                lasciava la finestra ferma con l'aria di un bottone rotto. */}
-            <BottoneAzione evento="respond_trade" payload={{ accept: true }} style={styles.actionBtn}>
-              Accetta
-            </BottoneAzione>
-            <BottoneAzione
-              evento="respond_trade"
-              payload={{ accept: false }}
-              className="btn-ghost"
-              style={styles.actionBtn}
-            >
-              Rifiuta
-            </BottoneAzione>
-          </div>
-        ) : (
-          <p style={styles.wait}>{to?.name} sta decidendo...</p>
-        )}
+        <div style={styles.actions}>
+          {/* Accettare può fallire per davvero, e non per colpa di chi preme:
+              fra la proposta e la risposta il proponente può aver speso i
+              contanti promessi o ipotecato una casella. Adesso può capitare
+              molto più spesso di prima — il tavolo non è più fermo, quindi fra
+              i due momenti si gioca davvero — e il motore in quel caso non si
+              limita a rifiutare: toglie di mezzo la proposta e scrive nel
+              registro perché. Il rifiuto arriva comunque a schermo passando da
+              `inviaAzione` (vedi azioni.ts), che è il motivo per cui questi
+              bottoni non fanno `socket.emit` da soli.
+
+              `tradeId` è obbligatorio: di offerte aperte verso di me ce ne
+              possono essere più d'una, e un "accetta" senza indirizzo
+              prenderebbe quella sbagliata. */}
+          <BottoneAzione
+            evento="respond_trade"
+            payload={{ accept: true, tradeId: pending.id }}
+            style={styles.actionBtn}
+          >
+            Accetta
+          </BottoneAzione>
+          <BottoneAzione
+            evento="respond_trade"
+            payload={{ accept: false, tradeId: pending.id }}
+            className="btn-ghost"
+            style={styles.actionBtn}
+          >
+            Rifiuta
+          </BottoneAzione>
+        </div>
       </div>
     </div>
   );
@@ -103,7 +121,9 @@ const styles: Record<string, React.CSSProperties> = {
   // comprimendo l'elenco il contenuto fisso ci sta — viewport bassissimi, nomi
   // lunghi che vanno a capo — e per i browser mobile dove 100vh non coincide
   // con l'area davvero visibile.
-  overlay: { display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
+  // `offertaScambio` e non più `decisione`: un'offerta si può rimandare senza
+  // fermare nessuno, un affitto o un'asta no. Vedi il perché in layers.ts.
+  overlay: { display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.offertaScambio, padding: 20, overflowY: 'auto' },
   // `margin: auto` centra la finestra quando c'è spazio e collassa quando non
   // ce n'è, lasciando che sia `alignItems: flex-start` a tenerla attaccata in
   // alto invece di farla uscire da sopra.

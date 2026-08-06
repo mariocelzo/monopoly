@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BoardSquare, GameState, inviaAzione } from '../socket';
 import { azzeraRifiuto } from '../azioni';
+import { motivoScambioBloccato } from '../scambi';
 import { useAttesaVisibile, useAzioneInVolo } from '../azioniInVolo';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
@@ -178,12 +179,14 @@ export default function TradeWizard({
   const vuotoDaEntrambiILati =
     offerProperties.length + requestProperties.length === 0 &&
     offerMoney + requestMoney + offerJailCards + requestJailCards === 0;
-  // Un'altra azione in sospeso (l'affitto di un bot, un'asta, un debito...)
-  // fa rifiutare l'invio dal server comunque: si disabilita il bottone finale
-  // e si spiega perché, invece di smontare tutta la procedura come succedeva
-  // prima — perdendo passi già scelti solo perché nel frattempo qualcun altro
-  // ha pagato un affitto.
-  const bloccatoDaAltro = !!state.pendingAction;
+  // Perché l'invio è fermo, se lo è. Non più "c'è un pendingAction qualsiasi":
+  // fermano solo il debito e l'asta, o una propria proposta già aperta. La
+  // regola sta in scambi.ts, in un posto solo, perché prima era ricopiata a
+  // mano in quattro componenti e con tre rami sarebbe divergente al primo
+  // ritocco. Il bottone finale si spegne e si spiega, invece di smontare tutta
+  // la procedura come succedeva un tempo — perdendo passi già scelti solo
+  // perché nel frattempo qualcun altro ha pagato un affitto.
+  const bloccatoDaAltro = motivoScambioBloccato(state, myId);
 
   return (
     <div style={styles.overlay}>
@@ -274,8 +277,7 @@ export default function TradeWizard({
               )}
               {!vuotoDaEntrambiILati && bloccatoDaAltro && (
                 <p style={styles.avviso}>
-                  C'è un'altra azione in sospeso al tavolo: il patto resta qui com'è, ma l'invio
-                  aspetta che si risolva.
+                  {bloccatoDaAltro} Il patto resta qui com'è.
                 </p>
               )}
             </>
@@ -310,7 +312,7 @@ export default function TradeWizard({
                   .join(' ')}
                 style={styles.btn}
                 aria-busy={inVolo || undefined}
-                disabled={vuotoDaEntrambiILati || bloccatoDaAltro || inVolo}
+                disabled={vuotoDaEntrambiILati || !!bloccatoDaAltro || inVolo}
                 onClick={manda}
               >
                 Manda la proposta

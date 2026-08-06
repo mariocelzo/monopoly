@@ -28,6 +28,7 @@ import DebtModal from './components/DebtModal';
 import TradeModal from './components/TradeModal';
 import TradeWizard from './components/TradeWizard';
 import TradeOfferModal from './components/TradeOfferModal';
+import PropostaInAttesa from './components/PropostaInAttesa';
 import CardModal from './components/CardModal';
 import RentModal from './components/RentModal';
 import TaxModal from './components/TaxModal';
@@ -295,7 +296,6 @@ export default function App() {
   const pending = state.pendingAction;
   const buy = pending?.type === 'awaiting_buy' ? pending : null;
   const debt = pending?.type === 'awaiting_debt' ? pending : null;
-  const trade = pending?.type === 'awaiting_trade' ? pending : null;
   const card = pending?.type === 'awaiting_card' ? pending : null;
   const rent = pending?.type === 'awaiting_rent' ? pending : null;
   const tax = pending?.type === 'awaiting_tax' ? pending : null;
@@ -315,18 +315,18 @@ export default function App() {
   const rentIsMine = !!rent && rent.playerId === playerId;
   const taxIsMine = !!tax && tax.playerId === playerId;
   const debtIsMine = !!debt && debt.playerId === playerId;
-  // Lo scambio riguarda due persone, non una sola. Il destinatario
-  // (`trade.playerId`, cioè `toId`) deve rispondere, ma anche chi l'ha
-  // proposto (`fromId`) è parte in causa — vuole vedere che l'altro sta
-  // decidendo, non solo saperlo dal registro dopo il fatto. Un terzo
-  // giocatore non coinvolto, invece, non ha nulla da guardare qui: per lui
-  // TradeOfferModal resta chiuso, banner o non banner.
-  const tradeConcernsMe = !!trade && (trade.playerId === playerId || trade.fromId === playerId);
-  // Ma solo il destinatario (`trade.playerId`) ha una decisione da prendere:
-  // per chi ha proposto lo scambio è "sto guardando", esattamente come per un
-  // affitto altrui. Serve più sotto per la soppressione durante la
-  // composizione.
-  const tradeIsMine = !!trade && trade.playerId === playerId;
+  // Le proposte di scambio non stanno più nel pendingAction e non fermano più
+  // nessuno: si leggono da `tradeOffers`, e ognuno guarda solo le proprie.
+  // Il terzo giocatore non coinvolto non vede assolutamente niente — è tutto il
+  // senso della modifica: la trattativa di due non deve comparire addosso a chi
+  // sta giocando.
+  const offerte = state.tradeOffers ?? [];
+  // Da rispondere: possono essere più d'una (chiunque può propormi qualcosa
+  // nello stesso momento). Si mostra la più vecchia e si dice quante restano,
+  // invece di impilare finestre una sull'altra.
+  const daRispondere = offerte.filter((t) => t.toId === playerId);
+  // Fatta da me: al più una, il motore ne ammette una per proponente.
+  const miaProposta = offerte.find((t) => t.fromId === playerId) ?? null;
   // L'asta gira a turno fra i partecipanti (`pending.playerId` è chi deve
   // rilanciare o passare adesso): resta visibile a tutto il tavolo sempre,
   // perché è collettiva, ma solo il turno di chi guarda conta come "aspetta
@@ -458,14 +458,29 @@ export default function App() {
       {debt && (!composingTrade || debtIsMine) && (
         <DebtModal pending={debt} board={board} state={state} myId={playerId} />
       )}
-      {/* TradeOfferModal resta comunque visibile solo a chi propone o riceve
-          (`tradeConcernsMe`): un terzo giocatore non ha nulla da guardare qui,
-          banner o no. Fra i due, solo il destinatario (`tradeIsMine`) ha una
-          decisione in sospeso — per chi ha proposto è "sto guardando", quindi
-          si sopprime allo stesso modo delle altre eccezioni mentre si compone
-          un'ALTRA proposta. */}
-      {trade && tradeConcernsMe && (!composingTrade || tradeIsMine) && (
-        <TradeOfferModal pending={trade} board={board} state={state} myId={playerId} />
+      {/* L'offerta ricevuta: la vede solo il destinatario, e resta visibile
+          anche mentre si compone un'altra proposta — è l'unica delle eccezioni
+          qui sopra che NON si sopprime, perché il compositore è mio e
+          l'offerta pure, e sepolta sotto non la vedrei mai. Sta comunque sotto
+          le finestre che fermano il tavolo (vedi layers.ts): se arriva un
+          affitto da pagare, quello viene prima. */}
+      {daRispondere.length > 0 && (
+        <TradeOfferModal
+          offerta={daRispondere[0]}
+          restanti={daRispondere.length - 1}
+          board={board}
+          state={state}
+        />
+      )}
+      {/* Chi ha proposto vede una striscia, non una finestra: deve poter
+          continuare a giocare mentre l'altro decide. Vedi PropostaInAttesa. */}
+      {miaProposta && (
+        <PropostaInAttesa
+          offerta={miaProposta}
+          board={board}
+          state={state}
+          sottoBanner={!online}
+        />
       )}
       {/* Non condizionato da `!pending`: uno scambio altrui (o qualunque altra
           azione in sospeso non mia) non deve smontare quello che sto

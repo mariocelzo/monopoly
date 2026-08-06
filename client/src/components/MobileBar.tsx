@@ -11,6 +11,7 @@ import InviteLink from './InviteLink';
 import HouseRules from './HouseRules';
 import { LAYER } from '../layers';
 import { netWorthShares } from '../netWorthBar';
+import { motivoScambioBloccato } from '../scambi';
 
 type Sheet = 'proprieta' | 'registro' | null;
 
@@ -44,7 +45,13 @@ export default function MobileBar({
   const current = state.players[state.turnIndex];
   const isMyTurn = current?.id === myId;
   const me = state.players.find((p) => p.id === myId);
+  // `blocked` resta la domanda giusta per i dadi e per "Fine": quelle SÌ che
+  // un'azione in sospeso le ferma, sempre.
   const blocked = !!state.pendingAction;
+  // Lo scambio no: dipende da una regola sua, più permissiva, la stessa che
+  // applica il motore (vedi scambi.ts). Con un acquisto o un affitto altrui in
+  // sospeso si propone eccome — è tutto il senso di questa modifica.
+  const scambiBloccati = motivoScambioBloccato(state, myId);
 
   // Il tiro extra da doppio confondeva: sembrava che il gioco facesse tirare
   // due volte a caso. Ora lo si dice.
@@ -267,7 +274,8 @@ export default function MobileBar({
           <button
             className="btn-ghost"
             style={styles.tab}
-            disabled={!state.started || state.finished || blocked}
+            disabled={!!scambiBloccati}
+            title={scambiBloccati ?? undefined}
             onClick={onProposeTrade}
           >
             🤝 Scambio
