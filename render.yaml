@@ -3,10 +3,21 @@
 # Il codice del server sta in server/, da cui rootDir.
 services:
   - type: web
-    name: noi-due-monopoly-api
+    name: noi-due-monopoly-api-eu
     runtime: node
     rootDir: server
     plan: free
+    # La regione non è un dettaglio: senza questa riga Render mette il
+    # servizio in Oregon, e da lì ogni azione di gioco attraversa l'Atlantico.
+    # Misurato sul servizio vero, a caldo, sulla stessa connessione: un tiro
+    # di dadi faceva 194ms andata e ritorno da Oregon contro 34-41ms da
+    # Francoforte. Il servizio attuale è nato a mano dal cruscotto con questi
+    # stessi valori (nessun Blueprint lo gestisce più); questo file resta
+    # come documentazione per il giorno in cui andasse ricreato da zero.
+    #
+    # Attenzione: su Render la regione si sceglie alla CREAZIONE e non si può
+    # cambiare dopo su un servizio già esistente.
+    region: frankfurt
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /health
