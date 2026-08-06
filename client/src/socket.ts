@@ -154,12 +154,22 @@ export interface AwaitingDebt {
 }
 
 /**
- * Proposta di scambio in attesa di risposta. `playerId` è il destinatario, cioè
- * chi deve accettare o rifiutare. Congela la partita per entrambi.
+ * Proposta di scambio aperta fra due giocatori.
+ *
+ * NON è più un `PendingAction`, ed è la differenza che conta: quello slot
+ * significa "il tavolo è fermo perché si aspetta una decisione", e una
+ * trattativa fra due non lo è. Le proposte arrivano in `GameState.tradeOffers`,
+ * possono essere più d'una insieme, e mentre sono aperte tutti gli altri
+ * continuano a giocare — era la segnalazione di chi ci gioca: «se qualcuno fa
+ * uno scambio devo aspettare anche io».
+ *
+ * `id` non è decorativo: verso lo stesso giocatore possono esserci più proposte
+ * aperte, quindi rispondere vuole l'indirizzo di quella precisa (vedi
+ * respondTrade in gameEngine.js). Un "accetta" senza id prenderebbe quella
+ * sbagliata al primo doppio tocco.
  */
-export interface AwaitingTrade {
-  type: 'awaiting_trade';
-  playerId: string;
+export interface TradeOffer {
+  id: string;
   fromId: string;
   toId: string;
   offerProperties: number[];
@@ -234,13 +244,17 @@ export interface AwaitingAuction {
   minIncrement: number;
 }
 
+/**
+ * Le finestre che fermano il tavolo, e soltanto quelle. Gli scambi ne sono
+ * usciti di proposito (vedi TradeOffer): finché ci stavano dentro, una proposta
+ * fra due persone bloccava il turno, le costruzioni e le ipoteche di tutti.
+ */
 export type PendingAction =
   | AwaitingBuy
   | AwaitingCard
   | AwaitingRent
   | AwaitingTax
   | AwaitingDebt
-  | AwaitingTrade
   | AwaitingAuction;
 
 /**
@@ -312,6 +326,15 @@ export interface GameState {
   started: boolean;
   log: { message: string; at: number }[];
   pendingAction: PendingAction | null;
+  /**
+   * Le proposte di scambio aperte al tavolo, tutte, non solo le proprie: il
+   * server trasmette lo stesso stato a tutti e non c'è niente di segreto in una
+   * proposta (al tavolo vero si tratta ad alta voce). Chi disegna filtra per
+   * `toId` (ho una risposta da dare) o `fromId` (sto aspettando una risposta).
+   * Facoltativo nel tipo perché uno stato ricostruito a mano nei test della
+   * logica pura non deve essere obbligato a dichiararlo.
+   */
+  tradeOffers?: TradeOffer[];
   finished: boolean;
   winnerId: string | null;
   /** Come è finita: per bancarotta, per abbandono o per chiusura del tavolo. */

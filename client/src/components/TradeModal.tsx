@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BoardSquare, GameState, inviaAzione } from '../socket';
 import { azzeraRifiuto } from '../azioni';
 import { useAttesaVisibile, useAzioneInVolo } from '../azioniInVolo';
+import { motivoScambioBloccato } from '../scambi';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
 import MoneyStepper from './MoneyStepper';
@@ -16,10 +17,15 @@ import { LAYER } from '../layers';
  *
  * App.tsx tiene questo componente montato anche quando nel frattempo si apre
  * un `pendingAction` altrui (l'affitto di un bot, per esempio): prima si
- * smontava e tutto quello che si era composto andava perso. Il server
- * continua comunque a rifiutare l'invio finché `pendingAction` non si libera
- * — per questo il bottone "Manda la proposta" si disabilita da solo qui
- * sotto, invece che sparire il componente intero.
+ * smontava e tutto quello che si era composto andava perso. Per questo il
+ * bottone "Manda la proposta" si disabilita da solo, invece che far sparire il
+ * componente intero.
+ *
+ * Quando si disabilita è cambiato, ed è cambiato in meglio: non più a ogni
+ * `pendingAction`, ma solo quando il motore rifiuterebbe davvero — debito o
+ * asta in corso, o una propria proposta già aperta. La regola sta in scambi.ts,
+ * scritta una volta sola. Con un acquisto o un affitto altrui in sospeso adesso
+ * si manda eccome: la trattativa non ferma nessuno e nessuno ferma lei.
  */
 export default function TradeModal({
   board,
@@ -74,6 +80,9 @@ export default function TradeModal({
   // l'ha mandata resta spento (vedi azioniInVolo.ts).
   const inVolo = useAzioneInVolo('propose_trade');
   const attesa = useAttesaVisibile(inVolo);
+  // Perché l'invio è fermo, se lo è: la regola sta in scambi.ts, in un posto
+  // solo, perché non è più il semplice "c'è un pendingAction" di prima.
+  const bloccato = motivoScambioBloccato(state, myId);
 
   const send = () => {
     inviaAzione(
@@ -244,10 +253,9 @@ export default function TradeModal({
             già scelto — ora si resta montati e si spiega perché il bottone è
             spento, così si può continuare a comporre e mandare non appena si
             libera. */}
-        {state.pendingAction && (
+        {bloccato && (
           <p style={styles.pendingNote}>
-            C'è un'altra azione in sospeso al tavolo: si può continuare a
-            comporre, ma l'invio resta fermo finché non si risolve.
+            {bloccato} Si può continuare a comporre: l'invio si riattiva da sé.
           </p>
         )}
 
@@ -264,8 +272,8 @@ export default function TradeModal({
               .join(' ')}
             onClick={send}
             aria-busy={inVolo || undefined}
-            disabled={!!state.pendingAction || inVolo}
-            title={state.pendingAction ? 'Prima si risolve l\'azione in sospeso' : undefined}
+            disabled={!!bloccato || inVolo}
+            title={bloccato ?? undefined}
           >
             Manda la proposta
           </button>

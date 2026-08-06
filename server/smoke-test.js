@@ -46,6 +46,19 @@ function give(game, playerId, position, extra = {}) {
 }
 
 /**
+ * L'ultima proposta di scambio aperta, e il suo id. Da quando gli scambi non
+ * bloccano più il tavolo (vedi gameEngine.js) le proposte aperte possono essere
+ * più d'una e rispondere vuole l'id di quella precisa: questi due aiutanti
+ * evitano di ripetere `game.tradeOffers[...]` in ogni test.
+ */
+function ultimaProposta(game) {
+  return game.tradeOffers[game.tradeOffers.length - 1] || null;
+}
+function idUltimaProposta(game) {
+  return ultimaProposta(game)?.id;
+}
+
+/**
  * Fa passare tutti quelli in coda in un'asta aperta, così la casella resta
  * libera. Serve ai test più vecchi di questa regola, che rinunciano a una
  * proprietà per esercitare altro (i doppi, la prigione) e si aspettano che
@@ -262,22 +275,23 @@ section('10b. Scambio: proposta e accettazione');
     requestMoney: 0,
   });
   check('la proposta è accettata dal motore', !res.error, res.error);
-  check('si apre uno scambio in sospeso', game.pendingAction?.type === 'awaiting_trade');
-  check('tocca al destinatario rispondere', game.pendingAction?.playerId === 'b');
+  check('si apre una proposta di scambio', game.tradeOffers.length === 1);
+  check('la proposta è indirizzata al destinatario', ultimaProposta(game).toId === 'b');
+  // La proposta NON è più un pendingAction: è proprio la separazione che questa
+  // versione introduce. Il pendingAction resta lo slot del "tavolo fermo in
+  // attesa di una decisione", e una trattativa fra due non lo è.
+  check('la proposta non occupa lo slot delle azioni in sospeso', game.pendingAction === null);
 
-  const wrongResponder = game.respondTrade('a', true);
+  const wrongResponder = game.respondTrade('a', true, idUltimaProposta(game));
   check('il proponente non può rispondere da solo', !!wrongResponder.error, wrongResponder.error);
-  const rolled = game.rollDice('a');
-  check('con uno scambio aperto non si tirano i dadi', !!rolled.error, rolled.error);
   const built = game.mortgageProperty('a', ORANGE[0]);
-  check('le proprietà sono congelate durante lo scambio', !!built.error, built.error);
+  check('la merce promessa resta congelata per chi l\'ha promessa', !!built.error, built.error);
 
-  game.respondTrade('b', true);
+  game.respondTrade('b', true, idUltimaProposta(game));
   check('la proprietà offerta è passata al destinatario', game.ownership[ORANGE[0]].ownerId === 'b');
   check('la proprietà richiesta è passata al proponente', game.ownership[BROWN[0]].ownerId === 'a');
   check('il denaro è stato trasferito', mario.balance === 400 && giulia.balance === 600, `${mario.balance}/${giulia.balance}`);
-  check('lo scambio è chiuso', game.pendingAction === null);
-  check('il turno non è cambiato', game.turnIndex === 0);
+  check('la proposta è sparita dal tavolo', game.tradeOffers.length === 0);
 }
 
 section('10c. Scambio: rifiuto e vincoli');
@@ -304,8 +318,8 @@ section('10c. Scambio: rifiuto e vincoli');
   check('uno scambio vuoto è rifiutato', !!empty.error, empty.error);
 
   game.proposeTrade('a', { toId: 'b', requestProperties: [BROWN[0]], offerMoney: 50 });
-  game.respondTrade('b', false);
-  check('dopo il rifiuto lo scambio è chiuso', game.pendingAction === null);
+  game.respondTrade('b', false, idUltimaProposta(game));
+  check('dopo il rifiuto lo scambio è chiuso', game.tradeOffers.length === 0);
   check('il rifiuto non muove nulla', game.ownership[BROWN[0]].ownerId === 'b');
   check('il rifiuto non muove denaro', game.players[0].balance === 1500);
 }
@@ -317,7 +331,7 @@ section('10d. Scambio: interesse sulle ipoteche ricevute');
   give(game, 'a', BROWN[1], { mortgaged: true });
 
   game.proposeTrade('a', { toId: 'b', offerProperties: [BROWN[1]], requestMoney: 100 });
-  game.respondTrade('b', true);
+  game.respondTrade('b', true, idUltimaProposta(game));
 
   check('la proprietà è passata', game.ownership[BROWN[1]].ownerId === 'b');
   check('resta ipotecata', game.ownership[BROWN[1]].mortgaged === true);
@@ -339,7 +353,7 @@ section('10i. Scambio di carte "esci di prigione" e pedoni unici');
   check('non si offrono più carte di quante se ne hanno', !!troppe.error, troppe.error);
 
   game.proposeTrade('a', { toId: 'b', offerJailCards: 1, requestMoney: 60 });
-  game.respondTrade('b', true);
+  game.respondTrade('b', true, idUltimaProposta(game));
   check('la carta è passata', mario.jailCards === 1 && giulia.jailCards === 1, `${mario.jailCards}/${giulia.jailCards}`);
   check('il denaro è passato', mario.balance === 1560 && giulia.balance === 1440, `${mario.balance}/${giulia.balance}`);
 
@@ -351,6 +365,284 @@ section('10i. Scambio di carte "esci di prigione" e pedoni unici');
   check('l\'errore riporta i pedoni occupati', Array.isArray(taken.takenTokens) && taken.takenTokens.includes('🎩'));
   check('un pedone libero è accettato', !dup.addPlayer('y', 'Giulia', '🐕').error);
   check('i giocatori al tavolo sono due', dup.players.length === 2);
+}
+
+// ---------------------------------------------------------------------------
+// La sezione che copre il motivo per cui gli scambi sono usciti dal
+// pendingAction. La segnalazione di chi ci gioca era testuale: «se qualcuno fa
+// uno scambio devo aspettare anche io». Qui sotto si verifica sia il diritto
+// (chi non c'entra gioca) sia il suo rovescio, che conta almeno altrettanto: i
+// due coinvolti non devono poter cambiare le carte in tavola a proposta fatta.
+
+/** Tavolo a tre pronto al via, con saldi comodi: X, Y e il famoso Z. */
+function tavoloATre() {
+  const g = new GameEngine('TRE');
+  g.addPlayer('x', 'Ics', '🎩');
+  g.addPlayer('y', 'Ipsilon', '🐕');
+  g.addPlayer('z', 'Zeta', '🚗');
+  g.start();
+  g.players.forEach((p) => { p.balance = 1500; });
+  return g;
+}
+
+section('10j. Una trattativa fra due non ferma il terzo');
+{
+  const g = tavoloATre();
+  give(g, 'x', ORANGE[0]);
+  give(g, 'y', BROWN[0]);
+  give(g, 'z', ORANGE[1]);
+
+  const proposta = g.proposeTrade('x', {
+    toId: 'y', offerProperties: [ORANGE[0]], requestProperties: [BROWN[0]],
+  });
+  check('X propone a Y', !proposta.error, proposta.error);
+
+  // Le due mosse che prima erano vietate a chiunque, non solo ai due che
+  // trattano: ipotecare una casella propria e proporre a propria volta.
+  const ipoteca = g.mortgageProperty('z', ORANGE[1]);
+  check('Z ipoteca una casella sua mentre gli altri due trattano', !ipoteca.error, ipoteca.error);
+  const suaProposta = g.proposeTrade('z', { toId: 'x', requestProperties: [ORANGE[0]], offerMoney: 200 });
+  check('Z propone a sua volta uno scambio a X', !suaProposta.error, suaProposta.error);
+  check('le proposte aperte diventano due', g.tradeOffers.length === 2);
+  check('e sono di due proponenti diversi',
+    new Set(g.tradeOffers.map((t) => t.fromId)).size === 2);
+
+  // Il cuore della segnalazione: tirare i dadi. Si fa su un tavolo a parte
+  // perché un tiro può aprire una finestra (una casella da comprare, una carta)
+  // e da lì in poi il resto del test non misurerebbe più quello che dice.
+  const g2 = tavoloATre();
+  give(g2, 'x', ORANGE[0]);
+  give(g2, 'y', BROWN[0]);
+  g2.turnIndex = 2; // tocca a Z
+  g2.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]], requestProperties: [BROWN[0]] });
+  const tiro = g2.rollDice('z');
+  check('Z tira i dadi con una trattativa altrui aperta', !tiro.error, tiro.error);
+  check('e la proposta di X e Y non è stata toccata', g2.tradeOffers.length === 1);
+
+  // Costruire: serve un monopolio libero da trattative.
+  const g3 = tavoloATre();
+  ORANGE.forEach((pos) => give(g3, 'z', pos));
+  give(g3, 'x', BROWN[0]);
+  give(g3, 'y', BROWN[1]);
+  g3.proposeTrade('x', { toId: 'y', offerProperties: [BROWN[0]], requestProperties: [BROWN[1]] });
+  const casa = g3.buildHouse('z', ORANGE[0]);
+  check('Z costruisce mentre gli altri due trattano', !casa.error, casa.error);
+
+  // E chiudere il proprio turno: era l'ultimo rifiuto della vecchia forma.
+  const fine = g3.endTurn();
+  check('e il turno si può chiudere lo stesso', !fine.error, JSON.stringify(fine));
+}
+
+section('10k. Ma i due coinvolti non possono cambiare le carte in tavola');
+{
+  const g = tavoloATre();
+  ORANGE.forEach((pos) => give(g, 'x', pos)); // X ha il monopolio arancione
+  give(g, 'x', BROWN[0]); // e una marrone che NON mette sul piatto
+  give(g, 'y', BLUE[0]);
+  give(g, 'y', BLUE[1]);
+
+  g.proposeTrade('x', {
+    toId: 'y', offerProperties: [ORANGE[0]], offerMoney: 300, requestProperties: [BLUE[0]],
+  });
+
+  const ipoteca = g.mortgageProperty('x', ORANGE[0]);
+  check('chi propone non può ipotecare la casella promessa', !!ipoteca.error, ipoteca.error);
+  const costruzione = g.buildHouse('x', ORANGE[1]);
+  check(
+    'né costruire sul colore della casella promessa, che la renderebbe inscambiabile',
+    !!costruzione.error,
+    costruzione.error
+  );
+  const altrove = g.mortgageProperty('x', BROWN[0]);
+  check('ma sulle sue altre proprietà resta libero', !altrove.error, altrove.error);
+
+  const ipotecaY = g.mortgageProperty('y', BLUE[0]);
+  check('anche chi deve rispondere ha congelata la casella richiesta', !!ipotecaY.error, ipotecaY.error);
+  const altraY = g.mortgageProperty('y', BLUE[1]);
+  check('e solo quella: le altre sue le muove come vuole', !altraY.error, altraY.error);
+
+  // Il riscatto è congelato come l'ipoteca: cambia il patto anche se in meglio.
+  const g2 = tavoloATre();
+  give(g2, 'x', ORANGE[0], { mortgaged: true });
+  g2.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]], requestMoney: 10 });
+  const riscatto = g2.unmortgageProperty('x', ORANGE[0]);
+  check('non si riscatta una casella già promessa', !!riscatto.error, riscatto.error);
+
+  // Ritirata la proposta, tutto si scongela: è la contro-prova che il blocco
+  // dipende dalla proposta e non da qualche stato rimasto appeso.
+  g2.cancelTrade('x', idUltimaProposta(g2));
+  check('ritirata la proposta il riscatto torna possibile', !g2.unmortgageProperty('x', ORANGE[0]).error);
+}
+
+section('10l. Una proposta per volta, ma quante se ne vuole in arrivo');
+{
+  const g = tavoloATre();
+  give(g, 'x', ORANGE[0]);
+  give(g, 'y', BROWN[0]);
+  give(g, 'z', BLUE[0]);
+
+  check('la prima proposta di X passa', !g.proposeTrade('x', { toId: 'y', offerMoney: 100 }).error);
+  const seconda = g.proposeTrade('x', { toId: 'z', offerMoney: 100 });
+  check('la seconda proposta di X è rifiutata', !!seconda.error, seconda.error);
+  check('e non ne resta traccia sul tavolo', g.tradeOffers.length === 1);
+
+  // Y invece può ricevere quante offerte gli arrivano: vietarlo sarebbe la
+  // vecchia attesa in piccolo.
+  check('Z può proporre allo stesso destinatario', !g.proposeTrade('z', { toId: 'y', offerMoney: 100 }).error);
+  check('Y ha due proposte da valutare', g.tradeOffers.filter((t) => t.toId === 'y').length === 2);
+
+  // Si risponde a una precisa, e l'altra resta lì.
+  const primaDiX = g.tradeOffers.find((t) => t.fromId === 'x');
+  g.respondTrade('y', false, primaDiX.id);
+  check('rifiutata quella di X resta quella di Z', g.tradeOffers.length === 1 && g.tradeOffers[0].fromId === 'z');
+  check('e ora X può proporre di nuovo', !g.proposeTrade('x', { toId: 'z', offerMoney: 100 }).error);
+}
+
+section('10m. Uno scambio diventato impossibile non si può accettare');
+{
+  // Il denaro promesso non c'è più: succede solo da quando il tavolo continua
+  // a girare mentre la proposta è aperta.
+  const g = tavoloATre();
+  give(g, 'x', ORANGE[0]);
+  const x = g.players[0];
+  g.proposeTrade('x', { toId: 'y', offerMoney: 1400, requestProperties: [] , offerProperties: [ORANGE[0]] });
+  const proposta = idUltimaProposta(g);
+  x.balance = 100; // qui si simula quello che in partita fa un affitto salato
+  const esito = g.respondTrade('y', true, proposta);
+  check('accettare uno scambio non più coperto è rifiutato', !!esito.error, esito.error);
+  check('la proposta viene tolta di mezzo, non lasciata lì', g.tradeOffers.length === 0);
+  check(
+    'il registro spiega il motivo a tutto il tavolo',
+    g.log.some((r) => r.message.includes('decade')),
+    g.log.slice(-1).map((r) => r.message).join('')
+  );
+  check('e niente ha cambiato mano', g.ownership[ORANGE[0]].ownerId === 'x');
+
+  // La stessa casella chiesta da due persone: chi si accorda per primo vince,
+  // l'altra proposta decade.
+  const g2 = tavoloATre();
+  give(g2, 'y', BLUE[0]);
+  g2.proposeTrade('x', { toId: 'y', requestProperties: [BLUE[0]], offerMoney: 400 });
+  g2.proposeTrade('z', { toId: 'y', requestProperties: [BLUE[0]], offerMoney: 500 });
+  check('due proposte possono chiedere la stessa casella', g2.tradeOffers.length === 2);
+  const diZeta = g2.tradeOffers.find((t) => t.fromId === 'z');
+  const diIcs = g2.tradeOffers.find((t) => t.fromId === 'x');
+  check('accettare la migliore funziona', !g2.respondTrade('y', true, diZeta.id).error);
+  check('e l\'altra decade da sé', g2.tradeOffers.length === 0);
+  const tardi = g2.respondTrade('y', true, diIcs.id);
+  check('accettarla dopo non funziona', !!tardi.error, tardi.error);
+  check('la casella è di chi si è accordato per primo', g2.ownership[BLUE[0]].ownerId === 'z');
+
+  // Un id inventato (o già consumato) non deve rompere niente.
+  check('rispondere a una proposta inesistente è un rifiuto pulito',
+    g2.respondTrade('y', true, 'inventato').error === 'Nessuno scambio in sospeso');
+}
+
+section('10n. Ritiro della proposta e decadenze da debito, bancarotta, abbandono');
+{
+  // Ritirare: solo chi l'ha fatta.
+  const g = tavoloATre();
+  give(g, 'x', ORANGE[0]);
+  g.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]], requestMoney: 50 });
+  const id = idUltimaProposta(g);
+  check('il destinatario non può ritirare la proposta altrui', !!g.cancelTrade('y', id).error);
+  check('un terzo nemmeno', !!g.cancelTrade('z', id).error);
+  check('chi l\'ha fatta sì', !g.cancelTrade('x', id).error);
+  check('e il tavolo torna pulito', g.tradeOffers.length === 0);
+
+  // Un debito aperto scioglie le trattative del debitore: senza, la casella
+  // promessa resterebbe congelata proprio mentre serve ipotecarla per
+  // rientrare, e la partita si fermerebbe per tutti.
+  const g2 = tavoloATre();
+  const y = g2.players[1];
+  give(g2, 'y', ORANGE[0]);
+  give(g2, 'x', BROWN[0]);
+  g2.proposeTrade('x', { toId: 'y', offerProperties: [BROWN[0]], requestProperties: [ORANGE[0]] });
+  check('preparazione: la casella di Y è impegnata', !!g2.mortgageProperty('y', ORANGE[0]).error);
+  y.balance = 0;
+  g2.chargePlayer(y, 50);
+  check('il debito è aperto su Y', g2.pendingAction?.type === 'awaiting_debt' && g2.pendingAction.playerId === 'y');
+  check('la trattativa che lo riguardava è decaduta', g2.tradeOffers.length === 0);
+  check('e adesso può ipotecare per rientrare', !g2.mortgageProperty('y', ORANGE[0]).error);
+
+  // Bancarotta e abbandono: nessuna proposta può restare intestata a chi esce,
+  // da nessuno dei due lati. Con più proposte insieme non basta più guardarne
+  // una sola, che è quello che faceva la versione precedente.
+  const g3 = tavoloATre();
+  give(g3, 'x', ORANGE[0]);
+  give(g3, 'y', BROWN[0]);
+  give(g3, 'z', BLUE[0]);
+  g3.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]], requestMoney: 10 });
+  g3.proposeTrade('z', { toId: 'y', offerProperties: [BLUE[0]], requestMoney: 10 });
+  check('preparazione: due proposte, entrambe verso Y', g3.tradeOffers.length === 2);
+  g3.abandonGame('y');
+  check('chi esce se le porta via tutte, da entrambi i lati', g3.tradeOffers.length === 0);
+}
+
+section('10o. Solo debito e asta fermano una trattativa, non ogni finestra');
+{
+  // La regola giusta non è "un pendingAction qualsiasi blocca gli scambi": è
+  // quella che vale già per costruire e riscattare, cioè debito e asta, le due
+  // finestre in cui la spesa è congelata per tutti. La prima versione bloccava
+  // su qualunque finestra, e la prova a mano con tre client socket l'ha
+  // demolita subito: basta che uno tiri e atterri su una casella libera perché
+  // nessun altro possa più trattare finché non decide se comprare — cioè il
+  // difetto di partenza, rientrato da un'altra porta.
+
+  // 1. Acquisto in sospeso: la trattativa va avanti lo stesso.
+  const g = tavoloATre();
+  give(g, 'x', ORANGE[0]);
+  give(g, 'y', BROWN[0]);
+  const w = g.players[2];
+  w.position = 0;
+  g.movePlayer(w, 12); // casella 12: Società Elettrica, libera
+  check('preparazione: Z deve decidere se comprare', g.pendingAction?.type === 'awaiting_buy');
+  const propostaConAcquisto = g.proposeTrade('x', {
+    toId: 'y', offerProperties: [ORANGE[0]], requestProperties: [BROWN[0]],
+  });
+  check('con un acquisto in sospeso si può proporre', !propostaConAcquisto.error, propostaConAcquisto.error);
+  const rispostaConAcquisto = g.respondTrade('y', true, idUltimaProposta(g));
+  check('e si può concludere', !rispostaConAcquisto.error, rispostaConAcquisto.error);
+  check('le caselle hanno cambiato mano', g.ownership[ORANGE[0]].ownerId === 'y' && g.ownership[BROWN[0]].ownerId === 'x');
+  check('e la finestra d\'acquisto di Z è rimasta lì, intatta', g.pendingAction?.type === 'awaiting_buy');
+
+  // 2. Debito aperto: lì invece si aspetta. Il motore sta facendo i conti in
+  // tasca a qualcuno e non è il momento di spostargli le cose sotto i piedi.
+  const g2 = tavoloATre();
+  give(g2, 'x', ORANGE[0]);
+  give(g2, 'y', BROWN[0]);
+  g2.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]], requestProperties: [BROWN[0]] });
+  const id2 = idUltimaProposta(g2);
+  const z = g2.players[2];
+  // Qualcosa da liquidare: senza, chargePlayer lo manderebbe dritto in
+  // bancarotta invece di aprirgli un debito (vedi la guardia su
+  // liquidationValue) e non ci sarebbe nessuna finestra da osservare.
+  give(g2, 'z', BLUE[0]);
+  z.balance = 0;
+  g2.chargePlayer(z, 20); // apre un debito su Z, che con la trattativa non c'entra
+  check('preparazione: c\'è un debito aperto su Z', g2.pendingAction?.type === 'awaiting_debt');
+  check('la proposta fra X e Y è sopravvissuta', g2.tradeOffers.length === 1);
+  const risposta = g2.respondTrade('y', true, id2);
+  check('col debito aperto non si conclude uno scambio', !!risposta.error, risposta.error);
+  check('e la proposta resta lì, non decade per questo', g2.tradeOffers.length === 1);
+  const nuova = g2.proposeTrade('y', { toId: 'z', offerMoney: 10 });
+  check('né se ne aprono di nuove', !!nuova.error, nuova.error);
+  // Saldato il debito si riprende a trattare da dove si era rimasti.
+  g2.resolveDebtAuto('z');
+  check('saldato il debito la proposta si può concludere', !g2.respondTrade('y', true, id2).error);
+
+  // 3. Asta in corso: come il debito, per la ragione per cui esiste
+  // auctionFreezeBlocker — il denaro di chi rilancia deve restare certo.
+  const g3 = tavoloATre();
+  give(g3, 'x', ORANGE[0]);
+  give(g3, 'y', BROWN[0]);
+  const x3 = g3.players[0];
+  x3.position = 0;
+  g3.movePlayer(x3, 12);
+  g3.declineBuy('x'); // la rinuncia apre l'asta
+  check('preparazione: c\'è un\'asta in corso', g3.pendingAction?.type === 'awaiting_auction');
+  const durante = g3.proposeTrade('x', { toId: 'y', offerProperties: [ORANGE[0]] });
+  check('con un\'asta in corso non si propone', !!durante.error, durante.error);
 }
 
 section('10e. Tre doppi consecutivi mandano in prigione');
@@ -1265,9 +1557,9 @@ section('28. Bot: risposta agli scambi');
   game.proposeTrade('umano', {
     toId: botId, offerProperties: [ORANGE[0]], requestMoney: 50,
   });
-  check('lo scambio è in attesa del bot', game.pendingAction?.type === 'awaiting_trade');
+  check('lo scambio è in attesa del bot', ultimaProposta(game)?.toId === botId);
   botMove(game);
-  check('il bot ha risposto', game.pendingAction === null);
+  check('il bot ha risposto', game.tradeOffers.length === 0);
   check('il bot ha accettato l\'offerta conveniente',
     game.ownership[ORANGE[0]].ownerId === botId);
 }
@@ -1317,18 +1609,18 @@ section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
     Math.random = () => 0;
     try {
       botMove(g);
-      check('il bot propone lo scambio', g.pendingAction?.type === 'awaiting_trade');
-      const chiesto = g.pendingAction?.requestProperties?.[0];
+      check('il bot propone lo scambio', g.tradeOffers.length === 1);
+      const chiesto = ultimaProposta(g)?.requestProperties?.[0];
       check('chiede la casella che gli completa il colore', chiesto === ORANGE[2], `chiesto=${chiesto}`);
 
-      g.respondTrade('umano', false);
-      check('dopo il rifiuto non c\'è più nulla in sospeso', g.pendingAction === null);
+      g.respondTrade('umano', false, idUltimaProposta(g));
+      check('dopo il rifiuto non c\'è più nulla in sospeso', g.tradeOffers.length === 0);
 
       // Stesso turno, stessa situazione: non deve riproporre la stessa cosa.
       botMove(g);
       check('non ripropone lo stesso baratto appena rifiutato',
-        g.pendingAction?.type !== 'awaiting_trade',
-        `pendingAction=${g.pendingAction?.type}`);
+        g.tradeOffers.length === 0,
+        `proposte=${g.tradeOffers.length}`);
     } finally {
       Math.random = vero;
     }
@@ -1349,8 +1641,8 @@ section('29. Bot: proposte di scambio non ripetitive e non autolesioniste');
     Math.random = () => 0;
     try {
       botMove(g);
-      const offerte = g.pendingAction?.offerProperties || [];
-      check('propone comunque qualcosa', g.pendingAction?.type === 'awaiting_trade');
+      const offerte = ultimaProposta(g)?.offerProperties || [];
+      check('propone comunque qualcosa', g.tradeOffers.length === 1);
       check('non cede la casella che chiuderebbe il colore all\'avversario',
         !offerte.includes(LIGHTBLUE[2]), `offerte=${offerte.join(',')}`);
     } finally {
@@ -1833,12 +2125,18 @@ section('32h. La multa della prigione non aggira il congelamento dell\'asta');
 }
 
 // ---------------------------------------------------------------------------
-section('32i. La multa della prigione non aggira nemmeno il congelamento dello scambio');
+section('32i. Il denaro promesso in uno scambio non si congela: la proposta decade');
 {
-  // Stesso principio dell'asta, e stesso trattamento che hanno già la
-  // costruzione e il riscatto: mentre una proposta di scambio è in sospeso il
-  // denaro di chi ci sta dentro non deve muoversi, altrimenti la proposta
-  // diventa irricevibile fra quando è stata fatta e quando le si risponde.
+  // Questa sezione verificava il contrario, e il rovesciamento è voluto. Finché
+  // una proposta fermava tutto il tavolo aveva senso congelare anche il denaro
+  // di chi ci stava dentro: nessuno stava giocando comunque. Adesso che il
+  // tavolo va avanti, congelare la cassa vorrebbe dire impedire a chi tratta di
+  // pagare la multa, un affitto o una tassa — cioè bloccarlo per davvero,
+  // esattamente il difetto da cui si è partiti, solo spostato di una persona.
+  //
+  // La scelta è quindi l'opposta: si paga, e la proposta che prometteva quei
+  // soldi decade subito, con il motivo scritto nel registro. Chi doveva
+  // rispondere non se la ritrova mai irricevibile fra le mani.
   const game = new GameEngine('MULTA-SCAMBIO');
   ['Anna', 'Bruno', 'Carla'].forEach((nome, i) => {
     game.addPlayer(String.fromCharCode(97 + i), nome, ['🎩', '🐕', '🚗'][i]);
@@ -1851,22 +2149,23 @@ section('32i. La multa della prigione non aggira nemmeno il congelamento dello s
   game.ownership[1] = { ownerId: 'a', houses: 0, hotels: 0, mortgaged: false };
 
   game.proposeTrade('a', { toId: 'c', offerProperties: [1], offerMoney: 0, requestProperties: [], requestMoney: 180 });
-  check('la proposta è in sospeso verso Carla', game.pendingAction?.type === 'awaiting_trade');
+  const proposta = idUltimaProposta(game);
+  check('la proposta è aperta verso Carla', ultimaProposta(game)?.toId === 'c');
 
   const multa = game.payJailFine('c');
-  check('con una proposta aperta la multa è rifiutata', !!multa.error, JSON.stringify(multa));
-  check('il denaro promesso è ancora tutto lì', carla.balance === 200, `saldo=${carla.balance}`);
-
-  game.respondTrade('c', true);
-  check('così la proposta si può ancora accettare', game.ownership[1]?.ownerId === 'c', JSON.stringify(game.pendingAction));
-
-  // Controprova: chiuse le finestre, la multa si paga come sempre. Il saldo si
-  // rimette a posto a mano perché lo scambio appena concluso se l'è portato via
-  // quasi tutto, e qui interessa il congelamento, non il conto in tasca.
-  carla.balance = 200;
-  const dopo = game.payJailFine('c');
-  check('senza finestre aperte la multa si paga normalmente', !dopo.error, JSON.stringify(dopo));
+  check('con una proposta aperta la multa si paga lo stesso', !multa.error, JSON.stringify(multa));
   check('esce di prigione', carla.inJail === false);
+  check('il saldo scende sotto i 180 promessi', carla.balance === 150, `saldo=${carla.balance}`);
+
+  check('la proposta è decaduta da sé', game.tradeOffers.length === 0);
+  check(
+    'e il registro dice perché',
+    game.log.some((r) => r.message.includes('decade') && r.message.includes('180')),
+    game.log.slice(-2).map((r) => r.message).join(' | ')
+  );
+  const tardi = game.respondTrade('c', true, proposta);
+  check('accettarla adesso non funziona più', !!tardi.error, tardi.error);
+  check('e la casella non ha cambiato padrone', game.ownership[1]?.ownerId === 'a');
 }
 
 // ---------------------------------------------------------------------------
@@ -2623,12 +2922,12 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
     const g = tavolo(3);
     g.ownership[1] = { ownerId: 'a', houses: 0, hotels: 0, mortgaged: false };
     g.proposeTrade('a', { toId: 'b', offerProperties: [1], offerMoney: 0, requestProperties: [], requestMoney: 100 });
-    check('la proposta è in sospeso', g.pendingAction?.type === 'awaiting_trade');
+    check('la proposta è aperta', g.tradeOffers.length === 1);
     g.abandonGame('a');
     check(
       'la proposta di chi lascia il tavolo decade da sé',
-      g.pendingAction === null,
-      `resta ${g.pendingAction?.type}`
+      g.tradeOffers.length === 0,
+      `restano ${g.tradeOffers.length} proposte`
     );
   }
 
@@ -2715,11 +3014,19 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
   }
 
   // 7. Scambio aperto fra gli ALTRI due mentre chi ha il turno abbandona.
-  // Qui l'attesa non era affatto innocua: respondTrade, per come è fatto, non
-  // tocca mai il turno (giustamente: uno scambio si può proporre in qualunque
-  // momento e non deve consumare il turno di nessuno). Chiusa la proposta non
-  // restava quindi nessuna finestra aperta e nessuno spostava il turno, fermo
-  // su chi aveva appena lasciato il tavolo: partita bloccata per sempre.
+  //
+  // Questo era il caso peggiore della vecchia forma, ed è quello che la
+  // separazione fra pendingAction e proposte fa sparire alla radice. Prima: la
+  // proposta occupava l'unico pendingAction, quindi abandonGame non poteva
+  // spostare il turno; respondTrade, giustamente, il turno non lo tocca mai;
+  // risultato, chiusa la proposta non restava nessuno a spostarlo e la partita
+  // si fermava per sempre su un giocatore che se n'era andato. Ci voleva una
+  // rete di sicurezza apposta (resumeTurnIfHolderLeft) chiamata da respondTrade.
+  //
+  // Adesso non c'è proprio niente da salvare: la proposta non è una finestra,
+  // non ferma il turno di nessuno, e l'abbandono lo sposta subito. Il test
+  // resta perché la situazione che lo generava — trattativa fra due mentre il
+  // terzo lascia — è la stessa, e deve continuare a non bloccare nulla.
   {
     const g = tavolo(3);
     g.ownership[1] = { ownerId: 'b', houses: 0, hotels: 0, mortgaged: false };
@@ -2727,18 +3034,22 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
     // nulla — è la differenza col caso 3, dove usciva chi aveva proposto e la
     // proposta decadeva da sé.
     g.proposeTrade('b', { toId: 'c', offerProperties: [1], offerMoney: 0, requestProperties: [], requestMoney: 50 });
-    check('la proposta fra gli altri due è in sospeso', g.pendingAction?.type === 'awaiting_trade');
+    check('la proposta fra gli altri due è aperta', g.tradeOffers.length === 1);
 
     g.abandonGame('a');
-    check('la proposta fra gli altri due sopravvive all\'abbandono', g.pendingAction?.type === 'awaiting_trade');
-    check('e il turno resta intestato a chi è uscito finché la finestra è aperta', g.currentPlayer.id === 'a');
-
-    g.respondTrade('c', false);
-    check('rispondere allo scambio chiude la finestra', g.pendingAction === null);
+    check('la proposta fra gli altri due sopravvive all\'abbandono', g.tradeOffers.length === 1);
     check(
-      'e a quel punto il turno passa a chi è ancora in partita',
+      'e il turno passa subito, senza aspettare che quei due si accordino',
       !g.currentPlayer.bankrupt,
       `il turno è rimasto a ${g.currentPlayer.name}, in bancarotta: nessuno può più muovere`
+    );
+
+    g.respondTrade('c', false, idUltimaProposta(g));
+    check('rispondere chiude la proposta', g.tradeOffers.length === 0);
+    check(
+      'e non rimescola il turno di chi sta giocando',
+      !g.currentPlayer.bankrupt,
+      `il turno è finito a ${g.currentPlayer.name}, in bancarotta`
     );
   }
 
@@ -2809,7 +3120,7 @@ section('44. Il test che conta di più: costruire quattro hotel su un colore int
     g.ownership[3] = { ownerId: 'c', houses: 0, hotels: 0, mortgaged: false }; // qualcosa da liquidare
     carla.balance = 5;
     g.proposeTrade('b', { toId: 'c', offerProperties: [39], offerMoney: 0, requestProperties: [], requestMoney: 0 });
-    g.respondTrade('c', true);
+    g.respondTrade('c', true, idUltimaProposta(g));
     check(
       'l\'interesse sull\'ipoteca ricevuta apre il debito di Carla',
       g.pendingAction?.type === 'awaiting_debt' && g.pendingAction.playerId === 'c',
@@ -3299,17 +3610,24 @@ section('45. Turno bloccato: saltare il turno di chi è disconnesso');
       g.pendingAction === null || g.pendingAction.playerId !== 'a', JSON.stringify(g.pendingAction));
   }
   {
-    // Scambio proposto a chi è caduto: si rifiuta. Accettare al posto suo
-    // vorrebbe dire firmare un contratto per un altro.
+    // Scambio proposto a chi è caduto. Prima il salto del turno doveva
+    // rifiutarlo al posto suo, perché quella proposta congelava il tavolo e
+    // saltare il turno lasciandola aperta non avrebbe sbloccato niente. Adesso
+    // non c'è più niente da sbloccare: si salta il turno e la proposta resta
+    // dov'è, ad aspettare che rientri — le sue proprietà e il suo denaro
+    // restano intatti allo stesso modo, e nessuno firma niente al posto suo.
+    // Chi l'ha fatta non resta in ostaggio: può ritirarla quando vuole.
     const g = tavoloFermo();
     give(g, 'b', 1);
     const esito0 = g.proposeTrade('b', { toId: 'a', offerProperties: [1], requestMoney: 100 });
     check('preparazione: c\'è uno scambio in attesa della risposta di Anna',
-      !esito0.error && g.pendingAction?.type === 'awaiting_trade', esito0.error);
-    g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
-    check('lo scambio viene rifiutato, mai accettato al posto suo',
-      g.pendingAction === null && g.ownership[1].ownerId === 'b');
+      !esito0.error && g.tradeOffers.length === 1, esito0.error);
+    const esitoSalto = g.skipDisconnectedTurn('b', { fermoDaMs: SCADUTA });
+    check('il turno si salta anche con una proposta aperta a suo nome', !esitoSalto.error, esitoSalto.error);
+    check('la proposta resta lì ad aspettarla', g.tradeOffers.length === 1);
+    check('non viene accettata al posto suo', g.ownership[1].ownerId === 'b');
     check('e nessun denaro cambia mano', g.players.find((p) => p.id === 'a').balance === 1500);
+    check('chi l\'ha fatta può ritirarla', !g.cancelTrade('b', idUltimaProposta(g)).error);
   }
   {
     // Asta in cui tocca a lui rilanciare: passa. Offrire per un altro

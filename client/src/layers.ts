@@ -15,6 +15,15 @@
  * turno dell'intero tavolo finché non lo si risolve, quindi la finestra che
  * permette di risolverlo non può mai restare coperta da qualcosa che si
  * poteva chiudere.
+ *
+ * Da quando gli scambi non fermano più il tavolo, l'offerta ricevuta ha smesso
+ * di essere una di quelle finestre e ha un livello suo, sotto le decisioni vere.
+ * Applicando la regola alla lettera: una proposta si PUÒ rimandare — il gioco
+ * va avanti lo stesso, e chi l'ha fatta può ritirarla — mentre un affitto o
+ * un'asta no. Lasciarla al livello `decisione` avrebbe riprodotto in piccolo il
+ * guaio da cui questa scala è nata: la finestra dello scambio sopra quella
+ * dell'asta, cioè un'offerta rimandabile che copre l'unica cosa che sblocca
+ * tutti.
  */
 export const LAYER = {
   tabellone: 5,
@@ -25,11 +34,25 @@ export const LAYER = {
   /** Solo informativi: si chiudono quando si vuole, possono stare sotto. */
   dettaglioCasella: 24,
   riepilogoRientro: 26,
+  /**
+   * La striscia che dice "sto aspettando la risposta di X": informativa, non
+   * modale, e non deve rubare il posto a niente. Sta sotto il compositore
+   * perché mentre si compone una proposta nuova quella vecchia è un promemoria,
+   * non qualcosa su cui agire.
+   */
+  propostaInAttesa: 28,
   /** Comporre uno scambio si può sempre rimandare: sta sotto le decisioni. */
   compositoreScambio: 30,
   /**
+   * L'offerta di scambio ricevuta. Chiede sì una risposta, ma è l'unica
+   * "domanda" che si può rimandare senza fermare nessuno: sopra il compositore
+   * (se arriva un'offerta mentre ne sto scrivendo una, voglio vederla) e sotto
+   * le decisioni vere, che invece tengono fermo il tavolo.
+   */
+  offertaScambio: 34,
+  /**
    * Qualunque finestra che aspetta una decisione per sbloccare il turno:
-   * acquisto, carta, affitto, tassa, debito, asta, offerta ricevuta.
+   * acquisto, carta, affitto, tassa, debito, asta.
    * Non spezzare questo livello in sottolivelli senza una ragione forte —
    * due di queste non compaiono mai insieme, perché il motore tiene un solo
    * pendingAction alla volta.

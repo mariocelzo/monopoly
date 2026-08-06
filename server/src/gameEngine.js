@@ -201,12 +201,38 @@ class GameEngine {
     this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
     this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
     // { type: 'awaiting_buy' | 'awaiting_card' | 'awaiting_rent' | 'awaiting_tax' |
-    //   'awaiting_debt' | 'awaiting_trade' | 'awaiting_auction',
+    //   'awaiting_debt' | 'awaiting_auction',
     //   playerId, ... }
     // Blocca il flusso del turno finché il giocatore indicato da playerId non
     // risolve: compra o rinuncia, legge la carta, paga l'affitto, salda il
-    // debito, risponde allo scambio, rilancia o passa all'asta.
+    // debito, rilancia o passa all'asta.
+    //
+    // Questo slot significa una cosa sola, ed è per questo che è uno solo: **il
+    // tavolo è fermo perché si aspetta una decisione da qualcuno**. Fino a ieri
+    // ci abitava anche 'awaiting_trade', che è una cosa diversa — una proposta
+    // fra due giocatori — e quella convivenza è esattamente il difetto che
+    // questa versione toglie di mezzo: chi giocava se ne accorgeva così, «se
+    // qualcuno fa uno scambio devo aspettare anche io». Le proposte adesso
+    // vivono in `tradeOffers` qui sotto. Se un domani serve una finestra nuova,
+    // la domanda da farsi è quella: ferma il tavolo per tutti? Allora sta qui.
+    // Riguarda solo due persone? Allora non ci sta.
     this.pendingAction = null;
+    // Proposte di scambio aperte, tutte insieme. NON fermano il tavolo: chi non
+    // è coinvolto tira i dadi, costruisce, ipoteca e propone a sua volta come se
+    // non ci fossero. Fermano soltanto la merce dei due coinvolti (vedi
+    // tradeGoodsBlocker), perché fare un'offerta e poi ipotecare di nascosto
+    // quello che si è promesso non è una trattativa, è un imbroglio.
+    //
+    // Forma di ogni voce: { id, fromId, toId, offerProperties, offerMoney,
+    // offerJailCards, requestProperties, requestMoney, requestJailCards }.
+    // Al più UNA per proponente, quante se ne vuole per destinatario: il perché
+    // sta per esteso in proposeTrade.
+    this.tradeOffers = [];
+    // Progressivo per gli id delle proposte. Serve perché le proposte aperte
+    // ora sono più d'una: rispondere "allo scambio" non basta più a dire a
+    // QUALE, e senza un id due offerte arrivate insieme allo stesso giocatore
+    // si accetterebbero l'una per l'altra al primo doppio tocco.
+    this.tradeCounter = 0;
     this.finished = false;
     this.winnerId = null;
     // Come è finita: bancarotta, abbandono o chiusura da parte di chi ha
@@ -504,6 +530,14 @@ class GameEngine {
       started: this.started,
       log: this.log.slice(-30),
       pendingAction,
+      // Tutte le proposte aperte, non solo quella di chi legge: il client deve
+      // poter dire a ciascuno la cosa giusta (chi deve rispondere vede il
+      // baratto, chi ha proposto vede l'attesa con il modo di ritirarla) senza
+      // che il server debba costruire uno stato diverso per ogni socket — qui
+      // si è sempre trasmesso lo stesso stato a tutti, e non è il momento di
+      // cambiare quella regola. Non c'è nulla di segreto in una proposta: è
+      // pubblica anche al tavolo vero, dove si tratta ad alta voce.
+      tradeOffers: this.tradeOffers,
       finished: this.finished,
       winnerId: this.winnerId,
       endedReason: this.endedReason,
@@ -684,10 +718,6 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_debt';
   }
 
-  hasPendingTrade() {
-    return this.pendingAction?.type === 'awaiting_trade';
-  }
-
   hasPendingCard() {
     return this.pendingAction?.type === 'awaiting_card';
   }
@@ -708,12 +738,58 @@ class GameEngine {
     return this.pendingAction?.type === 'awaiting_buy';
   }
 
+  /** Le proposte aperte che riguardano un giocatore, da un lato o dall'altro. */
+  tradeOffersOf(playerId) {
+    return this.tradeOffers.filter((t) => t.fromId === playerId || t.toId === playerId);
+  }
+
   /**
-   * Con uno scambio in sospeso le proprietà si congelano: non ha senso poter
-   * cambiare la merce dopo aver fatto l'offerta.
+   * Le caselle che un giocatore ha messo sul piatto in una proposta aperta: le
+   * sue, cioè quelle che offre se è lui a proporre e quelle che gli vengono
+   * chieste se è lui a dover rispondere. Sono la "merce impegnata".
    */
-  tradeFreezeBlocker() {
-    return this.hasPendingTrade() ? { error: 'Prima rispondi allo scambio proposto' } : null;
+  tradeLockedPositions(playerId) {
+    const bloccate = new Set();
+    for (const t of this.tradeOffers) {
+      const lato = t.fromId === playerId ? t.offerProperties : t.toId === playerId ? t.requestProperties : [];
+      lato.forEach((position) => bloccate.add(position));
+    }
+    return bloccate;
+  }
+
+  /**
+   * Il congelamento che sostituisce quello vecchio, e la differenza è tutta qui:
+   * prima una proposta bloccava costruzioni, vendite e ipoteche di CHIUNQUE
+   * fosse al tavolo; adesso blocca soltanto la merce dei due che stanno
+   * trattando. Chi non c'entra non se ne accorge nemmeno.
+   *
+   * Cosa si congela, e perché solo questo:
+   *   - la casella stessa, contro ipoteca e riscatto: sono le due mosse che
+   *     cambiano quanto vale ciò che si è promesso senza che l'altro possa
+   *     accorgersene prima di aver detto sì;
+   *   - l'INTERO colore, contro le costruzioni: il regolamento vieta di cedere
+   *     una proprietà finché sul suo colore c'è anche un solo edificio (vedi
+   *     tradeBlocker), quindi tirare su una casa sul gruppo renderebbe la
+   *     proposta impossibile da accettare. Era il modo più semplice di
+   *     sabotare la propria offerta dopo averla fatta.
+   *
+   * Cosa NON si congela, di proposito: la vendita di edifici. Su un colore che
+   * compare in una proposta aperta edifici non ce ne sono — se ce ne fossero la
+   * proposta non sarebbe mai stata accettata da tradeBlocker, e costruirne di
+   * nuovi è appunto vietato qui sopra — quindi non c'è niente da vendere e una
+   * guardia in più sarebbe solo un errore in attesa di capitare a qualcuno che
+   * vende case dall'altra parte del tabellone. Nemmeno il denaro si congela:
+   * bloccare la cassa di chi tratta vorrebbe dire impedirgli di pagare un
+   * affitto. Il denaro promesso si ricontrolla alla risposta, e se non c'è più
+   * la proposta decade da sé (vedi decadiProposteImpossibili).
+   */
+  tradeGoodsBlocker(playerId, position, { includiGruppo = false } = {}) {
+    const bloccate = this.tradeLockedPositions(playerId);
+    const impegnata = includiGruppo
+      ? [...bloccate].some((pos) => board[pos].group && board[pos].group === board[position]?.group)
+      : bloccate.has(position);
+    if (!impegnata) return null;
+    return { error: `${board[position].name} è in gioco in uno scambio: prima chiudilo` };
   }
 
   /**
@@ -1016,6 +1092,12 @@ class GameEngine {
     this.ownership[position] = { ownerId: playerId, houses: 0, hotels: 0, mortgaged: false };
     this.addLog(`${player.name} compra ${board[position].name} per ${price}.`);
     this.bumpStat(this.stats.purchases, playerId);
+    // Comprare è una delle poche uscite di denaro che non passano da
+    // chargePlayer (qui il conto lo si è già verificato sopra): la decadenza
+    // delle proposte va quindi richiamata a mano, altrimenti una proposta che
+    // prometteva contanti appena spesi in una casella resterebbe accettabile a
+    // schermo e rifiutata dal motore.
+    this.decadiProposteImpossibili();
     this.pendingAction = null;
     this.finishRoll(player);
     return {};
@@ -1220,6 +1302,10 @@ class GameEngine {
       this.ownership[auction.position] = { ownerId: winner.id, houses: 0, hotels: 0, mortgaged: false };
       this.addLog(`${winner.name} si aggiudica ${square.name} all'asta per ${auction.currentBid}.`);
       this.bumpStat(this.stats.purchases, winner.id);
+      // Come in buyProperty: aggiudicarsi una casella svuota la cassa senza
+      // passare da chargePlayer, e una proposta aperta che prometteva quei
+      // contanti non sta più in piedi.
+      this.decadiProposteImpossibili();
       if (winner.balance < 0) {
         winner.debtTo = null; // verso la banca, come ogni acquisto
         scoperto = true;
@@ -1399,10 +1485,15 @@ class GameEngine {
     // si ha, si paga la multa, e all'aggiudicazione il conto è scoperto —
     // closeAuction scala l'offerta senza ricontrollare la cassa, quindi si
     // finiva a saldo negativo senza nessun debito aperto a chiederne il
-    // rientro. Lo stesso vale per uno scambio in sospeso, che promette denaro
-    // che a quel punto non c'è più: chi ha ricevuto la proposta se la
-    // troverebbe irricevibile senza poterci fare niente.
-    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    // rientro.
+    //
+    // Qui c'era anche il congelamento da scambio, per la stessa ragione (la
+    // multa poteva mangiare il denaro promesso in una proposta aperta) e non
+    // c'è più: il denaro di chi tratta non si congela — sarebbe come impedirgli
+    // di pagare un affitto — e una proposta che il proponente non può più
+    // onorare decade da sé subito dopo l'addebito, con tanto di riga nel
+    // registro (vedi chargePlayer e decadiProposteImpossibili). Il destinatario
+    // non se la ritrova mai irricevibile fra le mani, che era il vero guaio.
     if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     if (player.balance < JAIL_FINE) return { error: 'Saldo insufficiente' };
     // Passa da chargePlayer (creditore nullo) così la multa finisce anche lei
@@ -1422,6 +1513,11 @@ class GameEngine {
     player.inJail = false;
     player.jailTurns = 0;
     this.addLog(`${player.name} usa una carta "esci di prigione gratis".`);
+    // Le carte uscita si possono promettere in uno scambio, e come il denaro non
+    // si congelano: restare in prigione per non poter usare la propria carta
+    // sarebbe un prezzo assurdo da pagare per aver fatto un'offerta. Se la carta
+    // promessa era questa, la proposta decade.
+    this.decadiProposteImpossibili();
     return {};
   }
 
@@ -1439,7 +1535,11 @@ class GameEngine {
     if (!square || square.type !== 'property') return { error: 'Non è una proprietà edificabile' };
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
-    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    // Il gruppo intero, non solo questa casella: un edificio su un qualunque
+    // colore che compare in una proposta aperta la renderebbe inaccettabile
+    // (vedi tradeGoodsBlocker e la regola in tradeBlocker).
+    const impegnata = this.tradeGoodsBlocker(playerId, position, { includiGruppo: true });
+    if (impegnata) return impegnata;
     if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     if (!this.ownsFullGroup(playerId, square.group)) return { error: 'Serve il monopolio del colore per costruire' };
     // Regola ufficiale: niente costruzioni su un colore con proprietà ipotecate.
@@ -1482,6 +1582,11 @@ class GameEngine {
     // Conta la costruzione (casa o hotel indifferentemente): quante volte il
     // giocatore ha investito in edifici, non quante unità possiede ora.
     this.bumpStat(this.stats.housesBuilt, playerId);
+    // Costruire è l'ultima spesa che non passa da chargePlayer. Il colore su
+    // cui si costruisce non può comparire in una proposta di chi costruisce
+    // (glielo vieta il congelamento più sopra), ma i contanti spesi possono
+    // benissimo essere quelli promessi in quella proposta.
+    this.decadiProposteImpossibili();
     return {};
   }
 
@@ -1494,7 +1599,11 @@ class GameEngine {
     const owned = this.ownership[position];
     const player = this.players.find((p) => p.id === playerId);
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
-    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    // Nessun congelamento da scambio, e non è una dimenticanza: vedi il perché
+    // per esteso in tradeGoodsBlocker. Su un colore impegnato in una proposta
+    // aperta edifici non ce ne sono, quindi qui non c'è niente da difendere —
+    // e vietare la vendita servirebbe solo a impedire a chi sta trattando di
+    // fare cassa per pagare un affitto dall'altra parte del tabellone.
     if (this.unitCount(owned) === 0) return { error: 'Nessuna casa da vendere' };
     // Uniformità anche in vendita: si smonta da dove ce n'è di più.
     if (this.unitCount(owned) < Math.max(...this.groupUnitCounts(square.group))) {
@@ -1533,7 +1642,11 @@ class GameEngine {
     const owned = this.ownership[position];
     const player = this.players.find((p) => p.id === playerId);
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
-    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    // Ipotecare una casella promessa cambia sotto banco quel che si consegna:
+    // chi accetta si troverebbe una proprietà a metà valore e pure il 10% di
+    // interesse da pagare. Solo questa casella, non tutte le sue.
+    const impegnata = this.tradeGoodsBlocker(playerId, position);
+    if (impegnata) return impegnata;
     if (owned.mortgaged) return { error: 'Già ipotecata' };
     if (this.unitCount(owned) > 0) return { error: 'Vendi prima case/hotel' };
 
@@ -1552,13 +1665,21 @@ class GameEngine {
     if (!owned || owned.ownerId !== playerId) return { error: 'Non possiedi questa proprietà' };
     if (!owned.mortgaged) return { error: 'Non è ipotecata' };
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
-    if (this.tradeFreezeBlocker()) return this.tradeFreezeBlocker();
+    // Simmetrico all'ipoteca: riscattare una casella promessa la cambia
+    // comunque rispetto a quella su cui l'altro sta decidendo. Che il cambio
+    // sia in meglio per chi la riceve non fa differenza — il patto si guarda,
+    // non si ritocca mentre l'altro lo legge.
+    const impegnata = this.tradeGoodsBlocker(playerId, position);
+    if (impegnata) return impegnata;
     if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
     const cost = this.unmortgageCost(square);
     if (player.balance < cost) return { error: 'Saldo insufficiente' };
     player.balance -= cost;
     owned.mortgaged = false;
     this.addLog(`${player.name} riscatta ${square.name} per ${cost}.`);
+    // Riscattare è una spesa che non passa da chargePlayer: se prosciuga i
+    // contanti promessi altrove, la proposta decade come per ogni altra uscita.
+    this.decadiProposteImpossibili();
     return {};
   }
 
@@ -1590,6 +1711,14 @@ class GameEngine {
       if (this.rules.freeParkingEnabled) this.freeParkingPot += amount;
       this.bumpStat(this.stats.bankPaid, player.id, amount);
     }
+    // Qui passa ogni uscita di denaro del gioco, ed è quindi il punto naturale
+    // in cui accorgersi che una proposta aperta prometteva contanti che adesso
+    // non ci sono più. Il denaro di chi tratta non si congela apposta (vedi
+    // tradeGoodsBlocker): deve poter pagare l'affitto anche mentre l'altro
+    // decide. Il prezzo di quella scelta è che la proposta può diventare
+    // irricevibile, e si paga qui, togliendola subito invece di lasciarla lì a
+    // far sbagliare chi preme Accetta.
+    this.decadiProposteImpossibili();
     if (player.balance >= 0) return;
 
     // Si ricorda a chi vanno i soldi: se questo debito finisce in coda dietro a
@@ -1626,6 +1755,19 @@ class GameEngine {
       creditorId: creditore ? creditore.id : null,
     };
     this.addLog(`${debitore.name} deve coprire ${-debitore.balance}: vendi, ipoteca o dichiara bancarotta.`);
+
+    // Chi apre un debito esce da qualunque trattativa, subito e da entrambi i
+    // lati. Non è una punizione, è ciò che tiene in piedi il congelamento della
+    // merce: per rientrare deve poter ipotecare, e la merce impegnata in una
+    // proposta non si può ipotecare. Un debitore che avesse promesso l'unica
+    // casella ipotecabile che gli resta si troverebbe con un debito che non può
+    // saldare e nessuna via d'uscita — chargePlayer lo ha lasciato in vita
+    // proprio perché quella casella, contandola, bastava. Sarebbe una partita
+    // ferma per tutti, cioè il difetto da cui siamo partiti, tornato da
+    // un'altra porta.
+    for (const t of this.tradeOffersOf(debitore.id)) {
+      this.rimuoviProposta(t, `${debitore.name} deve prima coprire un debito`);
+    }
   }
 
   /**
@@ -1763,20 +1905,22 @@ class GameEngine {
     // subito: altrimenti l'asta resterebbe ad aspettare un'offerta da chi non
     // può più farla.
     this.removeFromAuctionIfPresent(player.id);
-    // Stessa ragione per uno scambio in sospeso, da qualunque lato lo si
+    // Stessa ragione per le proposte di scambio, da qualunque lato le si
     // guardi. Se esce chi ha proposto, la proposta non sta più in piedi: le
     // proprietà offerte non sono più sue e accettarla restituisce solo un
     // errore, che l'altro non può risolvere in alcun modo — l'unica uscita
     // sarebbe indovinare che va rifiutata. Se esce il destinatario, non c'è
-    // più nessuno che possa rispondere. In entrambi i casi la proposta va
-    // chiusa qui: questo è il punto da cui si passa comunque, sia per
-    // abbandono sia per bancarotta.
-    if (this.hasPendingTrade()) {
-      const t = this.pendingAction;
-      if (t.fromId === player.id || t.toId === player.id) {
-        this.pendingAction = null;
-        this.addLog(`Lo scambio in sospeso decade: ${player.name} non è più in partita.`);
-      }
+    // più nessuno che possa rispondere. In entrambi i casi vanno chiuse qui:
+    // questo è il punto da cui si passa comunque, sia per abbandono sia per
+    // bancarotta.
+    //
+    // Il ciclo al posto del vecchio controllo su una proposta sola: adesso ce
+    // ne possono essere parecchie aperte insieme, e chi esce può comparire in
+    // più d'una — una fatta da lui e tre ricevute, per dire. Lasciarne indietro
+    // anche una vorrebbe dire lasciare in giro merce congelata a nome di un
+    // giocatore che non c'è più, senza più nessuno che possa sbloccarla.
+    for (const t of this.tradeOffers.filter((o) => o.fromId === player.id || o.toId === player.id)) {
+      this.rimuoviProposta(t, `${player.name} non è più in partita`);
     }
     this.checkWinner(motivo);
 
@@ -1797,22 +1941,53 @@ class GameEngine {
    * Controlla che una casella sia scambiabile da un certo giocatore. Il
    * regolamento vieta di cedere una proprietà finché sul suo colore c'è anche
    * un solo edificio: prima vanno venduti tutti.
+   *
+   * I motivi sono scritti in terza persona (una CAUSA, non un ordine) perché lo
+   * stesso testo serve in due momenti diversi: quando si rifiuta la proposta a
+   * chi la sta facendo, e quando una proposta già aperta decade e il registro
+   * deve dire a tutto il tavolo perché (vedi motivoDecadenza). "Vendi prima gli
+   * edifici", com'era scritto prima, nel registro suonerebbe come un ordine
+   * rivolto a chi legge, che non c'entra niente.
    */
   tradeBlocker(playerId, position) {
     const square = board[position];
     const owned = this.ownership[position];
     if (!square || !owned) return `Casella ${position} non è di nessuno`;
-    if (owned.ownerId !== playerId) return `${square.name} non è di chi la offre`;
+    if (owned.ownerId !== playerId) return `${square.name} non è di chi la mette sul piatto`;
     if (square.group && this.groupHasBuildings(square.group)) {
-      return `Vendi prima gli edifici sul colore di ${square.name}`;
+      return `Ci sono edifici sul colore di ${square.name}`;
     }
     return null;
   }
 
   /**
-   * Apre una proposta di scambio. Non consuma il turno: chiunque può proporre,
-   * anche fuori dal proprio turno, ma la proposta congela il gioco finché
-   * l'altro non risponde.
+   * Apre una proposta di scambio. Non consuma il turno e — questa è la novità —
+   * non ferma nemmeno il tavolo: chiunque può proporre, anche fuori dal proprio
+   * turno, e mentre due trattano tutti gli altri continuano a giocare.
+   *
+   * QUANTE PROPOSTE PUÒ AVERE APERTE UN GIOCATORE, e perché la risposta è
+   * diversa nei due versi:
+   *
+   *   - RICEVUTE: quante ne arrivano. Impedire a due giocatori di proporre allo
+   *     stesso destinatario nello stesso momento sarebbe la vecchia attesa
+   *     rimessa in piedi in piccolo — «non posso proporre a Giulia perché ci sta
+   *     già parlando Marco» è la stessa frustrazione da cui siamo partiti, solo
+   *     con un giocatore in meno. Chi le riceve risponde a una alla volta, nel
+   *     suo ordine.
+   *   - FATTE: una sola. Non è una simmetria mancata per pigrizia: la proposta
+   *     è una PROMESSA, e ciò che si promette resta congelato (vedi
+   *     tradeGoodsBlocker). Chi potesse tenerne aperte cinque congelerebbe mezzo
+   *     tabellone senza aver concluso niente, e soprattutto potrebbe promettere
+   *     Via Roma a tre persone diverse sapendo che due delle tre offerte
+   *     moriranno — una all'asta al ribasso mascherata da trattativa. Una per
+   *     volta: si aspetta la risposta, oppure si ritira (vedi cancelTrade).
+   *
+   * Che invece la stessa casella compaia in due proposte DIVERSE (Marco chiede
+   * a Giulia il Parco, e anche Anna glielo chiede) è permesso apposta: vietarlo
+   * significherebbe che il primo che chiede una casella se la prenota contro
+   * tutti gli altri, e basterebbe chiedere tutto a tutti per bloccare il
+   * mercato. Vince chi si accorda per primo; l'altra proposta decade da sé, con
+   * il motivo scritto nel registro (vedi decadiProposteImpossibili).
    */
   proposeTrade(fromId, {
     toId,
@@ -1828,7 +2003,30 @@ class GameEngine {
     if (!this.started || this.finished) return { error: 'La partita non è in corso' };
     if (!from || !to || from.id === to.id) return { error: 'Destinatario non valido' };
     if (from.bankrupt || to.bankrupt) return { error: 'Un giocatore è fallito' };
-    if (this.pendingAction) return { error: 'Prima risolvi l\'azione in sospeso' };
+    // Non QUALUNQUE azione in sospeso ferma una trattativa: solo le due che il
+    // motore già tratta come "la spesa è congelata per tutti", cioè il debito e
+    // l'asta (le stesse due guardie che hanno buildHouse e unmortgageProperty).
+    //
+    // La prima versione bloccava su un pendingAction qualsiasi, e la prova a
+    // mano con tre client l'ha smontata in tre mosse: Z tira, atterra su una
+    // casella libera, e da lì in poi nessuno poteva più proporre niente finché
+    // Z non decideva se comprare. Cioè il difetto di partenza, tornato da
+    // un'altra porta — e quella finestra si apre a quasi ogni tiro. Acquisto,
+    // affitto, tassa e carta non hanno bisogno di questo divieto: riguardano un
+    // giocatore solo, si risolvono in un gesto, e ricontrollano da sé i conti
+    // al momento di eseguire.
+    //
+    // Debito e asta invece sì, e per la ragione per cui esistono quelle
+    // guardie: durante un'asta il denaro di chi rilancia deve restare certo,
+    // altrimenti un'offerta già fatta diventa scoperta all'aggiudicazione; e con
+    // un debito aperto il motore sta facendo i conti in tasca a qualcuno, quindi
+    // non è il momento di spostargli proprietà e contanti sotto i piedi.
+    if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
+    // Una proposta per volta, per chi la fa (il perché sta nel commento sopra).
+    if (this.tradeOffers.some((t) => t.fromId === fromId)) {
+      return { error: 'Hai già una proposta aperta: aspetta la risposta o ritirala' };
+    }
 
     const amounts = [offerMoney, requestMoney, offerJailCards, requestJailCards].map(
       (n) => Math.floor(Number(n) || 0)
@@ -1853,9 +2051,9 @@ class GameEngine {
       if (blocker) return { error: blocker };
     }
 
-    this.pendingAction = {
-      type: 'awaiting_trade',
-      playerId: to.id, // tocca al destinatario rispondere
+    this.tradeCounter += 1;
+    this.tradeOffers.push({
+      id: `t${this.tradeCounter}`,
       fromId: from.id,
       toId: to.id,
       offerProperties: [...offerProperties],
@@ -1864,43 +2062,163 @@ class GameEngine {
       requestProperties: [...requestProperties],
       requestMoney: requested,
       requestJailCards: requestedCards,
-    };
+    });
     this.addLog(`${from.name} propone uno scambio a ${to.name}.`);
     return {};
   }
 
-  /** Il destinatario accetta o rifiuta. In nessun caso il turno cambia. */
-  respondTrade(playerId, accept) {
-    if (!this.hasPendingTrade()) return { error: 'Nessuno scambio in sospeso' };
-    const trade = this.pendingAction;
+  /** La proposta con quell'id, o null: unico punto in cui si cerca per id. */
+  findTradeOffer(tradeId) {
+    return this.tradeOffers.find((t) => t.id === tradeId) || null;
+  }
+
+  /**
+   * Toglie una proposta dal tavolo e lo scrive nel registro. Il motivo non è un
+   * di più: una proposta che sparisce senza spiegazione, mentre il resto del
+   * tavolo continua a giocare, è indistinguibile da un guasto — e adesso che
+   * non congela più la partita nessuno la sta fissando nel momento in cui
+   * svanisce.
+   */
+  rimuoviProposta(trade, motivo) {
+    const i = this.tradeOffers.indexOf(trade);
+    if (i === -1) return;
+    this.tradeOffers.splice(i, 1);
+    const from = this.players.find((p) => p.id === trade.fromId);
+    const to = this.players.find((p) => p.id === trade.toId);
+    this.addLog(`Lo scambio fra ${from?.name || '?'} e ${to?.name || '?'} decade: ${motivo}.`);
+  }
+
+  /**
+   * Perché una proposta non si può più concludere, o null se regge ancora.
+   *
+   * È la SOLA definizione di "proposta valida" del motore, e la usano entrambi i
+   * momenti in cui serve: la risposta (che rifiuta un'accettazione impossibile)
+   * e la scopa periodica qui sotto (che toglie di mezzo le proposte morte). Che
+   * sia una funzione sola non è eleganza: finché lo scambio era un pendingAction
+   * unico, fra la proposta e la risposta il mondo non poteva cambiare quasi in
+   * niente, perché tutti erano fermi. Adesso può cambiare in tutto — l'altro
+   * gioca, incassa, paga, compra — e due elenchi di controlli scritti in due
+   * punti diversi divergerebbero alla prima modifica, lasciando accettabile
+   * qualcosa che il registro dà per decaduto (o viceversa).
+   *
+   * I motivi sono in terza persona perché lo stesso testo finisce sia nel
+   * registro, che leggono tutti, sia nel rifiuto mostrato a chi ha premuto.
+   */
+  motivoDecadenza(trade) {
+    const from = this.players.find((p) => p.id === trade.fromId);
+    const to = this.players.find((p) => p.id === trade.toId);
+    if (!from || !to || from.bankrupt || to.bankrupt) return 'Un giocatore non è più in partita';
+
+    // Le proprietà: possedute ancora da chi le mette sul piatto, e senza
+    // edifici sul colore (vedi tradeBlocker, la regola è del regolamento).
+    for (const position of trade.offerProperties) {
+      const blocker = this.tradeBlocker(trade.fromId, position);
+      if (blocker) return blocker;
+    }
+    for (const position of trade.requestProperties) {
+      const blocker = this.tradeBlocker(trade.toId, position);
+      if (blocker) return blocker;
+    }
+    // Il denaro e le carte, che a differenza delle proprietà NON si congelano:
+    // chi tratta deve poter pagare un affitto mentre l'altro decide. È quindi
+    // normalissimo che qui non ci siano più, ed è esattamente il caso che prima
+    // non poteva capitare perché il tavolo era fermo.
+    if (trade.offerMoney > from.balance) return `${from.name} non ha più i ${trade.offerMoney} promessi`;
+    if (trade.requestMoney > to.balance) return `${to.name} non ha più i ${trade.requestMoney} richiesti`;
+    if (trade.offerJailCards > from.jailCards) return `${from.name} non ha più le carte uscita promesse`;
+    if (trade.requestJailCards > to.jailCards) return `${to.name} non ha più le carte uscita richieste`;
+    return null;
+  }
+
+  /**
+   * Toglie dal tavolo le proposte che non si possono più concludere.
+   *
+   * Va chiamata da ogni punto in cui un giocatore può PERDERE qualcosa che
+   * aveva messo sul piatto: denaro (chargePlayer, e i pochi addebiti diretti
+   * che non ci passano), carte uscita, proprietà. Lasciarle lì sarebbe la scelta
+   * peggiore delle due possibili: chi ha ricevuto l'offerta continuerebbe a
+   * vedersela davanti, premerebbe Accetta e si prenderebbe un rifiuto per una
+   * cosa che non ha fatto lui — e non avrebbe alcun modo di capire cosa è
+   * cambiato, perché è successo dall'altra parte del tabellone mentre lui
+   * guardava altro.
+   */
+  decadiProposteImpossibili() {
+    // Copia dell'elenco: rimuoviProposta lo modifica mentre lo si scorre.
+    for (const trade of [...this.tradeOffers]) {
+      const motivo = this.motivoDecadenza(trade);
+      if (motivo) this.rimuoviProposta(trade, motivo);
+    }
+  }
+
+  /**
+   * Chi ha proposto ritira la sua offerta.
+   *
+   * Non esisteva prima, e prima non serviva: la proposta congelava la partita,
+   * quindi l'altro doveva rispondere all'istante o nessuno giocava più. Adesso
+   * che il tavolo va avanti, un'offerta può restare aperta quanto vuole chi
+   * deve risponderle — e nel frattempo tiene congelata la merce di chi l'ha
+   * fatta. Senza questa uscita, dimenticarsi di rispondere (o staccare il
+   * telefono) diventerebbe un modo per bloccare le proprietà di un avversario a
+   * tempo indeterminato. Ritirare è sempre lecito e non costa nulla: è la stessa
+   * cosa che al tavolo vero si fa dicendo "lascia stare".
+   */
+  cancelTrade(playerId, tradeId) {
+    const trade = this.findTradeOffer(tradeId);
+    if (!trade) return { error: 'Nessuno scambio in sospeso' };
+    if (trade.fromId !== playerId) return { error: 'Non è la tua proposta' };
+    this.tradeOffers.splice(this.tradeOffers.indexOf(trade), 1);
+    const from = this.players.find((p) => p.id === trade.fromId);
+    const to = this.players.find((p) => p.id === trade.toId);
+    this.addLog(`${from?.name} ritira la proposta fatta a ${to?.name}.`);
+    return {};
+  }
+
+  /**
+   * Il destinatario accetta o rifiuta UNA proposta precisa. In nessun caso il
+   * turno cambia.
+   *
+   * `tradeId` è obbligatorio, e non è burocrazia: di proposte aperte verso lo
+   * stesso giocatore adesso ce ne possono essere più d'una, e un "accetta" senza
+   * indirizzo si prenderebbe quella sbagliata al primo doppio tocco — cioè
+   * regalerebbe un monopolio a chi non c'entrava niente. Se l'id non esiste più
+   * (già risposta, decaduta, ritirata) si risponde con la stessa frase che il
+   * client sa già tacere come corsa innocua.
+   */
+  respondTrade(playerId, accept, tradeId) {
+    const trade = this.findTradeOffer(tradeId);
+    if (!trade) return { error: 'Nessuno scambio in sospeso' };
     if (trade.toId !== playerId) return { error: 'Non tocca a te rispondere' };
+    // Le stesse due guardie di proposeTrade, e qui pesano di più: accettare
+    // muove davvero proprietà e denaro. Il debito in particolare non è
+    // negoziabile — se lo si permettesse, l'interesse su un'ipoteca ricevuta
+    // potrebbe mandare in rosso un terzo giocatore mentre il debito di un altro
+    // è già aperto, e settleNextDebt (che ne apre uno per volta, apposta) non
+    // gli aprirebbe nessuna finestra: resterebbe a saldo negativo senza che il
+    // motore gli chieda niente, cioè lo stato che l'invariante
+    // 'saldo-negativo-solo-in-debito' esiste per vietare.
+    if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
+    if (this.auctionFreezeBlocker()) return this.auctionFreezeBlocker();
 
     const from = this.players.find((p) => p.id === trade.fromId);
     const to = this.players.find((p) => p.id === trade.toId);
 
     if (!accept) {
-      this.pendingAction = null;
+      this.tradeOffers.splice(this.tradeOffers.indexOf(trade), 1);
       this.addLog(`${to.name} rifiuta lo scambio.`);
-      // La proposta poteva essere l'unica finestra aperta mentre chi aveva il
-      // turno lasciava il tavolo: chiudendola tocca a noi rimetterlo in moto.
-      this.resumeTurnIfHolderLeft();
       return {};
     }
 
-    // Ricontrolla al momento dell'accettazione: fra proposta e risposta i due
-    // possono aver costruito o ipotecato.
-    for (const position of trade.offerProperties) {
-      const blocker = this.tradeBlocker(trade.fromId, position);
-      if (blocker) return { error: blocker };
+    // Rivalidazione al momento dell'accettazione. Prima era una precauzione
+    // contro il poco che i due potevano combinarsi fra loro a tavolo fermo;
+    // adesso è il controllo che tiene in piedi tutto l'impianto, perché fra la
+    // proposta e la risposta la partita è andata avanti davvero. Una proposta
+    // che non regge più non si limita a essere rifiutata: si toglie di mezzo,
+    // altrimenti resterebbe lì a produrre lo stesso errore a ogni tentativo.
+    const motivo = this.motivoDecadenza(trade);
+    if (motivo) {
+      this.rimuoviProposta(trade, motivo);
+      return { error: `Lo scambio non è più valido: ${motivo}` };
     }
-    for (const position of trade.requestProperties) {
-      const blocker = this.tradeBlocker(trade.toId, position);
-      if (blocker) return { error: blocker };
-    }
-    if (trade.offerMoney > from.balance) return { error: `${from.name} non ha più abbastanza denaro` };
-    if (trade.requestMoney > to.balance) return { error: 'Non hai abbastanza denaro' };
-    if (trade.offerJailCards > from.jailCards) return { error: `${from.name} non ha più quelle carte` };
-    if (trade.requestJailCards > to.jailCards) return { error: 'Non hai più quelle carte' };
 
     trade.offerProperties.forEach((position) => { this.ownership[position].ownerId = to.id; });
     trade.requestProperties.forEach((position) => { this.ownership[position].ownerId = from.id; });
@@ -1917,16 +2235,20 @@ class GameEngine {
 
     this.addLog(`${from.name} e ${to.name} concludono lo scambio.`);
     this.stats.tradesCompleted += 1;
-    this.pendingAction = null;
+    this.tradeOffers.splice(this.tradeOffers.indexOf(trade), 1);
+
+    // Proprietà, denaro e carte hanno appena cambiato mano: le ALTRE proposte
+    // aperte su quella roba non stanno più in piedi. È il caso più frequente di
+    // decadenza, ed è la conseguenza diretta di aver permesso che la stessa
+    // casella sia chiesta da due persone insieme (vedi proposeTrade).
+    this.decadiProposteImpossibili();
 
     // Chi riceve una proprietà ipotecata paga subito il 10% alla banca. Si fa
-    // dopo aver chiuso il pendingAction perché l'interesse può aprire un debito.
+    // per ultimo perché l'interesse può aprire un debito, e un debito è una
+    // finestra che ferma il tavolo: aprirla prima di aver finito di sistemare
+    // lo scambio significherebbe lasciarla aperta su uno stato a metà.
     this.chargeMortgageInterest(to, trade.offerProperties);
     this.chargeMortgageInterest(from, trade.requestProperties);
-    // Come sopra, e dopo gli interessi: se l'addebito ha aperto un debito la
-    // rete di sicurezza non fa nulla, e a rimettere in moto il turno sarà chi
-    // chiude quel debito.
-    this.resumeTurnIfHolderLeft();
     return {};
   }
 
@@ -1992,10 +2314,11 @@ class GameEngine {
       // blocco definitivo, con tre o più giocatori al tavolo. La condizione sul
       // giocatore in bancarotta (dentro resumeTurnIfHolderLeft) rende questa
       // chiamata innocua quando il turno è già avanzato da sé (bankruptPlayer
-      // chiama finishRoll). Se invece resta aperta la finestra di QUALCUN ALTRO
-      // — un debito o uno scambio — qui non si può fare nulla e il turno si
-      // sposta più tardi, quando quella finestra si chiude: stessa rete di
-      // sicurezza, vedi resumeTurnIfHolderLeft.
+      // chiama finishRoll). Se invece resta aperto il debito di QUALCUN ALTRO
+      // qui non si può fare nulla e il turno si sposta più tardi, quando quel
+      // debito si chiude: stessa rete di sicurezza, vedi
+      // resumeTurnIfHolderLeft. (Prima l'elenco comprendeva anche lo scambio;
+      // adesso una proposta non ferma più nessun turno.)
       this.resumeTurnIfHolderLeft();
     }
     return {};
@@ -2011,6 +2334,11 @@ class GameEngine {
     this.endedReason = 'closed';
     this.winnerId = null;
     this.pendingAction = null;
+    // Stessa ragione della finestra: a tavolo chiuso non resta niente da
+    // decidere, e una proposta sopravvissuta terrebbe congelate proprietà in
+    // una partita che non esiste più — visibile subito alla rivincita, che
+    // riparte dagli stessi giocatori.
+    this.tradeOffers = [];
     this.stats.finishedAt = Date.now();
     this.addLog('Il tavolo è stato chiuso da chi lo ha creato.');
     return {};
@@ -2062,6 +2390,12 @@ class GameEngine {
     this.chanceDeck = shuffle(this.buildDeck(CHANCE_CARDS));
     this.communityDeck = shuffle(this.buildDeck(COMMUNITY_CARDS));
     this.pendingAction = null;
+    // Le proposte non sopravvivono alla rivincita, per la stessa ragione dei
+    // saldi e delle proprietà: si riparte da zero. Il contatore degli id invece
+    // NON si azzera, di proposito — è l'unica cosa che non deve ripetersi, così
+    // un client rimasto con in mano l'id di una proposta della partita
+    // precedente non può ritrovarselo valido su una proposta nuova.
+    this.tradeOffers = [];
     this.pendingCard = null;
     this.rentMultiplier = 1;
     this.finished = false;
@@ -2100,8 +2434,12 @@ class GameEngine {
       // client la mostrerebbe sopra la schermata di fine partita chiedendo
       // una decisione che non ha più senso prendere. endTurn di solito la
       // chiude, ma quando la partita finisce si ferma prima (vedi la guardia
-      // su `finished`), quindi va chiusa qui.
+      // su `finished`), quindi va chiusa qui. Le proposte aperte seguono la
+      // stessa sorte: con un solo giocatore rimasto in piedi non c'è più
+      // nessuno con cui trattare, e una proposta superstite lascerebbe
+      // congelate le proprietà del vincitore.
       this.pendingAction = null;
+      this.tradeOffers = [];
       this.addLog(`${alive[0].name} vince la partita!`);
     }
   }
@@ -2135,22 +2473,25 @@ class GameEngine {
    * in moto. Funziona da sé per le finestre che nascono dentro la risoluzione
    * di un tiro — acquisto, carta, affitto, tassa, asta: le chiude tutte un
    * finishRoll che passa da endTurn, e lì `turnResolved` è per forza false (a
-   * turno già chiuso quelle finestre non esistono nemmeno). Non funziona per le
-   * due finestre che possono riguardare giocatori DIVERSI da chi ha il turno:
+   * turno già chiuso quelle finestre non esistono nemmeno). Non funziona per
+   * l'unica finestra rimasta che può riguardare un giocatore DIVERSO da chi ha
+   * il turno: il debito di un altro aperto fuori da un tiro (l'interesse su
+   * un'ipoteca ricevuta in uno scambio, o il rosso ereditato da una bancarotta
+   * che settleNextDebt apre più tardi — anche quello dentro abandonGame
+   * stesso). Lì finishRoll ci arriva, ma endTurn si ferma sulla guardia
+   * `turnResolved`, già alzata dalla chiusura del turno precedente quando chi
+   * ha abbandonato non aveva ancora tirato.
    *
-   *   - lo scambio, che per scelta non tocca mai il turno (vedi respondTrade):
-   *     chiusa la proposta non resta nessuno a spostarlo;
-   *   - il debito di un altro giocatore aperto fuori da un tiro (l'interesse su
-   *     un'ipoteca ricevuta in uno scambio, o il rosso ereditato da una
-   *     bancarotta che settleNextDebt apre più tardi — anche quello dentro
-   *     abandonGame stesso): lì finishRoll ci arriva, ma endTurn si ferma sulla
-   *     guardia `turnResolved`, già alzata dalla chiusura del turno precedente
-   *     quando chi ha abbandonato non aveva ancora tirato.
+   * Le finestre erano due: c'era anche lo scambio, che non toccava mai il turno
+   * e quindi, chiudendosi, non lasciava nessuno a spostarlo. Non è più un caso
+   * da coprire perché una proposta non è più una finestra: non ferma il tavolo,
+   * quindi non c'è nessun turno appeso alla sua chiusura. È una delle cose che
+   * questa modifica semplifica invece di complicare.
    *
-   * In entrambi i casi si finiva col turno su un giocatore in bancarotta e
-   * nessuna finestra aperta: nessuno può più muovere e la partita è bloccata per
-   * sempre. Va chiamata dove una finestra si chiude senza che il turno passi da
-   * un endTurn andato a buon fine.
+   * Il guaio che resta da evitare è sempre lo stesso: turno su un giocatore in
+   * bancarotta e nessuna finestra aperta, cioè nessuno che possa più muovere e
+   * partita bloccata per sempre. Va chiamata dove una finestra si chiude senza
+   * che il turno passi da un endTurn andato a buon fine.
    */
   resumeTurnIfHolderLeft() {
     // Con una finestra ancora aperta non si tocca nulla: a rimettere in moto il
@@ -2160,9 +2501,14 @@ class GameEngine {
   }
 
   endTurn() {
-    // Un debito o uno scambio aperto congelano la partita per entrambi.
+    // Un debito aperto congela la partita finché non rientra.
+    //
+    // Qui c'era anche la guardia sullo scambio, ed è sparita insieme a tutta la
+    // famiglia: una proposta non è più un pendingAction, quindi non ha più
+    // niente da dire sul turno di nessuno. È il senso di tutta questa modifica —
+    // chiudere il proprio turno mentre due altri stanno trattando adesso si può,
+    // perché non c'è nessun motivo per cui non si dovrebbe potere.
     if (this.hasPendingDebt()) return { error: 'Prima risolvi il debito in sospeso' };
-    if (this.hasPendingTrade()) return { error: 'Prima rispondi allo scambio proposto' };
     if (this.hasPendingCard()) return { error: 'Prima leggi la carta pescata' };
     if (this.hasPendingRent()) return { error: 'Prima paga l\'affitto' };
     if (this.hasPendingTax()) return { error: 'Prima paga la tassa' };
@@ -2208,7 +2554,7 @@ class GameEngine {
    * Risolve la finestra aperta a nome di un giocatore disconnesso, scegliendo
    * ogni volta l'opzione che NON prende iniziative al posto suo: legge la
    * carta, paga quello che deve (in quelle finestre l'unico bottone è
-   * "paga"), rinuncia all'acquisto, passa all'asta, rifiuta lo scambio, e su
+   * "paga"), rinuncia all'acquisto, passa all'asta, e su
    * un debito liquida invece di arrendersi. Nessuna di queste è una scelta
    * discrezionale: sono la mossa più conservativa disponibile in quella
    * finestra, quella che non gli fa spendere né promettere nulla di nuovo.
@@ -2233,7 +2579,12 @@ class GameEngine {
       case 'awaiting_tax': return this.payTax(player.id);
       case 'awaiting_buy': return this.declineBuy(player.id);
       case 'awaiting_auction': return this.passAuction(player.id);
-      case 'awaiting_trade': return this.respondTrade(player.id, false);
+      // Nessun caso per gli scambi, e non è una dimenticanza: una proposta non
+      // ferma più il tavolo, quindi saltare il turno di chi è caduto non ha
+      // alcun bisogno di rispondere al posto suo. Le proposte che ha ricevuto
+      // restano lì ad aspettarlo, esattamente come le sue proprietà: rientrando
+      // le trova. E chi gliele aveva fatte non è in ostaggio, perché può
+      // ritirarle quando vuole (vedi cancelTrade).
       // Liquidazione automatica, mai bancarotta: il motore vende gli edifici e
       // ipoteca tenendo i monopoli per ultimi, ed è esattamente il bottone che
       // il client offre al giocatore in quella finestra. Non può finire in

@@ -30,6 +30,7 @@ import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts
 import { isGameWaitingFor } from './src/turnAlert.ts';
 import { netWorthShares } from './src/netWorthBar.ts';
 import { skipTurnPrompt } from './src/skipTurn.ts';
+import { motivoScambioBloccato } from './src/scambi.ts';
 import {
   addResult,
   buildResultFromState,
@@ -308,11 +309,26 @@ section('5. Avviso di turno: quando il gioco aspetta proprio questo giocatore');
       pendingAction: { type: 'awaiting_auction', playerId: 'bot', position: 5, price: 100, currentBid: 100, currentBidderId: null, queue: ['bot', 'io'], passedIds: [] },
     }), 'io') === false);
 
-  // Scambio proposto a me: sono il playerId (destinatario) e devo rispondere.
+  // Scambio proposto a me: non è più un pendingAction (non ferma il tavolo) ma
+  // una risposta la vuole comunque, quindi mi aspetta.
+  const offertaVerso = (toId: string) => ({
+    id: 't1', fromId: 'bot', toId,
+    offerProperties: [], offerMoney: 0, offerJailCards: 0,
+    requestProperties: [], requestMoney: 0, requestJailCards: 0,
+  });
   check('scambio da valutare, sono il destinatario: mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 1, tradeOffers: [offertaVerso('io')] }), 'io') === true);
+  // Il rovescio, che è la ragione per cui questa modifica esiste: una
+  // trattativa fra altri due non deve reclamare l'attenzione di chi sta
+  // giocando. Prima congelava il tavolo, quindi il titolo lampeggiava a tutti.
+  check('scambio fra altri due: non mi aspetta',
+    isGameWaitingFor(statoBase({ turnIndex: 1, tradeOffers: [offertaVerso('bot')] }), 'io') === false);
+  // Chi ha proposto aspetta l'altro, non il contrario.
+  check('scambio proposto da me: non mi aspetta',
     isGameWaitingFor(statoBase({
-      pendingAction: { type: 'awaiting_trade', playerId: 'io', fromId: 'bot', toId: 'io', offerProperties: [], offerMoney: 0, offerJailCards: 0, requestProperties: [], requestMoney: 0, requestJailCards: 0 },
-    }), 'io') === true);
+      turnIndex: 1,
+      tradeOffers: [{ ...offertaVerso('bot'), fromId: 'io' }],
+    }), 'io') === false);
 
   // Partita non ancora iniziata, o già finita: non aspetta nessuno.
   check('partita non iniziata: non aspetta nessuno',
@@ -323,6 +339,86 @@ section('5. Avviso di turno: quando il gioco aspetta proprio questo giocatore');
   // Senza un mio id (non ancora assegnato) non può aspettare me.
   check('nessun myId: non mi aspetta',
     isGameWaitingFor(statoBase({ turnIndex: 0 }), null) === false);
+}
+
+// ---------------------------------------------------------------------------
+section('5b. Quando si può proporre uno scambio');
+{
+  // La regola del client deve rispecchiare quella del motore (proposeTrade in
+  // gameEngine.js): fermano solo il debito e l'asta, più la propria proposta
+  // già aperta. Tutto il resto — un acquisto altrui, un affitto, una carta —
+  // non ferma niente, ed è il punto di tutta la modifica: prima bastava che
+  // qualcuno stesse decidendo qualsiasi cosa perché nessuno potesse trattare.
+  const stato = (overrides: Partial<GameState>): GameState => ({
+    roomCode: 'ABCDE',
+    players: [
+      { id: 'io', name: 'Io', token: 'auto', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: false, netWorth: 1500 },
+      { id: 'bot', name: 'Bot', token: 'cane', balance: 1500, position: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false, doublesInARow: 0, connected: true, isBot: true, netWorth: 1500 },
+    ],
+    ownership: {},
+    turnIndex: 0,
+    started: true,
+    log: [],
+    pendingAction: null,
+    finished: false,
+    winnerId: null,
+    endedReason: null,
+    hostId: 'io',
+    rematchVotes: [],
+    lastRoll: null,
+    stats: { startedAt: null, finishedAt: null, rentPaid: {}, rentCollected: {}, bankPaid: {}, purchases: {}, housesBuilt: {}, landings: {}, laps: {}, tradesCompleted: 0 },
+    ...overrides,
+  });
+
+  check('tavolo libero: si propone',
+    motivoScambioBloccato(stato({}), 'io') === null);
+
+  // I quattro casi che PRIMA bloccavano e adesso no.
+  check('acquisto altrui in sospeso: si propone lo stesso',
+    motivoScambioBloccato(stato({
+      pendingAction: { type: 'awaiting_buy', playerId: 'bot', position: 5, price: 100 },
+    }), 'io') === null);
+  check('affitto altrui in sospeso: si propone lo stesso',
+    motivoScambioBloccato(stato({
+      pendingAction: { type: 'awaiting_rent', playerId: 'bot', position: 5, amount: 20, ownerId: 'io', doubled: false },
+    }), 'io') === null);
+  check('carta da leggere: si propone lo stesso',
+    motivoScambioBloccato(stato({
+      pendingAction: { type: 'awaiting_card', playerId: 'bot', deck: 'chance', text: 'x' },
+    }), 'io') === null);
+  check('trattativa fra altri due: si propone lo stesso',
+    motivoScambioBloccato(stato({
+      tradeOffers: [{ id: 't1', fromId: 'bot', toId: 'altro', offerProperties: [], offerMoney: 0, offerJailCards: 0, requestProperties: [], requestMoney: 0, requestJailCards: 0 }],
+    }), 'io') === null);
+
+  // I tre casi che bloccano, e devono spiegarsi.
+  check('debito aperto: non si propone',
+    motivoScambioBloccato(stato({
+      pendingAction: { type: 'awaiting_debt', playerId: 'bot', amount: 50, creditorId: null, liquidationValue: 100 },
+    }), 'io') !== null);
+  check('asta in corso: non si propone',
+    motivoScambioBloccato(stato({
+      pendingAction: { type: 'awaiting_auction', playerId: 'bot', position: 5, price: 100, currentBid: 10, currentBidderId: null, queue: ['bot'], passedIds: [], minBid: 20, minIncrement: 10 },
+    }), 'io') !== null);
+  check('una mia proposta già aperta: non se ne manda una seconda',
+    motivoScambioBloccato(stato({
+      tradeOffers: [{ id: 't1', fromId: 'io', toId: 'bot', offerProperties: [], offerMoney: 0, offerJailCards: 0, requestProperties: [], requestMoney: 0, requestJailCards: 0 }],
+    }), 'io') !== null);
+
+  // Ogni motivo è una frase leggibile: è quella che finisce nel `title` del
+  // bottone spento e nella nota del compositore. Un bottone spento senza
+  // spiegazione è indistinguibile da uno rotto — il difetto da cui è nato
+  // tutto il canale dei rifiuti (vedi azioni.ts).
+  const motivi = [
+    motivoScambioBloccato(stato({ started: false }), 'io'),
+    motivoScambioBloccato(stato({ finished: true }), 'io'),
+    motivoScambioBloccato(stato({
+      pendingAction: { type: 'awaiting_debt', playerId: 'bot', amount: 50, creditorId: null, liquidationValue: 100 },
+    }), 'io'),
+  ];
+  check('ogni motivo è una frase compiuta',
+    motivi.every((m) => typeof m === 'string' && m.length > 10 && m.endsWith('.')),
+    JSON.stringify(motivi));
 }
 
 // ---------------------------------------------------------------------------
