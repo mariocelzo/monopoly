@@ -226,12 +226,7 @@ export default function PropertiesPanel({
                         payload={{ position: square.position }}
                         className="btn-mini"
                         disabled={!!build}
-<<<<<<< HEAD
-                        title={build || `Costruisci per €${nextBuildCost(square, owned)}`}
-=======
                         title={build || `Costruisci ${etichettaProssima} per €${costoProssima}`}
-                        onClick={() => emit('build_house', square.position)}
->>>>>>> origin/main
                       >
                         Costruisci
                       </BottoneAzione>
@@ -240,12 +235,7 @@ export default function PropertiesPanel({
                         payload={{ position: square.position }}
                         className="btn-mini"
                         disabled={!!sell}
-<<<<<<< HEAD
-                        title={sell || `Vendi per €${currentSellRefund(square, owned)}`}
-=======
                         title={sell || `Vendi ${etichettaInCima} per €${rimborsoInCima}`}
-                        onClick={() => emit('sell_house', square.position)}
->>>>>>> origin/main
                       >
                         Vendi
                       </BottoneAzione>
