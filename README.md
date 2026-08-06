@@ -223,9 +223,10 @@ esempi.
 Backend e frontend vanno su due servizi diversi.
 
 **Backend su Render.** Da *New > Blueprint* puntando a questa repo: il file
-`render.yaml` nella radice configura tutto (cartella `server`, comandi, health
-check su `/health`). Deve stare nella radice perché Render lo cerca solo lì.
-L'unica cosa da compilare a mano è `CLIENT_ORIGIN`, che si conosce solo dopo il
+`render.yaml` nella radice configura tutto (cartella `server`, comandi, region
+`frankfurt`, health check su `/health`). Deve stare nella radice perché Render
+lo cerca solo lì. L'unica cosa da compilare a mano è `CLIENT_ORIGIN`, che si
+conosce solo dopo il
 primo deploy del client.
 
 **Frontend su Vercel.** Importa la repo e imposta **Root Directory** su
