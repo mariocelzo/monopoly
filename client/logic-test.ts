@@ -10,8 +10,20 @@
 // `window` dentro `useIsMobile.ts` a essere circondato da un controllo lazy.
 import { readFileSync } from 'node:fs';
 import { board } from '../server/src/data/board.js';
+// Il motore vero, importato per confrontarci gli importi che il pannello mostra
+// (vedi "Gli importi mostrati coincidono con quelli che il motore addebita").
+// Si può caricare qui perché gameEngine.js non dipende da socket.io né tocca
+// nulla all'import: richiede solo il tabellone.
+import { GameEngine, boardWithAmounts } from '../server/src/gameEngine.js';
 import { propertyGroups } from './src/propertyGroups.ts';
-import type { BoardSquare, GameState } from './src/socket.ts';
+import type { BoardSquare, GameState, Ownership } from './src/socket.ts';
+import {
+  currentSellRefund,
+  maxUnits,
+  nextBuildCost,
+  nextUnitLabel,
+  topUnitLabel,
+} from './src/costiCostruzione.ts';
 import { MOBILE_BREAKPOINT, TOUCH_LAYOUT_QUERY } from './src/useIsMobile.ts';
 import { latestLogAt, missedSince } from './src/awayRecap.ts';
 import { formatDuration, mostVisitedSquare, statFor } from './src/gameSummary.ts';
@@ -1007,8 +1019,14 @@ section('Risveglio del server');
 // Questa guardia non verifica un risultato, verifica che la scorciatoia non
 // rientri dalla finestra: se quei numeri ricompaiono nel client, qui è rosso.
 {
-  const sorgenti = ['src/components/PropertiesPanel.tsx', 'src/components/SquareDetail.tsx']
-    .map((f) => ({ f, testo: readFileSync(new URL(f, import.meta.url), 'utf8') }));
+  const sorgenti = [
+    'src/components/PropertiesPanel.tsx',
+    'src/components/SquareDetail.tsx',
+    // Il pannello non legge più gli array da sé: sceglie il livello passando da
+    // costiCostruzione.ts. La guardia deve seguire il codice dove si è spostato,
+    // altrimenti resterebbe verde sorvegliando un file che non fa più il lavoro.
+    'src/costiCostruzione.ts',
+  ].map((f) => ({ f, testo: readFileSync(new URL(f, import.meta.url), 'utf8') }));
 
   const impronte: [string, RegExp][] = [
     ['i moltiplicatori di costo degli hotel (15, 22, 30)', /2:\s*15\s*,\s*3:\s*22\s*,\s*4:\s*30/],
@@ -1027,14 +1045,139 @@ section('Risveglio del server');
 
   // E il contrario: gli importi pubblicati devono essere davvero letti, se no
   // la guardia qui sopra resterebbe verde anche cancellando le cifre dallo
-  // schermo.
-  const pannello = sorgenti[0].testo;
+  // schermo. Il pannello e il modulo che lo serve contano come una cosa sola:
+  // insieme sono la strada per cui quei numeri arrivano allo schermo.
+  const pannello = sorgenti[0].testo + sorgenti[2].testo;
   const letti = ['buildCosts', 'buildRefunds', 'mortgageValue', 'unmortgageCost', 'hotelRents'];
   const mancanti = letti.filter((c) => !pannello.includes(c));
   check(
     'il pannello proprietà legge gli importi pubblicati dal motore',
     mancanti.length === 0,
     `non li legge più: ${mancanti.join(', ')}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Gli importi mostrati coincidono con quelli che il motore addebita
+// ---------------------------------------------------------------------------
+// La guardia qui sopra sorveglia la FORMA del codice: che le formule non
+// rientrino dalla finestra. Questo invece verifica il RISULTATO, e chiude
+// l'ultimo spiraglio rimasto: leggere un array pubblicato dal server non
+// richiede nessuna formula, ma richiede un indice — `buildCosts[0]` è la prima
+// casa, `buildCosts[4]` il primo hotel — e un indice sbagliato di uno mostra un
+// numero sbagliato esattamente come una formula sbagliata. Peggio, anzi: uno
+// scarto di uno passa inosservato finché tutte le case costano uguale, e si
+// manifesta solo con la modalità grattacieli accesa, dove i livelli costano
+// 200, 3.000, 4.400 e 6.000 e sbagliare riga vuol dire sbagliare di migliaia.
+//
+// Perciò qui non si ricontrolla l'aritmetica del motore (per quella ci sono i
+// test del server): si confronta quello che il pannello MOSTRA accanto al
+// bottone con quello che il motore ADDEBITEREBBE davvero se quel bottone lo
+// premessi, su tutte le caselle del tabellone e su tutti i livelli
+// raggiungibili, con e senza grattacieli. Se un giorno le due cose divergono,
+// qui è rosso prima che qualcuno se ne accorga pagando 6.000 al posto di 200.
+{
+  const motore = new GameEngine('TEST');
+  const tabellone = boardWithAmounts() as BoardSquare[];
+
+  /** Lo stato di possesso che il pannello riceverebbe, senza montare React. */
+  const possesso = (houses: number, hotels: number): Ownership => ({
+    ownerId: 'io', houses, hotels, mortgaged: false,
+  });
+
+  /**
+   * Tutte le configurazioni di edifici davvero raggiungibili con un dato tetto
+   * di hotel: da terreno scoperto a quattro case, poi i livelli di hotel (con
+   * le case a zero per invariante, vedi buildHouse/sellHouse nel motore).
+   */
+  const configurazioni = (maxHotels: number): Ownership[] => {
+    const stati = [0, 1, 2, 3, 4].map((case_) => possesso(case_, 0));
+    for (let hotel = 1; hotel <= maxHotels; hotel++) stati.push(possesso(0, hotel));
+    return stati;
+  };
+
+  let confronti = 0;
+  const divergenze: string[] = [];
+
+  for (const maxHotels of [1, 4]) { // regolamento classico e modalità grattacieli
+    const modo = maxHotels === 1 ? 'classico' : 'grattacieli';
+    for (const casella of tabellone.filter((s) => s.houseCost)) {
+      for (const owned of configurazioni(maxHotels)) {
+        const unita = motore.unitCount(owned);
+        const dove = `${casella.name} (${modo}, ${unita} unità)`;
+
+        // Il costo della prossima unità, quello scritto accanto a "Costruisci".
+        const mostrato = nextBuildCost(casella, owned, maxHotels);
+        if (unita >= maxUnits(maxHotels)) {
+          // Al tetto non c'è una prossima unità: il pannello non deve inventarsi
+          // un prezzo (né mostrare lo zero, che sembrerebbe "gratis").
+          confronti += 1;
+          if (mostrato !== null) divergenze.push(`${dove}: mostra €${mostrato} ma non si può più costruire`);
+        } else {
+          const addebitato = motore.nextBuildingCost(casella, owned);
+          confronti += 1;
+          if (mostrato !== addebitato) divergenze.push(`${dove}: costruire mostra €${mostrato}, il motore addebita €${addebitato}`);
+        }
+
+        // Il rimborso dell'unità in cima, quello scritto accanto a "Vendi".
+        const rimborsoMostrato = currentSellRefund(casella, owned);
+        if (unita === 0) {
+          confronti += 1;
+          if (rimborsoMostrato !== null) divergenze.push(`${dove}: mostra un rimborso ma non c'è nulla da vendere`);
+        } else {
+          const rimborsoVero = motore.buildingRefund(casella, unita);
+          confronti += 1;
+          if (rimborsoMostrato !== rimborsoVero) divergenze.push(`${dove}: vendere mostra €${rimborsoMostrato}, il motore accredita €${rimborsoVero}`);
+        }
+      }
+    }
+  }
+
+  check(`ci sono abbastanza livelli da confrontare`, confronti > 200, `confronti: ${confronti}`);
+  check(
+    `i ${confronti} importi mostrati coincidono con quelli che il motore addebita`,
+    divergenze.length === 0,
+    divergenze.slice(0, 5).join(' | ')
+  );
+
+  // Il caso che sorprende, isolato perché è l'unico in cui la risposta "giusta"
+  // sembra sbagliata: l'ultimo hotel rimasto rende metà del prezzo BASSO. È
+  // costato come una casa (il 1º hotel sostituisce le quattro case a
+  // moltiplicatore 1), quindi rende metà di quello, non metà dei 6.000 del 4º.
+  // Un rimborso unico per tutti gli hotel — la scorciatoia che andava bene
+  // quando di livelli ce n'era uno solo — qui sbaglierebbe di trenta volte.
+  {
+    const parco = tabellone.find((s) => s.name === 'Parco della Vittoria')!;
+    check(
+      "l'ultimo hotel rimasto su Parco della Vittoria rende 100, non 3.000",
+      currentSellRefund(parco, possesso(0, 1)) === 100 &&
+      currentSellRefund(parco, possesso(0, 4)) === 3000,
+      `un hotel: ${currentSellRefund(parco, possesso(0, 1))}, quattro: ${currentSellRefund(parco, possesso(0, 4))}`
+    );
+    // E il salto che rende l'informazione utile al tavolo: senza grattacieli il
+    // massimo che si può spendere in un colpo è una casa, con i grattacieli si
+    // arriva a trenta volte tanto.
+    check(
+      'su Parco della Vittoria la prossima unità va da 200 a 6.000',
+      nextBuildCost(parco, possesso(4, 0), 4) === 200 &&
+      nextBuildCost(parco, possesso(0, 3), 4) === 6000 &&
+      nextBuildCost(parco, possesso(0, 1), 1) === null,
+      'i salti di prezzo dei grattacieli non sono quelli attesi'
+    );
+  }
+
+  // I nomi delle unità seguono il tetto scelto al tavolo: con un hotel solo
+  // possibile numerarlo ("1º hotel") sarebbe rumore, con quattro è l'unica cosa
+  // che spiega perché il prezzo è quello.
+  check(
+    "il nome dell'unità dice quale livello si sta comprando",
+    nextUnitLabel(possesso(0, 0), 4) === '1ª casa' &&
+    nextUnitLabel(possesso(4, 0), 1) === 'hotel' &&
+    nextUnitLabel(possesso(0, 2), 4) === '3º hotel' &&
+    nextUnitLabel(possesso(0, 4), 4) === null &&
+    topUnitLabel(possesso(0, 0), 4) === null &&
+    topUnitLabel(possesso(0, 1), 4) === '1º hotel',
+    'le etichette delle unità non sono quelle attese'
   );
 }
 
