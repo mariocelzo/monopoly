@@ -1079,7 +1079,18 @@ section('Risveglio del server');
 // se qualcuno riscrive un messaggio in gameEngine.js, qui diventa rosso e la
 // lista va aggiornata. Stessa idea della guardia su AuctionModal qui sotto.
 {
-  const motore = readFileSync(new URL('../server/src/gameEngine.js', import.meta.url), 'utf8');
+  // Il motore è diviso in moduli sotto server/src/engine/ (vedi il commento in
+  // cima a gameEngine.js): una frase può vivere in uno qualunque di questi, non
+  // più tutte nello stesso file. Si concatena il core con ogni modulo, così
+  // l'ancoraggio resta vero indipendentemente da dove la frase è finita.
+  const cartellaEngine = new URL('../server/src/engine/', import.meta.url);
+  const moduli = readdirSync(cartellaEngine)
+    .filter((nome) => nome.endsWith('.js'))
+    .map((nome) => readFileSync(new URL(nome, cartellaEngine), 'utf8'));
+  const motore = [
+    readFileSync(new URL('../server/src/gameEngine.js', import.meta.url), 'utf8'),
+    ...moduli,
+  ].join('\n');
   const righe = readFileSync(new URL('./src/azioni.ts', import.meta.url), 'utf8').split('\n');
   const inizio = righe.findIndex((r) => r.includes('const CORSE_INNOCUE'));
   const fine = righe.findIndex((r) => r.includes('export function messaggioDiRifiuto'));
