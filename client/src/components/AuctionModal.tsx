@@ -1,4 +1,5 @@
-import { AwaitingAuction, BoardSquare, GameState, inviaAzione } from '../socket';
+import { AwaitingAuction, BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
 
@@ -73,28 +74,29 @@ export default function AuctionModal({
 
         {isMyTurn ? (
           <div style={styles.actions}>
-            <button
-              className="btn-primary"
+            {/* Si guarda la risposta del server invece di sparare e sperare:
+                un rifiuto silenzioso è indistinguibile da un bottone rotto, ed
+                è esattamente così che questo difetto è passato inosservato.
+                La callback scritta a mano qui era il prototipo; adesso che
+                TUTTE le azioni passano da inviaAzione (vedi socket.ts) il
+                messaggio e la sua scomparsa li gestisce un posto solo, e
+                questa finestra torna a occuparsi solo dell'asta.
+                In un'asta il doppio rilancio è il rischio più concreto di tutta
+                la partita — si ripreme perché sembra non essere successo nulla,
+                e il secondo tocco parte sull'importo vecchio, ormai sotto il
+                minimo — quindi qui il comando spento durante l'attesa vale
+                doppio. */}
+            <BottoneAzione
+              evento="auction_bid"
+              payload={{ amount: minBid }}
               style={styles.actionBtn}
               disabled={!puoRilanciare}
-              // Si guarda la risposta del server invece di sparare e sperare:
-              // un rifiuto silenzioso è indistinguibile da un bottone rotto, ed
-              // è esattamente così che questo difetto è passato inosservato.
-              // La callback scritta a mano qui era il prototipo; adesso che
-              // TUTTE le azioni passano da inviaAzione (vedi socket.ts) il
-              // messaggio e la sua scomparsa li gestisce un posto solo, e
-              // questa finestra torna a occuparsi solo dell'asta.
-              onClick={() => inviaAzione('auction_bid', { amount: minBid })}
             >
               Rilancia a €{minBid}
-            </button>
-            <button
-              className="btn-ghost"
-              style={styles.actionBtn}
-              onClick={() => inviaAzione('auction_pass')}
-            >
+            </BottoneAzione>
+            <BottoneAzione evento="auction_pass" className="btn-ghost" style={styles.actionBtn}>
               Passa
-            </button>
+            </BottoneAzione>
           </div>
         ) : (
           <p style={styles.wait}>

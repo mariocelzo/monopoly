@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BoardSquare, GameState, inviaAzione } from '../socket';
 import { azzeraRifiuto } from '../azioni';
+import { useAttesaVisibile, useAzioneInVolo } from '../azioniInVolo';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import { propertyGroups } from '../propertyGroups';
 import { TOUCH_TARGET } from '../touchTarget';
@@ -74,6 +75,11 @@ export default function TradeWizard({
 
   // Come in TradeModal: si esce dalla procedura solo se la proposta è partita
   // davvero, altrimenti tre schermate di lavoro sparirebbero per un rifiuto.
+  // Come in TradeModal: la proposta in viaggio spegne il comando che l'ha
+  // mandata finché non arriva la risposta.
+  const inVolo = useAzioneInVolo('propose_trade');
+  const attesa = useAttesaVisibile(inVolo);
+
   const manda = () => {
     inviaAzione(
       'propose_trade',
@@ -295,10 +301,16 @@ export default function TradeWizard({
                 Avanti →
               </button>
             ) : (
+              /* Stesso trattamento di TradeModal, per la stessa ragione: il
+                 patto si compone da otto stati locali, l'attesa si racconta
+                 con le stesse classi. */
               <button
-                className="btn-primary"
+                className={['btn-primary', inVolo && 'comando-in-volo', attesa && 'comando-in-attesa']
+                  .filter(Boolean)
+                  .join(' ')}
                 style={styles.btn}
-                disabled={vuotoDaEntrambiILati || bloccatoDaAltro}
+                aria-busy={inVolo || undefined}
+                disabled={vuotoDaEntrambiILati || bloccatoDaAltro || inVolo}
                 onClick={manda}
               >
                 Manda la proposta

@@ -17,15 +17,39 @@ name: Keep-alive backend
 # costo minimo.
 
 on:
-  # Ogni 14 minuti: un minuto sotto la soglia di sospensione di Render (15
-  # minuti), così l'ultima richiesta utile arriva sempre prima che scatti
-  # l'addormentamento. Il margine di un solo minuto è voluto: GitHub Actions
-  # non garantisce la puntualità dei cron (sotto carico della piattaforma i
-  # job schedulati possono partire con diversi minuti di ritardo), quindi un
-  # margine più stretto rischierebbe di far scattare comunque la sospensione.
-  # Anche con 14 minuti il rischio non è azzerato, solo molto ridotto.
+  # Ogni 5 minuti, non più ogni 14.
+  #
+  # PERCHÉ IL MARGINE DI UN MINUTO NON BASTAVA. Il ragionamento di prima era
+  # aritmeticamente giusto e praticamente sbagliato: 14 minuti stanno sotto la
+  # soglia dei 15 solo se il cron è puntuale, e i cron di GitHub Actions non lo
+  # sono. La documentazione di GitHub lo dice apertamente — i job schedulati
+  # finiscono in una coda condivisa e possono partire in ritardo quando la
+  # piattaforma è carica, con ritardi che nella pratica arrivano a diverse
+  # decine di minuti nelle ore di punta. Un ritardo di appena due minuti su un
+  # margine di uno basta a far scattare la sospensione, ed è esattamente quello
+  # che succedeva: il ping c'era, e il servizio si addormentava lo stesso.
+  # Cronometrata in produzione, la partenza a freddo che ne seguiva costava
+  # 22,9 secondi alla prima azione della serata.
+  #
+  # PERCHÉ CINQUE. Il margine non è più un minuto ma dieci: perché il servizio
+  # si addormenti servirebbe che TUTTI i ping di una finestra di un quarto d'ora
+  # arrivassero in ritardo, non uno solo. Con 5 minuti ogni finestra di 15 ne
+  # contiene tre, e ne basta uno puntuale. È il classico rimedio a un
+  # avvenimento inaffidabile: non renderlo puntuale — non si può — ma ripeterlo
+  # abbastanza da non dipendere da nessuna singola occorrenza.
+  #
+  # QUANTO COSTA. Una GET a un endpoint che risponde `{"ok":true}`: da 103 a 288
+  # esecuzioni al giorno, ognuna di pochi secondi. I workflow schedulati sono
+  # gratuiti sui repository pubblici, e anche a voler contare i minuti restano
+  # nell'ordine delle decine al giorno. Il servizio, dal canto suo, non fa
+  # nulla: /health non tocca né il motore né l'archivio.
+  #
+  # Scendere ancora (ogni minuto) non comprerebbe niente in più — tre ping per
+  # finestra bastano già a rendere improbabile il caso da evitare — e
+  # moltiplicherebbe per cinque le esecuzioni. Cinque minuti è il punto in cui
+  # la curva si appiattisce.
   schedule:
-    - cron: "*/14 * * * *"
+    - cron: "*/5 * * * *"
   # Per poterlo lanciare a mano da GitHub e verificare che funzioni senza
   # aspettare il prossimo giro di cron.
   workflow_dispatch:
@@ -34,6 +58,18 @@ on:
 # ha nessun motivo di poter scrivere sul repository.
 permissions:
   contents: read
+
+# Con un ping ogni 5 minuti e un tentativo che può durare fino a 90 secondi più
+# i riavvii, due esecuzioni possono sovrapporsi — soprattutto quando i cron
+# arrivano in ritardo e ne partono due ravvicinate. Non serve a niente pingare
+# in parallelo: la seconda esecuzione toglie di mezzo quella vecchia e resta
+# lei, così ce n'è sempre al più una in volo. `cancel-in-progress: true` e non
+# false di proposito: quella nuova è comunque più fresca, e una coda di ping in
+# attesa l'uno dell'altro allungherebbe proprio le finestre che si vogliono
+# tenere corte.
+concurrency:
+  group: keep-alive
+  cancel-in-progress: true
 
 jobs:
   ping:

@@ -47,6 +47,28 @@ import {
   rifiutoCorrente,
   segnalaEsito,
 } from './src/azioni.ts';
+import {
+  azioneInVolo,
+  azzeraAzioniInVolo,
+  chiaveAzione,
+  iscrivitiAlleAzioniInVolo,
+  quanteAzioniInVolo,
+  segnaArrivo,
+  segnaPartenza,
+  SOGLIA_ATTESA_VISIBILE_MS,
+  TETTO_ATTESA_MS,
+} from './src/azioniInVolo.ts';
+import {
+  attesaCollegamentoMs,
+  avanzamentoRisveglio,
+  azzeraCollegamentoPerTest,
+  faseCollegamento,
+  RISVEGLIO_ATTESO_MS,
+  secondiAlRisveglio,
+  segnalaCollegato,
+  segnalaTentativoDiCollegamento,
+  SOGLIA_RISVEGLIO_MS,
+} from './src/statoCollegamento.ts';
 import { readdirSync } from 'node:fs';
 
 let passed = 0;
@@ -729,6 +751,163 @@ section('Avvisi delle azioni rifiutate');
 }
 
 // ---------------------------------------------------------------------------
+// Un comando premuto deve reagire prima che il server risponda
+// ---------------------------------------------------------------------------
+// Il giro di rete misurato in produzione è di 250ms anche a server caldo e a
+// richiesta vuota: è distanza geografica e non si toglie. Quello che si toglie
+// è il quarto di secondo in cui, premuto un comando, sullo schermo non
+// cambiava niente — la stessa sensazione ("ho premuto e non succede nulla")
+// che ha tenuto nascosto per settimane il rilancio d'asta rifiutato in
+// silenzio. Qui si verifica il registro che tiene il conto delle azioni
+// partite e non ancora tornate (vedi src/azioniInVolo.ts).
+section('Comandi in volo');
+{
+  azzeraAzioniInVolo();
+
+  check('un comando appena premuto risulta in volo',
+    (() => { segnaPartenza('roll_dice'); return azioneInVolo('roll_dice'); })());
+  check('e smette quando la risposta arriva',
+    (() => { segnaArrivo('roll_dice'); return !azioneInVolo('roll_dice'); })());
+  check('un comando mai premuto non è in volo', !azioneInVolo('buy_property'));
+
+  // Il pannello proprietà mostra "Costruisci" su ogni casella possedute tutte
+  // insieme: senza la posizione nella chiave, premerne uno li spegnerebbe
+  // tutti, ed è un difetto che si vede solo con più di una proprietà in mano.
+  check('la chiave di un comando senza posizione è l\'evento e basta',
+    chiaveAzione('roll_dice') === 'roll_dice' &&
+    chiaveAzione('respond_trade', { accept: true }) === 'respond_trade');
+  check('i comandi per casella hanno una chiave per casella',
+    chiaveAzione('build_house', { position: 5 }) === 'build_house:5' &&
+    chiaveAzione('build_house', { position: 15 }) !== chiaveAzione('build_house', { position: 5 }));
+  check('costruire su una casella non spegne il comando delle altre',
+    (() => {
+      segnaPartenza(chiaveAzione('build_house', { position: 5 }));
+      const esito = azioneInVolo('build_house:5') && !azioneInVolo('build_house:15');
+      segnaArrivo(chiaveAzione('build_house', { position: 5 }));
+      return esito;
+    })());
+
+  // Il caso del doppio tocco: due copie in volo, e finché non sono tornate
+  // entrambe il comando resta spento. Con un booleano al posto del contatore la
+  // prima risposta riaccenderebbe il bottone mentre la seconda è ancora fuori.
+  check('due copie della stessa azione si contano entrambe',
+    (() => {
+      segnaPartenza('end_turn');
+      segnaPartenza('end_turn');
+      segnaArrivo('end_turn');
+      return azioneInVolo('end_turn');
+    })(),
+    'la prima risposta non deve riaccendere un comando ancora in volo');
+  check('e il comando torna disponibile solo con l\'ultima',
+    (() => { segnaArrivo('end_turn'); return !azioneInVolo('end_turn'); })());
+
+  // Una risposta che arriva dopo che si è già liberato tutto (riconnessione)
+  // non deve mandare il conto sotto zero, o il comando resterebbe spento per
+  // sempre convinto di avere un'azione in volo che non esiste.
+  check('una risposta in ritardo su un registro già svuotato non fa danni',
+    (() => {
+      segnaPartenza('pay_rent');
+      azzeraAzioniInVolo();
+      segnaArrivo('pay_rent');
+      segnaArrivo('pay_rent');
+      return !azioneInVolo('pay_rent') && quanteAzioniInVolo() === 0;
+    })());
+
+  // Chi disegna i comandi si accorge del cambiamento senza chiedere.
+  let notifiche = 0;
+  const stopVolo = iscrivitiAlleAzioniInVolo(() => { notifiche += 1; });
+  segnaPartenza('auction_bid');
+  segnaArrivo('auction_bid');
+  check('partenza e arrivo avvisano chi sta disegnando il comando', notifiche === 2,
+    `ricevute ${notifiche}`);
+  azzeraAzioniInVolo();
+  check('svuotare un registro già vuoto non avvisa nessuno a vuoto', notifiche === 2,
+    `ricevute ${notifiche}`);
+  stopVolo();
+
+  // Le due soglie: sotto la prima non deve comparire niente su un'azione
+  // riuscita normalmente, e la seconda deve stare molto oltre il giro di rete
+  // vero, o riaccenderebbe comandi mentre la risposta è ancora per strada.
+  check('il segno d\'attesa arriva dopo il giro di rete normale (250ms)',
+    SOGLIA_ATTESA_VISIBILE_MS < 250,
+    `${SOGLIA_ATTESA_VISIBILE_MS}ms: sopra i 250ms non comparirebbe mai quando serve`);
+  check('il tetto d\'attesa sta molto oltre il giro di rete vero',
+    TETTO_ATTESA_MS >= 20 * 250,
+    `${TETTO_ATTESA_MS}ms: troppo basso, riaccenderebbe comandi ancora in volo`);
+}
+
+// ---------------------------------------------------------------------------
+// Il risveglio del server dev'essere visibile e spiegato
+// ---------------------------------------------------------------------------
+// Il piano gratuito spegne il servizio dopo un quarto d'ora di inattività: la
+// riaccensione costa 22,9 secondi misurati, durante i quali la pagina non
+// rispondeva e sembrava rotta. Qui si verificano le soglie e i conti che
+// distinguono "mi sto collegando" da "il servizio sta ripartendo" (vedi
+// src/statoCollegamento.ts).
+section('Risveglio del server');
+{
+  check('collegati, non si mostra nessuna attesa',
+    faseCollegamento(true, 0) === 'collegato' &&
+    faseCollegamento(true, 60_000) === 'collegato');
+  check('i primi istanti sono solo "mi sto collegando"',
+    faseCollegamento(false, 0) === 'collegamento' &&
+    faseCollegamento(false, SOGLIA_RISVEGLIO_MS - 1) === 'collegamento');
+  check('oltre la soglia è il servizio che si sta risvegliando',
+    faseCollegamento(false, SOGLIA_RISVEGLIO_MS) === 'risveglio' &&
+    faseCollegamento(false, 20_000) === 'risveglio');
+  // La soglia deve stare lontana dal giro di rete normale, o il messaggio
+  // lungo comparirebbe ogni sera su un server perfettamente sveglio: un falso
+  // allarme insegna a ignorare anche quelli veri (stessa regola di azioni.ts).
+  check('la soglia sta ben sopra un collegamento normale',
+    SOGLIA_RISVEGLIO_MS >= 2000,
+    `${SOGLIA_RISVEGLIO_MS}ms: troppo vicino al giro di rete, griderebbe al lupo`);
+  // E la stima deve coprire il risveglio vero cronometrato (22,9s), altrimenti
+  // promette una fine che arriva sempre in ritardo.
+  check('la stima copre il risveglio misurato in produzione',
+    RISVEGLIO_ATTESO_MS >= 22_900,
+    `${RISVEGLIO_ATTESO_MS}ms: sotto i 22,9s misurati, il conto scadrebbe sempre`);
+
+  check('il conto alla rovescia scende',
+    secondiAlRisveglio(0) === Math.ceil(RISVEGLIO_ATTESO_MS / 1000) &&
+    secondiAlRisveglio(RISVEGLIO_ATTESO_MS - 5000) === 5);
+  // Scaduta la stima si torna a zero e chi disegna cambia frase, invece di
+  // continuare a promettere "1s" a ogni secondo che passa: una stima sbagliata
+  // detta è onesta, una stima sbagliata ripetuta è una presa in giro.
+  check('scaduta la stima il conto è zero, non un numero negativo',
+    secondiAlRisveglio(RISVEGLIO_ATTESO_MS) === 0 &&
+    secondiAlRisveglio(RISVEGLIO_ATTESO_MS + 30_000) === 0);
+
+  check('la barra avanza col tempo', avanzamentoRisveglio(0) === 0 &&
+    avanzamentoRisveglio(RISVEGLIO_ATTESO_MS / 2) > 40);
+  // Una barra piena e ferma davanti a un server che ancora non risponde è di
+  // nuovo un'interfaccia che sembra rotta, solo con una barra in più.
+  check('ma non arriva mai al 100% da sola',
+    avanzamentoRisveglio(RISVEGLIO_ATTESO_MS) < 100 &&
+    avanzamentoRisveglio(RISVEGLIO_ATTESO_MS * 10) < 100);
+
+  // Il cronometro: `ensureConnected` in App.tsx richiama il collegamento a ogni
+  // ritorno in primo piano e a ogni evento `online` del browser. Se ogni
+  // richiamo azzerasse il conto, la fase resterebbe su "collegamento" per
+  // sempre — cioè proprio nel caso, il risveglio lungo, che si vuole vedere.
+  azzeraCollegamentoPerTest();
+  segnalaTentativoDiCollegamento();
+  const primoTentativo = attesaCollegamentoMs(Date.now() + 10_000);
+  segnalaTentativoDiCollegamento();
+  check('un secondo tentativo mentre il primo è in corso non azzera il cronometro',
+    attesaCollegamentoMs(Date.now() + 10_000) === primoTentativo,
+    'senza, la fase di risveglio non scatterebbe mai');
+  segnalaCollegato();
+  check('collegati, non si aspetta più niente', attesaCollegamentoMs() === 0);
+  // E dopo una caduta il conto riparte da capo: il servizio può essersi
+  // addormentato nel frattempo, ed è la stessa attesa di una pagina appena
+  // aperta.
+  segnalaTentativoDiCollegamento();
+  check('dopo una caduta il cronometro riparte',
+    faseCollegamento(false, attesaCollegamentoMs(Date.now() + 5000)) === 'risveglio');
+  azzeraCollegamentoPerTest();
+}
+
+// ---------------------------------------------------------------------------
 // Nessuna azione di gioco può tornare a ignorare la risposta del server
 // ---------------------------------------------------------------------------
 // Stessa forma della guardia sull'asta qui sotto: si legge il sorgente, perché
@@ -763,6 +942,29 @@ section('Avvisi delle azioni rifiutate');
   check('nessun componente manda un\'azione senza guardare la risposta',
     colpevoli.length === 0,
     `socket.emit diretto in: ${colpevoli.join(', ')} — usa inviaAzione`);
+}
+
+// ---------------------------------------------------------------------------
+// Il canale unico deve continuare a dire quando un'azione parte e quando torna
+// ---------------------------------------------------------------------------
+// Stessa forma della guardia qui sopra: si legge il sorgente, perché è una
+// regola sul CODICE. `inviaAzione` è l'unico posto che sa entrambi i momenti, e
+// se qualcuno lo "semplifica" togliendo la segnalazione, ogni comando del gioco
+// torna muto per il quarto di secondo che ci mette la risposta — senza che
+// nessun test sul comportamento se ne accorga, perché lo stato di gioco resta
+// identico. Il `timeout` fa parte della stessa regola: senza, una risposta che
+// non arriva mai lascerebbe quel comando spento per il resto della serata.
+{
+  const sorgente = readFileSync(new URL('./src/socket.ts', import.meta.url), 'utf8');
+  const codice = sorgente.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const richiesti: [string, string][] = [
+    ['segnaPartenza(', 'senza, nessun comando saprebbe di essere stato premuto'],
+    ['segnaArrivo(', 'senza, i comandi resterebbero spenti per sempre'],
+    ['.timeout(', 'senza, una risposta mai arrivata spegne quel comando fino a fine serata'],
+  ];
+  for (const [pezzo, perche] of richiesti) {
+    check(`inviaAzione usa ancora ${pezzo}`, codice.includes(pezzo), perche);
+  }
 }
 
 // ---------------------------------------------------------------------------

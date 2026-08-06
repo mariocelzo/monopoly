@@ -1,4 +1,5 @@
-import { AwaitingTax, BoardSquare, GameState, inviaAzione } from '../socket';
+import { AwaitingTax, BoardSquare, GameState } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { TOUCH_TARGET } from '../touchTarget';
 import { LAYER } from '../layers';
 
@@ -47,13 +48,9 @@ export default function TaxModal({
                 Non ti basta: dopo il pagamento dovrai vendere o ipotecare.
               </p>
             )}
-            <button
-              className="btn-primary"
-              style={styles.button}
-              onClick={() => inviaAzione('pay_tax')}
-            >
+            <BottoneAzione evento="pay_tax" style={styles.button}>
               Paga €{pending.amount}
-            </button>
+            </BottoneAzione>
           </>
         ) : (
           <p style={styles.wait}>In attesa che {payer?.name} paghi…</p>

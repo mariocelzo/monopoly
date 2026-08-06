@@ -120,6 +120,43 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   }
 }
 
+/*
+  Un comando partito verso il server e ancora senza risposta (vedi
+  BottoneAzione.tsx). Due stati distinti, perché sono due messaggi diversi.
+
+  `comando-in-volo` vale dal primo istante: il gettone si spegne per dire
+  "ricevuto", ma NON con lo 0.4 dei disabilitati — quell'opacità significa "non
+  si può premere", e letta durante l'attesa direbbe la cosa sbagliata proprio a
+  chi si sta chiedendo se il tocco sia arrivato. Sta in mezzo: spento abbastanza
+  da non invitare un secondo clic, acceso abbastanza da non sembrare fuori uso.
+  Il cursore `progress` dice la stessa cosa a chi ha un mouse.
+*/
+.comando-in-volo:disabled { opacity: 0.72; cursor: progress; }
+
+/*
+  `comando-in-attesa` si aggiunge solo se la risposta tarda: una riga che scorre
+  sul bordo basso del gettone. Disegnata in ::after, quindi fuori dal flusso e a
+  larghezza invariata — un indicatore inline sposterebbe i bottoni accanto a
+  metà attesa (vedi il commento in BottoneAzione.tsx). `overflow: hidden` tiene
+  la riga dentro il bordo arrotondato mentre esce di scena.
+*/
+.comando-in-attesa { position: relative; overflow: hidden; }
+.comando-in-attesa::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--brass-2), transparent);
+  animation: attesa-scorre 0.9s linear infinite;
+}
+@keyframes attesa-scorre {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(250%); }
+}
+
 /* La casella si schiarisce al passaggio del mouse: fa capire che è cliccabile.
    Sui dispositivi touch l'hover non esiste, quindi non si applica. */
 @media (hover: hover) {
@@ -152,6 +189,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
      messaggio — senza, un'azione rifiutata tornerebbe muta proprio per chi ha
      chiesto meno animazioni. */
   .avviso-azione { animation: none; }
+  /* L'attesa di un comando resta VISIBILE, si ferma soltanto: la riga smette di
+     scorrere e diventa un filo fisso sotto il gettone. Toglierla del tutto
+     rimetterebbe chi ha chiesto meno animazioni davanti a un bottone che non
+     dice niente mentre aspetta — cioè esattamente il difetto da cui si parte. */
+  .comando-in-attesa::after { animation: none; width: 100%; opacity: 0.5; }
   /* Anche il sollevarsi e l'abbassarsi dei bottoni è movimento. Sparisce lo
      spostamento, restano il colore e l'ombra premuta: il bottone continua a
      rispondere al dito, semplicemente senza muoversi. */

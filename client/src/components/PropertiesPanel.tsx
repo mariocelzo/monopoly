@@ -1,4 +1,5 @@
-import { BoardSquare, GameState, Ownership, inviaAzione } from '../socket';
+import { BoardSquare, GameState, Ownership } from '../socket';
+import BottoneAzione from './BottoneAzione';
 import { GROUP_COLORS, GROUP_LABELS } from '../groupColors';
 import {
   currentSellRefund,
@@ -38,8 +39,12 @@ export default function PropertiesPanel({
   // Un debito aperto congela le azioni che costano denaro (vedi gameEngine.js).
   const pendingDebt = state.pendingAction?.type === 'awaiting_debt';
 
-  /** Invia l'intento al server; il rifiuto lo mostra l'avviso comune. */
-  const emit = (event: string, position: number) => inviaAzione(event, { position });
+  // I quattro comandi di ogni riga passano da BottoneAzione: l'intento va al
+  // server, il rifiuto lo mostra l'avviso comune, e mentre la risposta è in
+  // viaggio si spegne SOLO il comando premuto — la posizione fa parte della
+  // chiave d'attesa (vedi chiaveAzione in azioniInVolo.ts), altrimenti premere
+  // "Costruisci" su una casella spegnerebbe il "Costruisci" di tutte le altre,
+  // che qui sono a schermo tutte insieme.
 
   // Il tetto di hotel per proprietà segue la regola scelta al tavolo: 1 come da
   // regolamento classico, 4 con la modalità grattacieli accesa.
@@ -216,42 +221,46 @@ export default function PropertiesPanel({
                 <div style={styles.rowActions}>
                   {isProperty && (
                     <>
-                      <button
+                      <BottoneAzione
+                        evento="build_house"
+                        payload={{ position: square.position }}
                         className="btn-mini"
                         disabled={!!build}
                         title={build || `Costruisci ${etichettaProssima} per €${costoProssima}`}
-                        onClick={() => emit('build_house', square.position)}
                       >
                         Costruisci
-                      </button>
-                      <button
+                      </BottoneAzione>
+                      <BottoneAzione
+                        evento="sell_house"
+                        payload={{ position: square.position }}
                         className="btn-mini"
                         disabled={!!sell}
                         title={sell || `Vendi ${etichettaInCima} per €${rimborsoInCima}`}
-                        onClick={() => emit('sell_house', square.position)}
                       >
                         Vendi
-                      </button>
+                      </BottoneAzione>
                     </>
                   )}
                   {owned.mortgaged ? (
-                    <button
+                    <BottoneAzione
+                      evento="unmortgage_property"
+                      payload={{ position: square.position }}
                       className="btn-mini"
                       disabled={!!unmortgage}
                       title={unmortgage || `Riscatta per €${unmortgageCost(square)}`}
-                      onClick={() => emit('unmortgage_property', square.position)}
                     >
                       Riscatta €{unmortgageCost(square)}
-                    </button>
+                    </BottoneAzione>
                   ) : (
-                    <button
+                    <BottoneAzione
+                      evento="mortgage_property"
+                      payload={{ position: square.position }}
                       className="btn-mini"
                       disabled={!!mortgage}
                       title={mortgage || `Ipoteca per €${mortgageValue(square)}`}
-                      onClick={() => emit('mortgage_property', square.position)}
                     >
                       Ipoteca €{mortgageValue(square)}
-                    </button>
+                    </BottoneAzione>
                   )}
                 </div>
               </div>

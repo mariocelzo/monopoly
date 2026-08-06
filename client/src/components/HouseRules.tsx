@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { GameState, HouseRules as HouseRulesType, inviaAzione } from '../socket';
+import { useAzioneInVolo } from '../azioniInVolo';
 import { TOUCH_TARGET } from '../touchTarget';
 
 // Opzioni mostrate per le due regole a scelta multipla. Devono restare
@@ -50,6 +51,15 @@ export default function HouseRules({
     inviaAzione('set_rules', changes);
   };
 
+  // Queste pastiglie mostrano la regola che il SERVER ha registrato, non quella
+  // appena scelta: fra il tocco e il cambio di colore passa il giro di rete, e
+  // in quei 250ms non succedeva niente — l'errore tipico era premere due o tre
+  // volte credendo di aver sbagliato mira, mandando altrettanti cambi. Finché
+  // la risposta è in viaggio le pastiglie si spengono tutte: sono la stessa
+  // impostazione vista da più bottoni, e spegnerne una sola lascerebbe le
+  // altre a raccogliere clic sullo stesso valore ancora da confermare.
+  const regoleInVolo = useAzioneInVolo('set_rules');
+
   const riepilogo = `Via ${rules.goAmount} · Montepremi ${rules.freeParkingEnabled ? 'acceso' : 'spento'} · Asta ${rules.auctionEnabled ? 'accesa' : 'spenta'} · Saldo ${rules.startingBalance} · Grattacieli ${rules.skyscraperEnabled ? 'accesi' : 'spenti'}`;
 
   const corpo = (
@@ -59,7 +69,7 @@ export default function HouseRules({
           <Pillola
             key={valore}
             active={rules.goAmount === valore}
-            disabled={!isHost}
+            disabled={!isHost || regoleInVolo}
             onClick={() => set({ goAmount: valore })}
           >
             {valore}
@@ -72,7 +82,7 @@ export default function HouseRules({
           <Pillola
             key={valore}
             active={rules.startingBalance === valore}
-            disabled={!isHost}
+            disabled={!isHost || regoleInVolo}
             onClick={() => set({ startingBalance: valore })}
           >
             {valore}
@@ -81,19 +91,19 @@ export default function HouseRules({
       </RigaRegola>
 
       <RigaRegola label="Montepremi Sosta Gratuita">
-        <Pillola active={rules.freeParkingEnabled} disabled={!isHost} onClick={() => set({ freeParkingEnabled: true })}>
+        <Pillola active={rules.freeParkingEnabled} disabled={!isHost || regoleInVolo} onClick={() => set({ freeParkingEnabled: true })}>
           Acceso
         </Pillola>
-        <Pillola active={!rules.freeParkingEnabled} disabled={!isHost} onClick={() => set({ freeParkingEnabled: false })}>
+        <Pillola active={!rules.freeParkingEnabled} disabled={!isHost || regoleInVolo} onClick={() => set({ freeParkingEnabled: false })}>
           Spento
         </Pillola>
       </RigaRegola>
 
       <RigaRegola label="Asta sulla proprietà rifiutata">
-        <Pillola active={rules.auctionEnabled} disabled={!isHost} onClick={() => set({ auctionEnabled: true })}>
+        <Pillola active={rules.auctionEnabled} disabled={!isHost || regoleInVolo} onClick={() => set({ auctionEnabled: true })}>
           Accesa
         </Pillola>
-        <Pillola active={!rules.auctionEnabled} disabled={!isHost} onClick={() => set({ auctionEnabled: false })}>
+        <Pillola active={!rules.auctionEnabled} disabled={!isHost || regoleInVolo} onClick={() => set({ auctionEnabled: false })}>
           Spenta
         </Pillola>
       </RigaRegola>
@@ -103,10 +113,10 @@ export default function HouseRules({
           serve a dare ancora qualcosa da costruire dopo il primo hotel, che
           altrimenti chiude ogni decisione a metà partita. */}
       <RigaRegola label="Modalità grattacieli (fino a 4 hotel)">
-        <Pillola active={rules.skyscraperEnabled} disabled={!isHost} onClick={() => set({ skyscraperEnabled: true })}>
+        <Pillola active={rules.skyscraperEnabled} disabled={!isHost || regoleInVolo} onClick={() => set({ skyscraperEnabled: true })}>
           Accesa
         </Pillola>
-        <Pillola active={!rules.skyscraperEnabled} disabled={!isHost} onClick={() => set({ skyscraperEnabled: false })}>
+        <Pillola active={!rules.skyscraperEnabled} disabled={!isHost || regoleInVolo} onClick={() => set({ skyscraperEnabled: false })}>
           Spenta
         </Pillola>
       </RigaRegola>
