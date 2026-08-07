@@ -81,17 +81,17 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 .btn-ghost {
-  background: linear-gradient(180deg, rgba(243, 234, 216, 0.05) 0%, rgba(0, 0, 0, 0.08) 100%);
-  color: var(--paper);
-  border: 1.5px solid rgba(243, 234, 216, 0.35);
+  background: transparent;
+  color: var(--ink);
+  border: 1.5px solid rgba(27,36,48,0.28);
   padding: 9px 18px;
   font-size: 0.9rem;
   transition: border-color 0.15s ease, color 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease;
 }
-.btn-ghost:hover:not(:disabled) { border-color: var(--brass-2); color: var(--brass-2); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--brass); color: var(--brass); }
 .btn-ghost:active:not(:disabled) {
   transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.12);
 }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
@@ -99,14 +99,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
    Da disabilitati restano visibili ma spenti, e il title spiega il perché. */
 .btn-mini {
   background: transparent;
-  color: var(--paper);
-  border: 1px solid rgba(201, 150, 44, 0.4);
+  color: var(--ink);
+  border: 1px solid rgba(27,36,48,0.3);
   padding: 3px 7px;
   font-size: 0.66rem;
   font-weight: 600;
   transition: border-color 0.15s ease, color 0.15s ease;
 }
-.btn-mini:hover:not(:disabled) { border-color: var(--brass-2); color: var(--brass-2); }
+.btn-mini:hover:not(:disabled) { border-color: var(--brass); color: var(--brass); }
 .btn-mini:disabled { opacity: 0.32; cursor: not-allowed; }
 
 /* Col dito questi bottoni erano alti 21px, e "Vendi" sta accanto a
@@ -205,16 +205,15 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 
 /*
-  I pannelli sono targhette posate sul tavolo, non riquadri disegnati sopra:
-  un filo di luce sul bordo alto e un velo d'ombra in basso bastano a dargli
-  uno spessore, e la sfumatura appena percettibile evita il grigio-verde piatto
-  su superfici grandi come la colonna di destra.
+  I pannelli sono fogli di carta crema posati sul feltro: sfondo chiaro,
+  testo inchiostro, ombra che li fa "alzare" dal tavolo come oggetti fisici.
 */
 .panel {
-  background: linear-gradient(180deg, var(--felt-2) 0%, #143f31 100%);
-  border: 1px solid rgba(201, 150, 44, 0.25);
+  background: var(--paper);
+  border: 1px solid rgba(27,36,48,0.14);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(243, 234, 216, 0.07);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.28), 0 1px 0 rgba(255,255,255,0.9) inset;
+  color: var(--ink);
 }
 
 /*
@@ -251,3 +250,16 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 /* Selezionando del testo (il codice del tavolo, il link d'invito) l'azzurro di
    sistema è l'unico colore della pagina che non appartiene a questo tavolo. */
 ::selection { background: rgba(201, 150, 44, 0.35); color: var(--paper); }
+
+/* Etichetta in maiuscoletto ottone: usata nei pannelli carta e inchiostro. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+/* Scrollbar nei pannelli carta: pollice scuro su sfondo crema. */
+.panel ::-webkit-scrollbar-thumb { background: rgba(27,36,48,0.2); }
+.panel { scrollbar-color: rgba(27,36,48,0.2) transparent; }

@@ -44,4 +44,13 @@
 
   --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.35);
   --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.2);
+
+  /* Direzione carta e inchiostro: pannelli come oggetti fisici sul feltro */
+  --panel-bg: var(--paper);
+  --panel-text: var(--ink);
+  --panel-text-soft: rgba(27,36,48,0.5);
+  --panel-border: rgba(27,36,48,0.14);
+  --panel-divider: rgba(27,36,48,0.1);
+  --panel-row-bg: rgba(27,36,48,0.04);
+  --panel-row-border: 1px dashed rgba(27,36,48,0.2);
 }
