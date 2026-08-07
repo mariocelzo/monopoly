@@ -508,9 +508,10 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 8,
     overflow: 'hidden',
     boxShadow: 'inset 0 0 40px rgba(0,0,0,0.45)',
+    border: '2px solid rgba(27,36,48,0.3)',
   },
   square: {
-    border: '1px solid rgba(201,150,44,0.16)',
+    border: '1px solid rgba(27,36,48,0.12)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -518,17 +519,17 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '4% 2% 3%',
     position: 'relative',
     overflow: 'hidden',
-    background: 'linear-gradient(180deg, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.2) 100%)',
+    background: '#F3EAD8',
     cursor: 'pointer',
     transition: 'box-shadow 0.18s ease, opacity 0.18s ease, background 0.18s ease',
   },
   cornerSquare: {
     justifyContent: 'center',
     gap: '4%',
-    background: 'radial-gradient(circle at 50% 40%, rgba(201,150,44,0.16), rgba(0,0,0,0.3))',
+    background: '#F3EAD8',
   },
-  cornerIcon: { fontSize: scaled(0.026), lineHeight: 1, color: 'var(--brass-2)' },
-  cornerName: { fontSize: scaled(0.0115, '6px'), letterSpacing: '0.04em', textTransform: 'uppercase' },
+  cornerIcon: { fontSize: scaled(0.026), lineHeight: 1, color: 'var(--ink)' },
+  cornerName: { fontSize: scaled(0.0115, '6px'), letterSpacing: '0.04em', textTransform: 'uppercase', color: '#1B2430' },
   colorBar: {
     position: 'absolute',
     top: 0,
@@ -619,13 +620,14 @@ const styles: Record<string, React.CSSProperties> = {
     // Righe strette: un nome lungo ne occupa tre e deve stare nei ~32px che
     // restano sotto la fascia del colore.
     lineHeight: 1.05,
-    color: 'var(--paper)',
+    color: '#1B2430',
     fontWeight: 600,
+    fontFamily: 'var(--font-body)',
   },
   squarePrice: {
     fontSize: scaled(0.0115, '6px'),
     fontFamily: 'var(--font-mono)',
-    color: 'var(--brass-2)',
+    color: 'var(--brass)',
     marginTop: '3%',
   },
   mortgageTag: {
@@ -641,11 +643,12 @@ const styles: Record<string, React.CSSProperties> = {
     gridRow: '2 / 11',
     gridColumn: '2 / 11',
     position: 'relative',
-    // Anello in ottone attorno al centro, come la cornice del tabellone vero.
+    // Sfondo feltro scuro per il centro: contrasto con le caselle crema.
     margin: '2.5%',
     border: '1.5px solid rgba(201,150,44,0.22)',
     borderRadius: 14,
     boxShadow: 'inset 0 0 34px rgba(0,0,0,0.22)',
+    background: 'rgba(15,61,46,0.7)',
   },
   // Filigrana del marchio: riempie il centro da dietro, la plancia vera
   // (position: relative, disegnata dopo nel markup) le sta sopra.
@@ -701,6 +704,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-mono)',
     fontSize: scaled(0.019, '10px'),
     color: 'var(--paper)',
+    textShadow: '0 1px 3px rgba(0,0,0,0.5)',
   },
   playerRow: { display: 'flex', gap: '4%', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '100%' },
   playerPill: {

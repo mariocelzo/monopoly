@@ -120,24 +120,24 @@ const styles: Record<string, React.CSSProperties> = {
   // partita per tutti, non solo per chi sta offrendo.
   overlay: { display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: LAYER.decisione, padding: 20, overflowY: 'auto' },
   card: { padding: 28, width: 420, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12 },
-  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
-  title: { fontSize: '1.5rem' },
-  price: { fontSize: '0.9rem', color: 'rgba(243,234,216,0.6)' },
-  bidBox: { display: 'flex', flexDirection: 'column', gap: 4, padding: 12, borderRadius: 10, background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(201,150,44,0.2)' },
-  bidLabel: { fontSize: '0.74rem', letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.55)' },
-  bidValue: { fontSize: '1.3rem', color: 'var(--brass-2)' },
+  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--brass)' },
+  title: { fontSize: '1.5rem', color: 'var(--ink)' },
+  price: { fontSize: '0.9rem', color: 'rgba(27,36,48,0.6)' },
+  bidBox: { display: 'flex', flexDirection: 'column', gap: 4, padding: 12, borderRadius: 10, background: 'rgba(27,36,48,0.05)', border: '1px solid rgba(27,36,48,0.12)' },
+  bidLabel: { fontSize: '0.74rem', letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgba(27,36,48,0.55)' },
+  bidValue: { fontSize: '1.3rem', color: 'var(--brass)' },
   // minHeight: 0 è ciò che rende comprimibile questo blocco: senza, un figlio
   // flex non si restringe sotto il proprio contenuto ed esce dalla card.
   participants: { display: 'flex', flexWrap: 'wrap', gap: 6, overflowY: 'auto', minHeight: 0, paddingTop: 4, paddingBottom: 4 },
   // chipTurn ripete l'intero "border" (non solo borderColor): mescolare la
   // forma abbreviata e quella estesa sulla stessa proprietà fa litigare React
   // a ogni nuovo render, con un warning in console a ogni cambio di turno.
-  chip: { fontSize: '0.78rem', padding: '4px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(201,150,44,0.2)' },
-  chipTurn: { background: 'rgba(201,150,44,0.22)', border: '1px solid var(--brass)', color: 'var(--brass-2)' },
-  chipOut: { fontSize: '0.78rem', padding: '4px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(243,234,216,0.4)', textDecoration: 'line-through' },
+  chip: { fontSize: '0.78rem', padding: '4px 10px', borderRadius: 999, background: 'rgba(27,36,48,0.04)', border: '1px solid rgba(27,36,48,0.15)', color: 'var(--ink)' },
+  chipTurn: { background: 'rgba(201,150,44,0.15)', border: '1px solid var(--brass)', color: 'var(--brass)' },
+  chipOut: { fontSize: '0.78rem', padding: '4px 10px', borderRadius: 999, background: 'rgba(27,36,48,0.02)', border: '1px solid rgba(27,36,48,0.08)', color: 'rgba(27,36,48,0.4)', textDecoration: 'line-through' },
   // flexShrink: 0 tiene i comandi fuori dall'area che scorre: Rilancia e
   // Passa restano raggiungibili qualunque sia la lunghezza dell'elenco.
   actions: { display: 'flex', gap: 10, flexShrink: 0 },
   actionBtn: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.95rem' },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
+  wait: { color: 'rgba(27,36,48,0.5)', fontSize: '0.85rem', margin: 0 },
 };

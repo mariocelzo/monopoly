@@ -65,11 +65,11 @@ const styles: Record<string, React.CSSProperties> = {
   card: { width: 320, maxWidth: '100%', padding: '0 24px 24px', textAlign: 'center', overflow: 'hidden' },
   // Le tasse non hanno un colore di gruppo: si usa il rosso del pagamento.
   band: { height: 12, margin: '0 -24px 18px', background: 'var(--danger)' },
-  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#e18a8a' },
-  title: { fontSize: '1.3rem', marginTop: 8 },
-  amount: { fontSize: '2.2rem', color: 'var(--brass-2)', margin: '10px 0 0' },
-  who: { fontSize: '0.86rem', color: 'rgba(243,234,216,0.7)', margin: '12px 0 0' },
+  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#e18a8a' },
+  title: { fontSize: '1.3rem', marginTop: 8, color: 'var(--ink)' },
+  amount: { fontSize: '2.2rem', color: 'var(--brass)', margin: '10px 0 0' },
+  who: { fontSize: '0.86rem', color: 'var(--ink)', margin: '12px 0 0' },
   warning: { fontSize: '0.78rem', color: '#e18a8a', margin: '14px 0 0', lineHeight: 1.4 },
   button: { width: '100%', minHeight: TOUCH_TARGET, marginTop: 20, fontSize: '1rem' },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: '18px 0 0' },
+  wait: { color: 'rgba(27,36,48,0.5)', fontSize: '0.85rem', margin: '18px 0 0' },
 };

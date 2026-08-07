@@ -274,22 +274,22 @@ export default function PropertiesPanel({
 
 const styles: Record<string, React.CSSProperties> = {
   wrap: { display: 'flex', flexDirection: 'column', gap: 12 },
-  empty: { fontSize: '0.8rem', color: 'rgba(243,234,216,0.5)', fontStyle: 'italic' },
+  empty: { fontSize: '0.8rem', color: 'rgba(27,36,48,0.5)', fontStyle: 'italic' },
   group: { display: 'flex', flexDirection: 'column', gap: 6 },
   groupHeader: { display: 'flex', alignItems: 'center', gap: 8 },
   chip: { width: 14, height: 14, borderRadius: 3, border: '1px solid rgba(0,0,0,0.35)' },
-  groupName: { fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.6)' },
+  groupName: { fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink)' },
   monopolyTag: { fontSize: '0.62rem', color: 'var(--brass-2)', border: '1px solid var(--brass)', borderRadius: 4, padding: '1px 5px' },
-  row: { display: 'flex', flexDirection: 'column', gap: 5, padding: '7px 9px', borderRadius: 8, background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(201,150,44,0.15)' },
+  row: { display: 'flex', flexDirection: 'column', gap: 5, padding: '7px 9px', borderRadius: 8, background: 'rgba(27,36,48,0.04)', border: '1px dashed rgba(27,36,48,0.2)' },
   rowInfo: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
-  name: { fontSize: '0.82rem', fontWeight: 600, color: 'var(--paper)' },
-  status: { fontSize: '0.7rem', color: 'var(--brass-2)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' },
-  rentNow: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.6)' },
+  name: { fontSize: '0.82rem', fontWeight: 600, color: 'var(--ink)' },
+  status: { fontSize: '0.7rem', color: 'rgba(27,36,48,0.5)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' },
+  rentNow: { fontSize: '0.7rem', color: 'rgba(27,36,48,0.6)' },
   // `columnGap` più largo del `rowGap` perché i due pezzi, quando restano in
   // fila, hanno bisogno di staccarsi ("…€4400  Rivendi:…" attaccati si leggono
   // come un unico numero); quando invece vanno a capo sono già separati dalla
   // riga e un respiro verticale minore tiene la scheda compatta.
-  priceList: { display: 'flex', flexWrap: 'wrap', columnGap: 12, rowGap: 2, fontSize: '0.7rem', color: 'rgba(243,234,216,0.6)' },
+  priceList: { display: 'flex', flexWrap: 'wrap', columnGap: 12, rowGap: 2, fontSize: '0.7rem', color: 'rgba(27,36,48,0.6)' },
   // `nowrap` sul singolo pezzo: l'importo non deve mai staccarsi dall'unità a
   // cui si riferisce, o "3º hotel" e "€4400" finiscono su righe diverse e in
   // mezzo ci si legge l'importo dell'altra voce.
@@ -298,7 +298,7 @@ const styles: Record<string, React.CSSProperties> = {
   // volo, ma non è l'unico segnale — davanti c'è comunque scritto "Costruisci"
   // o "Rivendi", perché a colori invertiti o non distinguibili la riga deve
   // restare leggibile lo stesso.
-  priceUp: { color: 'var(--paper)', fontFamily: 'var(--font-mono)' },
+  priceUp: { color: 'var(--ink)', fontFamily: 'var(--font-mono)' },
   priceDown: { color: 'var(--brass-2)', fontFamily: 'var(--font-mono)' },
   rowActions: { display: 'flex', gap: 5, flexWrap: 'wrap' },
 };

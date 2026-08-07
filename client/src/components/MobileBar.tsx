@@ -297,13 +297,13 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 7,
     padding: '9px 10px calc(9px + env(safe-area-inset-bottom))',
-    background: 'linear-gradient(180deg, rgba(15,61,46,0.94) 0%, #0c3125 100%)',
-    borderTop: '1px solid rgba(201,150,44,0.35)',
+    background: 'linear-gradient(180deg, rgba(243,234,216,0.96) 0%, #ece0c8 100%)',
+    borderTop: '1px solid rgba(27,36,48,0.15)',
     backdropFilter: 'blur(8px)',
     boxShadow: '0 -6px 20px rgba(0,0,0,0.4)',
   },
   preStart: { display: 'flex', flexDirection: 'column', gap: 6 },
-  codeRow: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.6)', textAlign: 'center' },
+  codeRow: { fontSize: '0.78rem', color: 'rgba(27,36,48,0.6)', textAlign: 'center' },
   code: { color: 'var(--brass-2)', letterSpacing: '0.14em', fontSize: '0.92rem' },
   players: { display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' },
   player: {
@@ -313,15 +313,15 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '3px 10px 6px',
     borderRadius: 999,
     border: '1.5px solid',
-    background: 'rgba(0,0,0,0.22)',
+    background: 'rgba(27,36,48,0.06)',
     // La barra del patrimonio sta assoluta sul fondo (vedi netWorthTrack):
     // deve ancorarsi a questa pastiglia, non alla barra intera sotto.
     position: 'relative',
   },
   playerStretto: { padding: '2px 7px 5px', gap: 4 },
   playerToken: { fontSize: '1rem' },
-  playerBalance: { fontSize: '0.85rem' },
-  offline: { fontSize: '0.62rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic' },
+  playerBalance: { fontSize: '0.85rem', color: 'var(--ink)' },
+  offline: { fontSize: '0.62rem', color: 'rgba(27,36,48,0.45)', fontStyle: 'italic' },
   // Sottile per non pesare sulla pastiglia: qui lo spazio è pochissimo,
   // quindi conta la lunghezza relativa, non lo spessore.
   netWorthTrack: {
@@ -331,7 +331,7 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 3,
     height: 2,
     borderRadius: 1,
-    background: 'rgba(255,255,255,0.18)',
+    background: 'rgba(27,36,48,0.12)',
     overflow: 'hidden',
   },
   netWorthFill: { height: '100%', borderRadius: 1 },
@@ -350,7 +350,7 @@ const styles: Record<string, React.CSSProperties> = {
   smallBtn: { minHeight: TOUCH_TARGET, padding: '0 14px', fontSize: '0.85rem' },
   // Stessa altezza dei bottoni anche quando al loro posto c'è solo l'attesa,
   // così la barra non si alza e abbassa a ogni cambio di turno.
-  waiting: { color: 'rgba(243,234,216,0.6)', fontSize: '0.88rem', minHeight: TOUCH_TARGET, display: 'flex', alignItems: 'center' },
+  waiting: { color: 'rgba(27,36,48,0.6)', fontSize: '0.88rem', minHeight: TOUCH_TARGET, display: 'flex', alignItems: 'center' },
   tabs: { display: 'flex', gap: 7 },
   tab: { flex: 1, minHeight: 38, fontSize: '0.8rem', padding: '0 10px' },
 
@@ -370,11 +370,11 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
     padding: '10px 14px calc(14px + env(safe-area-inset-bottom))',
   },
-  grabber: { width: 40, height: 4, borderRadius: 2, background: 'rgba(243,234,216,0.3)', alignSelf: 'center', marginBottom: 10 },
+  grabber: { width: 40, height: 4, borderRadius: 2, background: 'rgba(27,36,48,0.2)', alignSelf: 'center', marginBottom: 10 },
   sheetTabs: { display: 'flex', gap: 8, marginBottom: 12 },
   sheetTab: { flex: 1, minHeight: 40, fontSize: '0.85rem', padding: '0 10px' },
   sheetBody: { overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 },
-  log: { display: 'flex', flexDirection: 'column', gap: 5, fontSize: '0.8rem', color: 'rgba(243,234,216,0.78)' },
-  logLine: { borderLeft: '2px solid rgba(201,150,44,0.35)', paddingLeft: 9 },
+  log: { display: 'flex', flexDirection: 'column', gap: 5, fontSize: '0.8rem', color: 'rgba(27,36,48,0.7)' },
+  logLine: { borderLeft: '2px solid rgba(201,150,44,0.4)', paddingLeft: 9 },
   closeSheet: { minHeight: 42, marginTop: 12 },
 };

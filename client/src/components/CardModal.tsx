@@ -60,7 +60,7 @@ const styles: Record<string, React.CSSProperties> = {
   ribbon: { margin: '0 -24px 18px', padding: '8px 0' },
   ribbonText: { fontFamily: 'var(--font-mono)', fontSize: '0.72rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.7)', fontWeight: 700 },
   symbol: { fontFamily: 'var(--font-display)', fontSize: '2.6rem', lineHeight: 1, display: 'block' },
-  text: { fontSize: '1.05rem', lineHeight: 1.5, color: 'var(--paper)', margin: '14px 0 22px' },
+  text: { fontSize: '1.05rem', lineHeight: 1.5, color: 'var(--ink)', margin: '14px 0 22px' },
   button: { width: '100%', minHeight: TOUCH_TARGET },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
+  wait: { color: 'rgba(27,36,48,0.5)', fontSize: '0.85rem', margin: 0 },
 };

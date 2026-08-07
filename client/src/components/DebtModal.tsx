@@ -88,16 +88,16 @@ const styles: Record<string, React.CSSProperties> = {
   // Anche la card d'attesa ha bisogno di `margin: auto`: condivide l'overlay, che
   // ora allinea in alto, e senza resterebbe incollata al bordo superiore.
   waitCard: { padding: 32, width: 340, maxWidth: '100%', margin: 'auto', textAlign: 'center' },
-  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#e18a8a' },
-  title: { fontSize: '1.45rem' },
-  hint: { fontSize: '0.82rem', color: 'rgba(243,234,216,0.7)', margin: 0, lineHeight: 1.5 },
-  value: { color: 'var(--brass-2)', fontFamily: 'var(--font-mono)' },
+  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#e18a8a' },
+  title: { fontSize: '1.45rem', color: 'var(--ink)' },
+  hint: { fontSize: '0.82rem', color: 'rgba(27,36,48,0.7)', margin: 0, lineHeight: 1.5 },
+  value: { color: 'var(--brass)', fontFamily: 'var(--font-mono)' },
   // minHeight: 0 rende esplicito che questo è il solo blocco che può rimpicciolirsi:
   // di default un figlio flex non si restringe sotto il proprio contenuto e deborda
   // in silenzio. Oggi ci arriverebbe comunque, perché `overflowY: auto` annulla da
   // sé quel minimo automatico, ma così l'elenco resta comprimibile anche se un
   // domani l'overflow qui cambia.
-  panelScroll: { overflowY: 'auto', flex: 1, minHeight: 0, paddingRight: 4, borderTop: '1px solid rgba(201,150,44,0.2)', borderBottom: '1px solid rgba(201,150,44,0.2)', paddingTop: 12, paddingBottom: 12 },
+  panelScroll: { overflowY: 'auto', flex: 1, minHeight: 0, paddingRight: 4, borderTop: '1px solid rgba(27,36,48,0.12)', borderBottom: '1px solid rgba(27,36,48,0.12)', paddingTop: 12, paddingBottom: 12 },
   // flexShrink: 0 tiene i bottoni fuori dall'area che scorre: per quante proprietà
   // abbia il debitore, «Vendi automaticamente» e «Dichiara bancarotta» restano
   // raggiungibili — sono le uniche uscite da un turno congelato.
@@ -105,5 +105,5 @@ const styles: Record<string, React.CSSProperties> = {
   // I 46px costano spazio proprio dove ce n'è poco, ma sono le due uscite da un
   // turno congelato: a rimetterci è semmai l'elenco proprietà, che scorre.
   actionBtn: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.95rem' },
-  wait: { color: 'rgba(243,234,216,0.6)', marginTop: 12, fontSize: '0.85rem', lineHeight: 1.5 },
+  wait: { color: 'rgba(27,36,48,0.5)', marginTop: 12, fontSize: '0.85rem', lineHeight: 1.5 },
 };

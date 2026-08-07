@@ -50,9 +50,9 @@ export default function BuyModal({
 const styles: Record<string, React.CSSProperties> = {
   overlay: { display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: LAYER.decisione },
   card: { padding: 32, width: 320, textAlign: 'center' },
-  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
-  title: { fontSize: '1.6rem', marginTop: 8 },
-  price: { fontSize: '1.8rem', color: 'var(--brass-2)', marginTop: 10 },
+  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--brass)' },
+  title: { fontFamily: 'var(--font-display)', fontStyle: 'italic', fontSize: '1.7rem', color: 'var(--ink)', marginTop: 8, letterSpacing: '-0.01em' },
+  price: { fontFamily: 'var(--font-mono)', fontSize: '1.8rem', color: 'var(--brass)', marginTop: 10, fontWeight: 700 },
   actions: { display: 'flex', gap: 10, justifyContent: 'center', marginTop: 22 },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: '18px 0 0' },
+  wait: { color: 'rgba(27,36,48,0.5)', fontSize: '0.85rem', margin: '18px 0 0' },
 };

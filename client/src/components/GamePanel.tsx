@@ -79,7 +79,7 @@ export default function GamePanel({
           >
             <span style={{ fontSize: '1.3rem' }}>{p.token}</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ink)' }}>
                 {p.name}{p.id === myId ? ' (tu)' : ''}
                 {p.isBot && <span style={styles.botTag}>BOT</span>}
                 {p.isBot && !state.started && state.hostId === myId && (
@@ -151,7 +151,7 @@ export default function GamePanel({
         {!state.started ? (
           <BottoneAzione evento="start_game">Inizia partita</BottoneAzione>
         ) : state.finished ? (
-          <span style={{ color: 'rgba(243,234,216,0.6)' }}>Partita finita</span>
+          <span style={{ color: 'rgba(27,36,48,0.55)' }}>Partita finita</span>
         ) : isMyTurn && me?.inJail ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <BottoneAzione evento="roll_dice">Tira i dadi (esci con doppio)</BottoneAzione>
@@ -171,7 +171,7 @@ export default function GamePanel({
             </BottoneAzione>
           </div>
         ) : (
-          <span style={{ color: 'rgba(243,234,216,0.6)' }}>Turno di {current?.name}...</span>
+          <span style={{ color: 'rgba(27,36,48,0.55)' }}>Turno di {current?.name}...</span>
         )}
       </div>
 
@@ -218,11 +218,11 @@ export default function GamePanel({
 
 const styles: Record<string, React.CSSProperties> = {
   wrap: { width: 320, padding: 20, display: 'flex', flexDirection: 'column', gap: 16, height: 'fit-content' },
-  roomCode: { fontSize: '0.85rem', color: 'rgba(243,234,216,0.6)' },
-  netWorthHint: { fontSize: '0.68rem', color: 'rgba(243,234,216,0.4)', fontStyle: 'italic' },
+  roomCode: { fontSize: '0.85rem', color: 'rgba(27,36,48,0.5)' },
+  netWorthHint: { fontSize: '0.68rem', color: 'rgba(27,36,48,0.38)', fontStyle: 'italic' },
   players: { display: 'flex', flexDirection: 'column', gap: 8 },
-  playerCard: { display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 10, border: '1.5px solid', background: 'rgba(0,0,0,0.15)' },
-  badge: { fontSize: '0.7rem', color: '#e18a8a', marginTop: 2 },
+  playerCard: { display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 10, border: '1.5px solid', background: 'rgba(27,36,48,0.05)' },
+  badge: { fontSize: '0.7rem', color: 'var(--danger)', marginTop: 2 },
   // Un contorno, non il protagonista: pochi px di altezza, sotto al saldo
   // che resta il numero grande. La tacca di sfondo si vede sempre, il
   // riempimento colorato racconta la proporzione rispetto al più ricco.
@@ -230,7 +230,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 4,
     height: 4,
     borderRadius: 2,
-    background: 'rgba(255,255,255,0.08)',
+    background: 'rgba(27,36,48,0.1)',
     overflow: 'hidden',
   },
   netWorthFill: { height: '100%', borderRadius: 2, transition: 'width 0.3s ease' },
@@ -249,19 +249,19 @@ const styles: Record<string, React.CSSProperties> = {
     marginLeft: 'auto',
     background: 'none',
     border: 'none',
-    color: 'rgba(243,234,216,0.45)',
+    color: 'rgba(27,36,48,0.45)',
     fontSize: '0.85rem',
     cursor: 'pointer',
     padding: '0 4px',
   },
   addBot: { width: '100%', fontSize: '0.82rem', padding: '8px 14px' },
-  offline: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.45)', marginTop: 2, fontStyle: 'italic' },
-  turnBox: { paddingTop: 8, borderTop: '1px solid rgba(201,150,44,0.2)' },
-  doubleHint: { width: '100%', fontSize: '0.8rem', color: 'var(--brass-2)', marginBottom: 2 },
+  offline: { fontSize: '0.7rem', color: 'rgba(27,36,48,0.45)', marginTop: 2, fontStyle: 'italic' },
+  turnBox: { paddingTop: 8, borderTop: '1px solid rgba(27,36,48,0.12)' },
+  doubleHint: { width: '100%', fontSize: '0.8rem', color: 'var(--brass)', marginBottom: 2 },
   tradeBtn: { width: '100%', fontSize: '0.85rem', padding: '8px 14px' },
-  properties: { paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)', maxHeight: 300, overflowY: 'auto' },
-  sectionTitle: { fontSize: '0.95rem', marginBottom: 10, color: 'var(--paper)' },
+  properties: { paddingTop: 12, borderTop: '1px solid rgba(27,36,48,0.12)', maxHeight: 300, overflowY: 'auto' },
+  sectionTitle: { fontSize: '0.95rem', marginBottom: 10, color: 'var(--ink)' },
   exits: { display: 'flex', flexDirection: 'column', gap: 8 },
-  log: { maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem', color: 'rgba(243,234,216,0.75)' },
-  logLine: { borderLeft: '2px solid rgba(201,150,44,0.3)', paddingLeft: 8 },
+  log: { maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.78rem', color: 'rgba(27,36,48,0.6)' },
+  logLine: { borderLeft: '2px solid rgba(201,150,44,0.4)', paddingLeft: 8 },
 };

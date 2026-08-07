@@ -83,15 +83,15 @@ export default function GameSummary({
 
 const styles: Record<string, React.CSSProperties> = {
   wrap: { display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'left', marginTop: 6 },
-  headline: { display: 'flex', flexWrap: 'wrap', gap: '6px 14px', justifyContent: 'center', fontSize: '0.78rem', color: 'rgba(243,234,216,0.75)' },
+  headline: { display: 'flex', flexWrap: 'wrap', gap: '6px 14px', justifyContent: 'center', fontSize: '0.78rem', color: 'rgba(27,36,48,0.7)' },
   headlineItem: { whiteSpace: 'nowrap' },
   players: { display: 'flex', flexDirection: 'column', gap: 8 },
-  row: { padding: '8px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(201,150,44,0.12)' },
+  row: { padding: '8px 10px', borderRadius: 8, background: 'rgba(27,36,48,0.04)', border: '1px solid rgba(27,36,48,0.12)' },
   // Il giocatore che sta guardando il riepilogo si riconosce a colpo d'occhio.
-  rowMine: { border: '1px solid rgba(201,150,44,0.4)' },
+  rowMine: { border: '1px solid rgba(201,150,44,0.5)' },
   rowHead: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 },
   token: { fontSize: '1rem' },
-  name: { fontSize: '0.85rem', fontWeight: 600 },
+  name: { fontSize: '0.85rem', fontWeight: 600, color: 'var(--ink)' },
   chips: { display: 'flex', flexWrap: 'wrap', gap: '4px 10px' },
-  chip: { fontSize: '0.72rem', color: 'rgba(243,234,216,0.7)' },
+  chip: { fontSize: '0.72rem', color: 'rgba(27,36,48,0.6)' },
 };

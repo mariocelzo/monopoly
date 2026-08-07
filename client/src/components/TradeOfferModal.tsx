@@ -128,23 +128,23 @@ const styles: Record<string, React.CSSProperties> = {
   // ce n'è, lasciando che sia `alignItems: flex-start` a tenerla attaccata in
   // alto invece di farla uscire da sopra.
   card: { padding: 28, width: 480, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 14 },
-  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
-  title: { fontSize: '1.4rem' },
+  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--brass)' },
+  title: { fontSize: '1.4rem', color: 'var(--ink)' },
   // minHeight: 0 è indispensabile: senza, un figlio flex non si restringe sotto
   // il proprio contenuto e deborda in silenzio, che è la causa del difetto.
   columns: { display: 'flex', gap: 16, flexWrap: 'wrap', overflowY: 'auto', minHeight: 0 },
-  side: { flex: '1 1 190px', display: 'flex', flexDirection: 'column', gap: 6, padding: 12, borderRadius: 10, background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(201,150,44,0.15)' },
-  sideTitle: { fontSize: '0.74rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(243,234,216,0.6)' },
-  none: { fontSize: '0.78rem', color: 'rgba(243,234,216,0.4)', fontStyle: 'italic', margin: 0 },
+  side: { flex: '1 1 190px', display: 'flex', flexDirection: 'column', gap: 6, padding: 12, borderRadius: 10, background: 'rgba(27,36,48,0.04)', border: '1px solid rgba(27,36,48,0.12)' },
+  sideTitle: { fontSize: '0.74rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(27,36,48,0.6)' },
+  none: { fontSize: '0.78rem', color: 'rgba(27,36,48,0.4)', fontStyle: 'italic', margin: 0 },
   row: { display: 'flex', alignItems: 'center', gap: 7 },
   dot: { width: 11, height: 11, borderRadius: 3, flexShrink: 0, border: '1px solid rgba(0,0,0,0.35)' },
-  rowName: { fontSize: '0.8rem', flex: 1 },
+  rowName: { fontSize: '0.8rem', flex: 1, color: 'var(--ink)' },
   mortgaged: { fontSize: '0.62rem', color: '#e18a8a', fontFamily: 'var(--font-mono)' },
-  money: { fontSize: '1rem', color: 'var(--brass-2)', marginTop: 4 },
-  cards: { fontSize: '0.78rem', color: 'var(--paper)', marginTop: 2 },
+  money: { fontSize: '1rem', color: 'var(--brass)', marginTop: 4 },
+  cards: { fontSize: '0.78rem', color: 'var(--ink)', marginTop: 2 },
   // flexShrink: 0 tiene i bottoni fuori dall'area che scorre: qualunque cosa ci
   // sia nel baratto, Accetta e Rifiuta restano raggiungibili.
   actions: { display: 'flex', gap: 10, flexShrink: 0 },
-  wait: { color: 'rgba(243,234,216,0.6)', fontSize: '0.85rem', margin: 0 },
+  wait: { color: 'rgba(27,36,48,0.5)', fontSize: '0.85rem', margin: 0 },
   actionBtn: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.95rem' },
 };
