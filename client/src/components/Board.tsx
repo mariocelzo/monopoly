@@ -252,12 +252,14 @@ export default function Board({
   const compact = measured > 0 && measured < NAME_THRESHOLD;
 
   // Sotto i ~400px di tabellone (un telefono stretto) il centro è troppo
-  // piccolo per il sottotitolo del marchio oltre a dadi e pastiglie: si
-  // toglie quello, che è il pezzo meno utile a chi gioca.
+  // piccolo per il marchio oltre a dadi e pastiglie: si toglie quello, che è
+  // il pezzo meno utile a chi gioca.
   const veryCompact = measured > 0 && measured < 400;
 
-  const roller = ultimoTiro ? state.players.find((p) => p.id === ultimoTiro.playerId) : null;
-  const somma = ultimoTiro ? ultimoTiro.dice[0] + ultimoTiro.dice[1] : null;
+  // Chi ha il turno ORA, non chi ha tirato per ultimo: sono la stessa persona
+  // per quasi tutto il turno, ma la scritta sotto i dadi deve restare "Turno
+  // di X" anche appena il turno passa a qualcun altro, prima di un suo tiro.
+  const currentPlayer = state.players[state.turnIndex] ?? null;
   // Dimensione dei dadi: protagonisti del centro, ma con margine per non
   // strabordare quando il tabellone è stretto.
   const diceSize = compact ? 32 : 50;
@@ -380,41 +382,37 @@ export default function Board({
         })}
 
         <div style={styles.center}>
-          {/* Il marchio resta, ma solo come filigrana dietro la plancia:
-              qui si guarda soprattutto mentre si gioca, non per leggere
-              "MONOPOLY". Posizionato in assoluto e senza z-index proprio,
-              così l'ordine nel markup basta a tenerlo dietro al contenuto
-              vero (vedi le regole di stacking di un elemento position:
-              relative seguito da un fratello position: relative). */}
-          <div style={styles.watermark}>
-            <span className="display" style={styles.watermarkTitle}>MONOPOLY</span>
-            {!veryCompact && <span style={styles.watermarkSub}>edizione Noi Due</span>}
-          </div>
-
           <div style={styles.plancia}>
+            {/* Il marchio, non più filigrana ma parte vera della plancia: a
+                differenza del vecchio "MONOPOLY" di sfondo, qui si legge
+                davvero, come un'insegna sopra al tavolo da gioco. Sparisce
+                sotto i ~400px insieme al resto del non indispensabile (vedi
+                veryCompact più sopra), perché a quella larghezza il posto
+                serve a dadi e pastiglie. */}
+            {!veryCompact && (
+              <span className="display" style={styles.title}>Noi Due Monopoly</span>
+            )}
+
             {/* I dadi restano al loro posto anche senza un tiro da mostrare:
                 le due varianti (vero tiro / in attesa) hanno la stessa
                 struttura e la stessa altezza, così la plancia non salta
                 quando ultimoTiro torna a null (vedi useUltimoTiro sopra). */}
             <div style={styles.diceArea}>
               {ultimoTiro ? (
-                <>
-                  <Dice dice={ultimoTiro.dice} seq={ultimoTiro.seq} size={diceSize} />
-                  <span style={styles.diceCaption}>
-                    <strong style={{ color: roller ? colorOf(roller.id) : undefined }}>
-                      {roller?.name}
-                    </strong>{' '}
-                    ha fatto {somma}
-                  </span>
-                </>
+                <Dice dice={ultimoTiro.dice} seq={ultimoTiro.seq} size={diceSize} />
               ) : (
-                <>
-                  <div style={{ display: 'flex', gap: diceSize * 0.25 }}>
-                    <span style={{ ...styles.diceGhost, width: diceSize, height: diceSize, borderRadius: diceSize * 0.18 }} />
-                    <span style={{ ...styles.diceGhost, width: diceSize, height: diceSize, borderRadius: diceSize * 0.18 }} />
-                  </div>
-                  <span style={{ ...styles.diceCaption, opacity: 0.45 }}>in attesa del tiro…</span>
-                </>
+                <div style={{ display: 'flex', gap: diceSize * 0.25 }}>
+                  <span style={{ ...styles.diceGhost, width: diceSize, height: diceSize, borderRadius: diceSize * 0.18 }} />
+                  <span style={{ ...styles.diceGhost, width: diceSize, height: diceSize, borderRadius: diceSize * 0.18 }} />
+                </div>
+              )}
+              {/* "Turno di X", non più "X ha fatto Y": il risultato si legge
+                  già sui dadi, e questa riga resta valida anche appena il
+                  turno passa a qualcun altro, prima ancora che tiri. */}
+              {currentPlayer && (
+                <span style={styles.diceCaption}>
+                  Turno di <strong style={{ color: colorOf(currentPlayer.id) }}>{currentPlayer.name}</strong>
+                </span>
               )}
             </div>
 
@@ -650,38 +648,9 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: 'inset 0 0 34px rgba(0,0,0,0.22)',
     background: 'rgba(15,61,46,0.7)',
   },
-  // Filigrana del marchio: riempie il centro da dietro, la plancia vera
-  // (position: relative, disegnata dopo nel markup) le sta sopra.
-  // In alto, non al centro: filigrana e plancia erano entrambe centrate
-  // verticalmente e finivano una sopra l'altra — la didascalia dei dadi
-  // cadeva esattamente sulla scritta MONOPOLY e non si leggeva più né l'una
-  // né l'altra. Abbassare l'opacità non bastava: testo su testo resta
-  // illeggibile comunque, serve separarli.
-  watermark: {
-    position: 'absolute',
-    inset: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: '7%',
-    gap: '1.5%',
-    pointerEvents: 'none',
-  },
-  watermarkTitle: {
-    fontSize: scaled(0.072),
-    color: 'var(--brass)',
-    letterSpacing: '0.06em',
-    opacity: 0.22,
-    textShadow: '0 2px 10px rgba(0,0,0,0.4)',
-  },
-  watermarkSub: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: scaled(0.017, '9px'),
-    color: 'var(--paper)',
-    opacity: 0.16,
-  },
-  // La plancia vera: dadi e pastiglie, quello che si guarda mentre si gioca.
+  // La plancia: marchio, dadi e pastiglie, quello che si guarda mentre si
+  // gioca — non più un marchio in filigrana dietro a un contenuto separato,
+  // ma un'unica colonna centrata.
   plancia: {
     position: 'relative',
     display: 'flex',
@@ -691,6 +660,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '4%',
     padding: '4%',
     height: '100%',
+  },
+  title: {
+    fontStyle: 'italic',
+    fontWeight: 600,
+    fontSize: scaled(0.046, '15px'),
+    lineHeight: 1.1,
+    textAlign: 'center',
+    color: 'var(--brass)',
+    textShadow: '0 2px 8px rgba(0,0,0,0.35)',
   },
   // Stessa forma sia col tiro vero sia in attesa, così l'altezza non cambia
   // e la plancia non "salta" quando ultimoTiro torna a null.
