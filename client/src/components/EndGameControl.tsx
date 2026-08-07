@@ -106,7 +106,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(179,58,58,0.5)',
     background: 'rgba(179,58,58,0.12)',
   },
-  question: { fontSize: '0.78rem', color: 'var(--paper)', margin: 0, lineHeight: 1.4 },
+  question: { fontSize: '0.78rem', color: 'var(--ink)', margin: 0, lineHeight: 1.4 },
   row: { display: 'flex', gap: 8 },
   danger: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem', borderColor: 'var(--danger)', color: '#e18a8a' },
   cancel: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem' },

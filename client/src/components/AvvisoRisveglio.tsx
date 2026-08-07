@@ -113,12 +113,12 @@ const styles: Record<string, React.CSSProperties> = {
   // Non un errore (niente rosso): è un tavolo che si sta aprendo, solo più
   // lentamente del solito.
   discreto: {
-    color: 'rgba(243,234,216,0.5)',
+    color: 'rgba(27,36,48,0.5)',
     fontSize: '0.78rem',
     margin: '10px 0 0',
     fontStyle: 'italic',
   },
-  pronto: { color: 'var(--brass-2)', fontSize: '0.82rem', margin: '10px 0 0' },
+  pronto: { color: 'var(--brass)', fontSize: '0.82rem', margin: '10px 0 0' },
   riquadro: {
     marginTop: 12,
     padding: '12px 14px',
@@ -129,11 +129,11 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 8,
   },
-  testo: { color: 'rgba(243,234,216,0.85)', fontSize: '0.82rem', margin: 0, lineHeight: 1.45 },
-  barra: { height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.28)', overflow: 'hidden' },
+  testo: { color: 'rgba(27,36,48,0.85)', fontSize: '0.82rem', margin: 0, lineHeight: 1.45 },
+  barra: { height: 4, borderRadius: 2, background: 'rgba(27,36,48,0.15)', overflow: 'hidden' },
   // La transizione copre il mezzo secondo fra un aggiornamento e il successivo:
   // senza, la barra avanzerebbe a scatti, e una barra a scatti si legge come
   // "si è inceppato" proprio mentre sta invece andando avanti.
   riempimento: { height: '100%', background: 'var(--brass)', transition: 'width 0.5s linear' },
-  nota: { color: 'rgba(243,234,216,0.5)', fontSize: '0.74rem', margin: 0, lineHeight: 1.4 },
+  nota: { color: 'rgba(27,36,48,0.5)', fontSize: '0.74rem', margin: 0, lineHeight: 1.4 },
 };

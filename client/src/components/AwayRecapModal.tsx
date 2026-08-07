@@ -51,14 +51,14 @@ const styles: Record<string, React.CSSProperties> = {
   // `margin: auto` centra quando c'è spazio e collassa quando non ce n'è,
   // lasciando che sia l'overlay a tenere la card attaccata in alto.
   card: { padding: 26, width: 440, maxWidth: '100%', maxHeight: 'calc(100vh - 40px)', margin: 'auto', display: 'flex', flexDirection: 'column', gap: 12 },
-  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass-2)' },
+  eyebrow: { fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--brass)' },
   title: { fontSize: '1.4rem' },
-  count: { fontSize: '0.8rem', color: 'rgba(243,234,216,0.6)', margin: 0 },
+  count: { fontSize: '0.8rem', color: 'rgba(27,36,48,0.6)', margin: 0 },
   // minHeight: 0 è ciò che manca di solito quando questi riquadri traboccano:
   // senza, un figlio flex non si restringe sotto il proprio contenuto e
   // l'elenco spinge i bottoni fuori dallo schermo invece di scorrere lui.
-  listScroll: { overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 5, maxHeight: '48vh', paddingRight: 4, borderTop: '1px solid rgba(201,150,44,0.2)', borderBottom: '1px solid rgba(201,150,44,0.2)', paddingTop: 10, paddingBottom: 10 },
-  logLine: { fontSize: '0.82rem', color: 'rgba(243,234,216,0.85)', borderLeft: '2px solid rgba(201,150,44,0.35)', paddingLeft: 9 },
+  listScroll: { overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 5, maxHeight: '48vh', paddingRight: 4, borderTop: '1px solid rgba(27,36,48,0.12)', borderBottom: '1px solid rgba(27,36,48,0.12)', paddingTop: 10, paddingBottom: 10 },
+  logLine: { fontSize: '0.82rem', color: 'rgba(27,36,48,0.75)', borderLeft: '2px solid rgba(201,150,44,0.4)', paddingLeft: 9 },
   // flexShrink: 0 tiene il bottone fuori dall'area che scorre, sempre
   // raggiungibile qualunque sia la lunghezza del riepilogo.
   actions: { display: 'flex', flexShrink: 0 },

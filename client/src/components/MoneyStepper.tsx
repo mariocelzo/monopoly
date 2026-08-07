@@ -99,8 +99,8 @@ export default function MoneyStepper({
 const styles: Record<string, React.CSSProperties> = {
   wrap: { display: 'flex', flexDirection: 'column', gap: 7 },
   top: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' },
-  label: { fontSize: '0.74rem', color: 'rgba(243,234,216,0.62)' },
-  max: { fontSize: '0.7rem', color: 'rgba(243,234,216,0.4)' },
+  label: { fontSize: '0.74rem', color: 'rgba(27,36,48,0.62)' },
+  max: { fontSize: '0.7rem', color: 'rgba(27,36,48,0.4)' },
   row: { display: 'flex', gap: 7, alignItems: 'stretch' },
   pm: { minWidth: 52, minHeight: TOUCH_TARGET, fontSize: '1.2rem', padding: 0 },
   field: {
@@ -108,9 +108,9 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: TOUCH_TARGET,
     padding: '8px 12px',
     borderRadius: 8,
-    border: '1px solid rgba(201,150,44,0.3)',
-    background: 'rgba(0,0,0,0.25)',
-    color: 'var(--paper)',
+    border: '1px solid rgba(27,36,48,0.15)',
+    background: 'rgba(27,36,48,0.05)',
+    color: 'var(--ink)',
     fontFamily: 'var(--font-mono)',
     fontSize: '1rem',
     textAlign: 'center',

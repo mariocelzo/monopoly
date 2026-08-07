@@ -193,15 +193,15 @@ function Pillola({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  wrap: { paddingTop: 12, borderTop: '1px solid rgba(201,150,44,0.2)' },
-  title: { fontSize: '0.95rem', marginBottom: 10, color: 'var(--paper)' },
+  wrap: { paddingTop: 12, borderTop: '1px solid rgba(27,36,48,0.12)' },
+  title: { fontSize: '0.95rem', marginBottom: 10, color: 'var(--ink)' },
   rows: { display: 'flex', flexDirection: 'column', gap: 8 },
   row: { display: 'flex', flexDirection: 'column', gap: 4 },
-  rowLabel: { fontSize: '0.72rem', color: 'rgba(243,234,216,0.6)' },
+  rowLabel: { fontSize: '0.72rem', color: 'rgba(27,36,48,0.6)' },
   rowOptions: { display: 'flex', gap: 6, flexWrap: 'wrap' },
   pill: { minWidth: 44 },
-  pillActive: { borderColor: 'var(--brass-2)', color: 'var(--brass-2)', background: 'rgba(201,150,44,0.15)' },
-  hint: { fontSize: '0.68rem', color: 'rgba(243,234,216,0.45)', fontStyle: 'italic', margin: 0 },
+  pillActive: { borderColor: 'var(--brass)', color: 'var(--brass)', background: 'rgba(201,150,44,0.15)' },
+  hint: { fontSize: '0.68rem', color: 'rgba(27,36,48,0.45)', fontStyle: 'italic', margin: 0 },
 
   // Variante richiudibile per il poco spazio su telefono: chiusa mostra solo
   // un riepilogo su una riga, aperta espone gli stessi comandi di sopra.
@@ -222,7 +222,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    color: 'rgba(243,234,216,0.5)',
+    color: 'rgba(27,36,48,0.5)',
     fontSize: '0.7rem',
     textAlign: 'left',
   },
@@ -230,7 +230,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 8,
     padding: '10px 12px',
     borderRadius: 10,
-    background: 'rgba(0,0,0,0.18)',
-    border: '1px solid rgba(201,150,44,0.2)',
+    background: 'rgba(27,36,48,0.04)',
+    border: '1px solid rgba(27,36,48,0.15)',
   },
 };

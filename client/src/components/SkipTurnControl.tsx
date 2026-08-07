@@ -140,7 +140,7 @@ const styles: Record<string, React.CSSProperties> = {
   attesa: {
     fontSize: '0.75rem',
     lineHeight: 1.4,
-    color: 'rgba(243,234,216,0.6)',
+    color: 'rgba(27,36,48,0.6)',
     fontStyle: 'italic',
   },
   bottone: {
@@ -149,7 +149,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.85rem',
     fontWeight: 600,
     borderColor: 'rgba(201,150,44,0.55)',
-    color: 'var(--brass-2)',
+    color: 'var(--brass)',
   },
   compatto: { minHeight: 44, fontSize: '0.88rem' },
   riquadro: {
@@ -161,8 +161,8 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(201,150,44,0.45)',
     background: 'rgba(201,150,44,0.10)',
   },
-  domanda: { fontSize: '0.78rem', color: 'var(--paper)', margin: 0, lineHeight: 1.45 },
-  dettaglio: { fontSize: '0.72rem', color: 'rgba(243,234,216,0.65)', margin: 0, lineHeight: 1.4 },
+  domanda: { fontSize: '0.78rem', color: 'var(--ink)', margin: 0, lineHeight: 1.45 },
+  dettaglio: { fontSize: '0.72rem', color: 'rgba(27,36,48,0.65)', margin: 0, lineHeight: 1.4 },
   riga: { display: 'flex', gap: 8 },
   conferma: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem' },
   annulla: { flex: 1, minHeight: TOUCH_TARGET, fontSize: '0.85rem' },
